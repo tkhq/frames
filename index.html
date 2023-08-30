@@ -1,0 +1,30 @@
+<!doctype html>
+<html class="no-js" lang="">
+
+<head>
+  <meta charset="utf-8">
+  <title>Turnkey Recovery</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <h1>Turnkey Recovery</h1>
+  <form id="form">
+    <input type="text" name="test" id="test">
+    <input type="submit">
+    <br>
+    <br>
+    <input type="text" name="retrieved" id="retrieved"
+  </form>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      document.getElementById("retrieved").value = window.localStorage.getItem("test")
+      document.getElementById("form").addEventListener("submit", function(e) {
+        window.localStorage.setItem("test", document.getElementById("test").value)
+        alert("localStorage value set!")
+        e.preventDefault();
+      });
+    }, false);
+  </script>
+</body>
+</html>
