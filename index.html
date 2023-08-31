@@ -5,26 +5,323 @@
   <meta charset="utf-8">
   <title>Turnkey Recovery</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      text-align: center;
+      font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+    }
+    label {
+      display:inline-block;
+      width: 8em;
+    }
+    #embedded-key, #quorum-key {
+      width: 40em;
+      margin: 0.5em;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 1em;
+      height: 1.8em;
+      color: rgb(18, 87, 18);
+      border: 1px rgb(217, 240, 221) solid;
+      border-radius: 4px;
+    }
+    input:disabled {
+      background-color: rgb(239, 243, 240);
+    }
+    #clear {
+      color: white;
+      width: 7em;
+      font-size: 1em;
+      padding: 0.38em;
+      border-radius: 4px;
+      background-color: rgb(187, 100, 100);
+      border: 1px rgb(112, 42, 42) solid;
+      cursor: pointer;
+    }
+    #ecdh {
+      color: white;
+      width: 7em;
+      font-size: 1em;
+      padding: 0.38em;
+      border-radius: 4px;
+      background-color: rgb(50, 44, 44);
+      border: 1px rgb(33, 33, 33) solid;
+      cursor: pointer;
+    }
+  </style>
 </head>
 
 <body>
   <h1>Turnkey Recovery</h1>
-  <form id="form">
-    <input type="text" name="test" id="test">
-    <input type="submit">
-    <br>
-    <br>
-    <input type="text" name="retrieved" id="retrieved"
+  <form>
+    <label>Embedded key</label>
+    <input type="text" name="embedded-key" id="embedded-key" disabled/>
+    <button id="clear">Reset Key</button>
   </form>
+  
+  <form>
+    <label>Quorum key</label>
+    <input type="text" name="quorum-key" id="quorum-key" value="03e59b5969e87a829d87c40a510ab94683311cfab9a18646e98be9cdf3e4ab56ef"/>
+    <button id="ecdh">Run ECDH</button>
+  </form>
+
   <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      document.getElementById("retrieved").value = window.localStorage.getItem("test")
-      document.getElementById("form").addEventListener("submit", function(e) {
-        window.localStorage.setItem("test", document.getElementById("test").value)
-        alert("localStorage value set!")
+    document.addEventListener("DOMContentLoaded", async function () {
+      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
+      document.getElementById("ecdh").addEventListener("click", async function(e) {
         e.preventDefault();
-      });
+        const quorumKey = document.getElementById("quorum-key").value;
+        console.log(await runEcdh(quorumKey))
+      })
+
+      await initEmbeddedKey()
+      var cryptoKey = await getEmbeddedPrivateKey()
+      var publicKey = await getCompressedPublicKey(cryptoKey)
+      document.getElementById("embedded-key").value = publicKey
     }, false);
+
+    var initEmbeddedKey = async function() {
+      const retrievedKey = await getEmbeddedPrivateKey();
+      if (retrievedKey === null) {
+        const cryptoKeyPair = await p256Keygen()
+        const exportedKey = await exportPrivateKey(cryptoKeyPair.privateKey)
+        setEmbeddedKey(exportedKey)
+      } else {
+        // Nothing to do, key is correctly initialized
+      }
+    }
+
+    const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
+
+    // Gets the current embedded key. Returns `null` if not found.
+    var getEmbeddedPrivateKey = async function() {
+      const jwkString =  window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
+      if (jwkString === null) {
+        return null
+      } else {
+        const jwk = JSON.parse(jwkString)
+        return await loadP256PrivateKey(jwk)
+      }
+    }
+
+    var runEcdh = async function(quorumPublicKey) {
+      const embeddedPrivateKey = await getEmbeddedPrivateKey()
+      const quorumKey = await loadQuorumKeyForEcdh(quorumPublicKey)
+      
+      const embeddedPrivateKeyJwk = await exportPrivateKey(embeddedPrivateKey);
+      // Add the right key ops
+      embeddedPrivateKeyJwk.key_ops = ["deriveKey", "deriveBits"]
+
+      const ecdhPrivateKey = await window.crypto.subtle.importKey(
+        "jwk",
+        embeddedPrivateKeyJwk,
+        {
+            name: "ECDH",
+            namedCurve: "P-256",
+        },
+        true,
+        ["deriveKey", "deriveBits"]
+      )
+
+      return await window.crypto.subtle.deriveKey(
+        {
+            name: "ECDH",
+            namedCurve: "P-256",
+            public: quorumKey,
+        },
+        ecdhPrivateKey,
+        {
+            name: "AES-CTR",
+            length: 256,
+        },
+        true,
+        ["encrypt", "decrypt"]
+      )
+    }
+
+    // Takes a hex-encoded string (02 or 03) and uses web crypto
+    // to import the key. It's WAAAY more complicated than it should be...
+    var loadQuorumKeyForEcdh = async function(publicKeyString) {
+      const publicKeyBytes = new Uint8Array('publicKeyString'.match(/../g).map(h=>parseInt(h,16))).buffer
+
+      // Takes a Uint8 Array and outputs a JsonWebKey    
+      // point[0] must be 2 (false) or 3 (true).
+      // this maps to the initial "02" or "03" prefix
+      const lsb = publicKeyBytes[0] === 3;
+      const x = BigInt("0x" + publicKeyString.substring(2));
+
+      // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf (Appendix D).
+      const p = BigInt("115792089210356248762697446949407573530086143415290314195533631308867097853951");
+      const b = BigInt("0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b");
+      const a = p - BigInt(3);
+
+      const rhs = ((x * x + a) * x + b) % p;
+      let y = modSqrt(rhs, p);
+      if (lsb !== testBit(y, 0)) {
+        y = (p - y) % p;
+      }
+
+      if (x < BigInt(0) || x >= p) {
+        throw new Error("x is out of range");
+      }
+
+      const jwk =  {
+        kty: "EC",
+        crv: "P-256",
+        x: base64EncodeURL(bnToBuf(x)),
+        y: base64EncodeURL(bnToBuf(y)),
+        ext: true,
+      };
+
+      return await crypto.subtle.importKey("jwk", jwk, {name: "ECDH", namedCurve: "P-256"}, true, []);
+    }
+
+    function base64EncodeURL(byteArray) {
+      return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
+        return String.fromCharCode(val);
+      }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
+    }
+
+    function bnToBuf(bn) {
+      var hex = BigInt(bn).toString(16);
+      if (hex.length % 2) { hex = '0' + hex; }
+
+      var len = hex.length / 2;
+      var u8 = new Uint8Array(len);
+
+      var i = 0;
+      var j = 0;
+      while (i < len) {
+        u8[i] = parseInt(hex.slice(j, j+2), 16);
+        i += 1;
+        j += 2;
+      }
+
+      return u8;
+    }
+
+    function integerToByteArray(i) {
+      let input = i.toString(16);
+      // If necessary, prepend leading zero to ensure that input length is even.
+      input = input.length % 2 === 0 ? input : "0" + input;
+      return Bytes.fromHex(input);
+    }
+
+    function testBit(n, i) {
+      const m = BigInt(1) << BigInt(i);
+      return (n & m) !== BigInt(0);
+    }
+
+    function modSqrt(x, p) {
+      if (p <= BigInt(0)) {
+        throw new Error("p must be positive");
+      }
+      const base = x % p;
+      // The currently supported NIST curves P-256, P-384, and P-521 all satisfy
+      // p % 4 == 3.  However, although currently a no-op, the following check
+      // should be left in place in case other curves are supported in the future.
+      if (testBit(p, 0) && /* istanbul ignore next */ testBit(p, 1)) {
+        // Case p % 4 == 3 (applies to NIST curves P-256, P-384, and P-521)
+        // q = (p + 1) / 4
+        const q = (p + BigInt(1)) >> BigInt(2);
+        const squareRoot = modPow(base, q, p);
+        if ((squareRoot * squareRoot) % p !== base) {
+          throw new Error("could not find a modular square root");
+        }
+        return squareRoot;
+      }
+      // Skipping other elliptic curve types that require Cipolla's algorithm.
+      throw new Error("unsupported modulus value");
+    }
+
+    function modPow(b, exp, p) {
+      if (exp === BigInt(0)) {
+        return BigInt(1);
+      }
+      let result = b;
+      const exponentBitString = exp.toString(2);
+      for (let i = 1; i < exponentBitString.length; ++i) {
+        result = (result * result) % p;
+        if (exponentBitString[i] === "1") {
+          result = (result * b) % p;
+        }
+      }
+      return result;
+    }
+        // Takes a hex-encoded string (02 or 03) and
+
+
+    var setEmbeddedKey = function(key) {
+      console.log("setting (stringified)", JSON.stringify(key))
+      return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(key))
+    }
+
+    var clearEmbeddedKey = function() {
+      window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
+    }
+
+    // Converts an ArrayBuffer to a hex-encoded string
+    var buf2hex = function(buffer) {
+      return [...new Uint8Array(buffer)]
+          .map(x => x.toString(16).padStart(2, '0'))
+          .join('');
+    }
+
+    // Takes a base64url-encoded string (e.g. "nMueRPiAm51YXEjRtka8S_8Ura3HaqbmqDqMJCZmvkM")
+    // and return the corresponding bytes, as an array buffer.
+    var base64urlDecode = function(s) {
+      // Go from base64url encoding to base64 encoding
+      s = s.replace(/-/g, '+').replace(/_/g, '/');
+      // use `atob` to decode base64
+      return Uint8Array.from(atob(s), c => c.charCodeAt(0))
+    }
+
+    // Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
+    var compressRawPublicKey = function(rawPublicKey) {
+      const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
+      const len = rawPublicKeyBytes.byteLength
+
+      // Drop the y coordinate
+      var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
+
+      // Encode the parity of `y` in first bit
+      compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01) 
+      return compressedBytes.buffer
+    }
+
+    // returns a JSONWebKey; takes a CryptoKey
+    var exportPrivateKey = async function(privateKey) {
+      return await crypto.subtle.exportKey("jwk", privateKey);
+    }
+
+    // Takes a CryptoKey (private key) and returns the compressed public key for display in the UI
+    var getCompressedPublicKey = async function(privateKey) {
+        const jwkPrivate = await crypto.subtle.exportKey("jwk", privateKey);
+        delete jwkPrivate.d;
+        jwkPrivate.key_ops = ["verify"];
+        const publicKey = await crypto.subtle.importKey("jwk", jwkPrivate, {name: "ECDSA", namedCurve: "P-256"}, true, ["verify"]);
+
+        // Export the raw public key. By default this will export in uncompressed format
+        const rawPublicKey = await crypto.subtle.exportKey("raw", publicKey);
+        const compressedPublicKeyBuffer = compressRawPublicKey(rawPublicKey)
+        return buf2hex(compressedPublicKeyBuffer)
+    }
+
+    // Create a new P-256 keypair
+    var p256Keygen = async function() {
+      return await crypto.subtle.generateKey({
+        name: 'ECDSA',
+        namedCurve: 'P-256',
+      }, true, ['sign',]);
+    }
+
+    /*
+     * Load a p256 key pair from a private key
+     * Private keys are persisted in hex form.
+     * Return a CryptoKey object (private key)
+     */
+    var loadP256PrivateKey = async function(jwk) {
+      return await window.crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+    }
   </script>
 </body>
 </html>
