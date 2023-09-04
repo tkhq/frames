@@ -61,16 +61,17 @@
 
 <body>
   <h2>Recovery Initialization</h2>
+  <p><em>This public key will be sent along with your email inside of a <code>CREATE_RECOVERY</code> activity</em></p>
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
     <button id="clear">Reset Key</button>
-    <p><em>This public key will be sent along with your email inside of a <code>CREATE_RECOVERY</code> activity</em></p>
   </form>
   <br>
   <br>
   <br>
   <h2>Recovery Key Decryption</h2>
+  <p><em>Values for these fields will come from an email. For now, we can simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a></em></p>
   <form>
     <label>Quorum key</label>
     <input type="text" name="quorum-key" id="quorum-key" value="0236b2ef931a40dd06d2e103718d6b82b1b87df9fc7e19f22fb4bd204ccb0a1b63"/>
