@@ -12,9 +12,9 @@ git clone git@github.com:tkhq/qos.git
 git checkout origin/rno/create-recovery-test -b rno/create-recovery-test
 ```
 
-This branch contains a test which simulates recovery key creation ([link](https://github.com/tkhq/qos/blob/03ebf8da370a74c0c77d156ad9634203cde61ee7/src/qos_p256/src/lib.rs#L457-L494)).
+This branch contains a test which simulates recovery key creation ([link](https://github.com/tkhq/qos/blob/04def4d9813299f4a5301868465dd3404852a956/src/qos_p256/src/lib.rs#L457-L496)).
 
-Open the HTML page from this repo and replace the `embedded_public_key` with your own [on line 471](https://github.com/tkhq/qos/blob/03ebf8da370a74c0c77d156ad9634203cde61ee7/src/qos_p256/src/lib.rs#L471).
+Open the HTML page from this repo and replace the `embedded_public_key` with your own [on line 471](https://github.com/tkhq/qos/blob/04def4d9813299f4a5301868465dd3404852a956/src/qos_p256/src/lib.rs#L471).
 
 Run the test!
 ```sh
