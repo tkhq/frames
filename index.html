@@ -14,7 +14,7 @@
       display:inline-block;
       width: 8em;
     }
-    #embedded-key, #quorum-key {
+    input[type=text] {
       width: 40em;
       margin: 0.5em;
       font-family: 'Courier New', Courier, monospace;
@@ -26,6 +26,14 @@
     }
     input:disabled {
       background-color: rgb(239, 243, 240);
+    }
+    #decrypted {
+      width: 60em;
+      background-color: rgb(58, 152, 81);
+      color: white;
+      height: 2em;
+      font-weight: bold;
+      text-align: center;
     }
     #clear {
       color: white;
@@ -47,21 +55,39 @@
       border: 1px rgb(33, 33, 33) solid;
       cursor: pointer;
     }
+    .hidden { display: none; }
   </style>
 </head>
 
 <body>
-  <h1>Turnkey Recovery</h1>
+  <h2>Recovery Initialization</h2>
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
     <button id="clear">Reset Key</button>
+    <p><em>This public key will be sent along with your email inside of a <code>CREATE_RECOVERY</code> activity</em></p>
   </form>
-  
+  <br>
+  <br>
+  <br>
+  <h2>Recovery Key Decryption</h2>
   <form>
     <label>Quorum key</label>
-    <input type="text" name="quorum-key" id="quorum-key" value="03e59b5969e87a829d87c40a510ab94683311cfab9a18646e98be9cdf3e4ab56ef"/>
-    <button id="ecdh">Run ECDH</button>
+    <input type="text" name="quorum-key" id="quorum-key" value="0236b2ef931a40dd06d2e103718d6b82b1b87df9fc7e19f22fb4bd204ccb0a1b63"/>
+    <br>
+
+    <label>Encrypted key</label>
+    <input type="text" name="encrypted-key" id="encrypted-key" value="0ee54491207f0cc362dc2ec283e65e3b3f1792"/>
+    <br>
+
+    <label>Nonce (aka IV)</label>
+    <input type="text" name="iv" id="iv" value="eb3e15167dfc64191e9520bf"/>
+    <br>
+    <input type="text" name="decrypted" id="decrypted" value="" class="hidden"/>
+    <br>
+    <br>
+    <button id="ecdh">Decrypt</button>
+    
   </form>
 
   <script>
@@ -70,7 +96,22 @@
       document.getElementById("ecdh").addEventListener("click", async function(e) {
         e.preventDefault();
         const quorumKey = document.getElementById("quorum-key").value;
-        console.log(await runEcdh(quorumKey))
+        const encryptedKey = document.getElementById("encrypted-key").value;
+        const iv = document.getElementById("iv").value;
+
+        const aesKey = await runEcdh(quorumKey);
+        console.log("ran ECDH and got the following symmetric key:", bufferToHexString(await window.crypto.subtle.exportKey(
+            "raw",
+            aesKey
+        )));
+        const decrypted = await decrypt(encryptedKey, aesKey, iv);
+        const decryptedInHex = bufferToHexString(decrypted);
+        console.log("Decrypted: ", decryptedInHex);
+        
+        // Make the decrypt button disappear
+        e.target.classList.add("hidden");
+        document.getElementById("decrypted").value = "DECRYPTED! Recovery key: " + decryptedInHex;
+        document.getElementById("decrypted").classList.remove("hidden");
       })
 
       await initEmbeddedKey()
@@ -103,6 +144,27 @@
       }
     }
 
+    // Decrypt a message. All values are hex-encoded strings
+    // This function returns decrypted bytes.
+    var decrypt = async function(encryptedMessage, aesKey, iv) {
+      const messageBytes = bufferFromHexString(encryptedMessage);
+      const ivBytes = bufferFromHexString(iv);
+      console.log("about to decrypt");
+      return await window.crypto.subtle.decrypt(
+        {
+            name: "AES-GCM",
+            iv: ivBytes,
+            tagLength: 128,
+        },
+        aesKey,
+        messageBytes
+      )
+    }
+
+    /**
+     * Derives an AES-GCM-256 key from a public key.
+     * This relies on ECDH(quorum public key, embedded key)
+     */
     var runEcdh = async function(quorumPublicKey) {
       const embeddedPrivateKey = await getEmbeddedPrivateKey()
       const quorumKey = await loadQuorumKeyForEcdh(quorumPublicKey)
@@ -130,7 +192,7 @@
         },
         ecdhPrivateKey,
         {
-            name: "AES-CTR",
+            name: "AES-GCM",
             length: 256,
         },
         true,
@@ -141,7 +203,7 @@
     // Takes a hex-encoded string (02 or 03) and uses web crypto
     // to import the key. It's WAAAY more complicated than it should be...
     var loadQuorumKeyForEcdh = async function(publicKeyString) {
-      const publicKeyBytes = new Uint8Array('publicKeyString'.match(/../g).map(h=>parseInt(h,16))).buffer
+      const publicKeyBytes = bufferFromHexString(publicKeyString);
 
       // Takes a Uint8 Array and outputs a JsonWebKey    
       // point[0] must be 2 (false) or 3 (true).
@@ -321,6 +383,22 @@
      */
     var loadP256PrivateKey = async function(jwk) {
       return await window.crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+    }
+
+    /*
+     * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+     */
+    var bufferFromHexString = function(hexString) {
+      return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16))).buffer;
+    }
+
+    /*
+     * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+     */
+     var bufferToHexString = function(buffer) {
+      return [...new Uint8Array(buffer)]
+          .map(x => x.toString(16).padStart(2, '0'))
+          .join('');
     }
   </script>
 </body>
