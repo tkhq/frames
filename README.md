@@ -6,35 +6,36 @@ This page is hosted on Github pages at https://tkhq.github.io/recovery/
 
 # Running a fake recovery
 
-Download qos, then check out `rno/create-recovery-test`:
+Download mono, then check out `zeke-recovery-demo`:
 ```sh
-git clone git@github.com:tkhq/qos.git
-git checkout origin/rno/create-recovery-test -b rno/create-recovery-test
+git clone git@github.com:tkhq/mono.git
+git checkout origin/zeke-recovery-demo -b zeke-recovery-demo
 ```
 
-This branch contains a test which simulates recovery key creation ([link](https://github.com/tkhq/qos/blob/04def4d9813299f4a5301868465dd3404852a956/src/qos_p256/src/lib.rs#L457-L496)).
+This branch contains a test which simulates recovery key creation.
 
-Open the HTML page from this repo and replace the `embedded_public_key` with your own [on line 471](https://github.com/tkhq/qos/blob/04def4d9813299f4a5301868465dd3404852a956/src/qos_p256/src/lib.rs#L471).
+Open the HTML page from this repo and replace the `hex_encoded_target_key` with [your own](https://github.com/tkhq/mono/blob/e802d8b0b0d52c7235f011889f7ac8b5747a6a02/src/rust/enclave_encrypt/src/lib.rs#L451). This is the key that the enclave will encrypt to.
 
 Run the test!
 ```sh
-$ cd src/qos_p256
-$ cargo test process_create_recover -- --nocapture
+$ cd src/rust
+$ cargo test -p enclave_encrypt recovery_demo -- --nocapture
 ```
 
 You'll see output similar to the following:
 ```sh
-$ cargo test process_create_recover -- --nocapture
-    Finished test [unoptimized + debuginfo] target(s) in 0.05s
-     Running unittests src/lib.rs (/Users/rno/tkhq/code/qos/src/target/debug/deps/qos_p256-914b76729319c733)
+$ cargo test -p enclave_encrypt recovery_demo -- --nocapture
+    Finished test [unoptimized + debuginfo] target(s) in 0.09s
+     Running unittests src/lib.rs (target/debug/deps/enclave_encrypt-0e6e99f7cd0d1e6d)
 
 running 1 test
-Enclave public key for ECDH: 0236b2ef931a40dd06d2e103718d6b82b1b87df9fc7e19f22fb4bd204ccb0a1b63
-Encrypted recovery key: 0acb07085f8382d01eca5acd76a8208df0db27
-Nonce (aka IV): beeeaf1eee098ec863d540ef
-test test::process_create_recovery ... ok
+Enclave Auth Key: 040c901d423c831ca85e27c73c263ba132721bb9d7a84c4f0380b2a6756fd601331c8870234dec878504c174144fa4b14b66a651691606d8173e55bd37e381569e
+Encapped Key: 04d654d08624c1aa6e3709f2048f291860af7a29d01de52a256307da6d55602a833d525e0afecf4ad27aa052e704b7851a7184506cb4c72d2caf1e42932b959d14
+Encapped Key Signature: cc3ed130a331b20fda25e8e4424b0b2f1015977ff60349c70d8b3a14d51ad9f897558eedccee80579508812bc6f31d987b210f21a64cb40beb56274c347c39a2
+Ciphertext: 4e5e3257d2163520f564e9f9e5df01f10ce5a03baa8ffd12c2bf6a202be7ffc496008da179
+test test::recovery_demo ... ok
 
-test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 29 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.02s
 ```
 
-Now, paste the encrypted recovery key and IV in your page, then decrypt!
+Now, paste the artifacts and then decrypt! Note the Enclave Auth Key should already be correct.

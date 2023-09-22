@@ -73,317 +73,134 @@
   <h2>Recovery Key Decryption</h2>
   <p><em>Values for these fields will come from an email. For now, we can simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a></em></p>
   <form>
-    <label>Quorum key</label>
-    <input type="text" name="quorum-key" id="quorum-key" value="0236b2ef931a40dd06d2e103718d6b82b1b87df9fc7e19f22fb4bd204ccb0a1b63"/>
+    <label>Enclave Auth Key</label>
+    <input type="text" name="quorum-key" id="enclave-auth-key" value="040c901d423c831ca85e27c73c263ba132721bb9d7a84c4f0380b2a6756fd601331c8870234dec878504c174144fa4b14b66a651691606d8173e55bd37e381569e"/>
     <br>
 
-    <label>Encrypted key</label>
-    <input type="text" name="encrypted-key" id="encrypted-key" placeholder="Paste your encrypted recovery key here"/>
+    <label>Encapped Key</label>
+    <input type="text" name="quorum-key" id="encapped-key" value="02" />
     <br>
 
-    <label>Nonce (aka IV)</label>
-    <input type="text" name="iv" id="iv" placeholder="Paste the IV here"/>
+    <label>Encapped Key Signature</label>
+    <input type="text" name="quorum-key" id="encapped-key-signature" value="02" />
+    <br>
+
+    <label>Ciphertext</label>
+    <input type="text" name="encrypted-key" id="ciphertext" placeholder="Paste your encrypted recovery key ciphertext" value="02"/>
+    <br>
+
     <br>
     <input type="text" name="decrypted" id="decrypted" value="" class="hidden"/>
     <br>
     <br>
-    <button id="ecdh">Decrypt</button>
-    
+    <button id="decrypt">Decrypt</button>
+
   </form>
 
-  <script>
+  <script type="module">
+    import * as hpke from "https://esm.sh/@hpke/core";
     document.addEventListener("DOMContentLoaded", async function () {
-      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
-      document.getElementById("ecdh").addEventListener("click", async function(e) {
-        e.preventDefault();
-        const quorumKey = document.getElementById("quorum-key").value;
-        const encryptedKey = document.getElementById("encrypted-key").value;
-        const iv = document.getElementById("iv").value;
 
-        const aesKey = await runEcdh(quorumKey);
-        console.log("ran ECDH and got the following symmetric key:", bufferToHexString(await window.crypto.subtle.exportKey(
-            "raw",
-            aesKey
-        )));
-        const decrypted = await decrypt(encryptedKey, aesKey, iv);
-        const decryptedInHex = bufferToHexString(decrypted);
-        console.log("Decrypted: ", decryptedInHex);
-        
+      // await verifyHardcodedTest()
+      await initEmbeddedKey();
+      var embeddedKeyJwk = await getEmbeddedPrivateKey();
+      var targetPubBuf = await p256JWKPrivateToPublic(embeddedKeyJwk);
+      var targetPubHex = bufferToHexString(targetPubBuf);
+      document.getElementById("embedded-key").value = targetPubHex;
+
+      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
+      document.getElementById("decrypt").addEventListener("click", async function(e) {
+        e.preventDefault();
+
+        var enclaveAuthKeyHex = document.getElementById("enclave-auth-key").value;
+        var enclaveAuthKeyBuf = bufferFromHexString(enclaveAuthKeyHex);
+
+        var encappedKeyHex = document.getElementById("encapped-key").value;
+        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
+
+        var encappedKeyEnclaveAuthSignatureHex = document.getElementById("encapped-key-signature").value;
+        var encappedKeyEnclaveAuthSignatureBuf = bufferFromHexString(encappedKeyEnclaveAuthSignatureHex);
+
+        var ciphertextHex = document.getElementById("ciphertext").value;
+        var ciphertextBuf = bufferFromHexString(ciphertextHex);
+
+        var res = await verifyAndDecrypt(
+          {
+            enclaveAuthKeyBuf,
+            encappedKeyEnclaveAuthSignatureBuf,
+            encappedKeyBuf,
+            ciphertextBuf,
+            receiverPrivJwk: embeddedKeyJwk
+          }
+          );
+        var decrypted = new TextDecoder().decode(res)
+
         // Make the decrypt button disappear
         e.target.classList.add("hidden");
-        document.getElementById("decrypted").value = "DECRYPTED! Recovery key: " + decryptedInHex;
+        document.getElementById("decrypted").value = "DECRYPTED! Recovery key: " + decrypted;
         document.getElementById("decrypted").classList.remove("hidden");
       })
-
-      await initEmbeddedKey()
-      var cryptoKey = await getEmbeddedPrivateKey()
-      var publicKey = await getCompressedPublicKey(cryptoKey)
-      document.getElementById("embedded-key").value = publicKey
     }, false);
 
+    /*
+    * Convert a JSON Web Key private key to a public key and export the public
+    * key in raw format.
+    */
+    var p256JWKPrivateToPublic = async function(jwkPrivate) {
+      // make a copy so we don't modify the underlying object
+      const jwkPrivateCopy = { ... jwkPrivate }
+      // change jwk so it will be imported as a public key
+      delete jwkPrivateCopy.d;
+      jwkPrivateCopy.key_ops = ["verify"];
+
+      var publicKey =  await window.crypto.subtle
+        .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+      return await crypto.subtle.exportKey("raw", publicKey);
+    }
+
     var initEmbeddedKey = async function() {
-      const retrievedKey = await getEmbeddedPrivateKey();
+      var retrievedKey = await getEmbeddedPrivateKey();
       if (retrievedKey === null) {
-        const cryptoKeyPair = await p256Keygen()
-        const exportedKey = await exportPrivateKey(cryptoKeyPair.privateKey)
-        setEmbeddedKey(exportedKey)
+        var targetKey = await generateTargetKey();
+        setEmbeddedKey(targetKey)
       } else {
         // Nothing to do, key is correctly initialized
       }
     }
 
+
     const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
 
-    // Gets the current embedded key. Returns `null` if not found.
+    // Gets the current embedded private key JWK. Returns `null` if not found.
     var getEmbeddedPrivateKey = async function() {
-      const jwkString =  window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
-      if (jwkString === null) {
+      var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
+      if (jwtKey === null || jwtKey === undefined || jwtKey === "") {
         return null
       } else {
-        const jwk = JSON.parse(jwkString)
-        return await loadP256PrivateKey(jwk)
+        return JSON.parse(jwtKey);
       }
     }
 
-    // Decrypt a message. All values are hex-encoded strings
-    // This function returns decrypted bytes.
-    var decrypt = async function(encryptedMessage, aesKey, iv) {
-      const messageBytes = bufferFromHexString(encryptedMessage);
-      const ivBytes = bufferFromHexString(iv);
-      console.log("about to decrypt");
-      return await window.crypto.subtle.decrypt(
-        {
-            name: "AES-GCM",
-            iv: ivBytes,
-            tagLength: 128,
-        },
-        aesKey,
-        messageBytes
-      )
-    }
-
-    /**
-     * Derives an AES-GCM-256 key from a public key.
-     * This relies on ECDH(quorum public key, embedded key)
-     */
-    var runEcdh = async function(quorumPublicKey) {
-      const embeddedPrivateKey = await getEmbeddedPrivateKey()
-      const quorumKey = await loadQuorumKeyForEcdh(quorumPublicKey)
-      
-      const embeddedPrivateKeyJwk = await exportPrivateKey(embeddedPrivateKey);
-      // Add the right key ops
-      embeddedPrivateKeyJwk.key_ops = ["deriveKey", "deriveBits"]
-
-      const ecdhPrivateKey = await window.crypto.subtle.importKey(
-        "jwk",
-        embeddedPrivateKeyJwk,
-        {
-            name: "ECDH",
-            namedCurve: "P-256",
-        },
-        true,
-        ["deriveKey", "deriveBits"]
-      )
-
-      return await window.crypto.subtle.deriveKey(
-        {
-            name: "ECDH",
-            namedCurve: "P-256",
-            public: quorumKey,
-        },
-        ecdhPrivateKey,
-        {
-            name: "AES-GCM",
-            length: 256,
-        },
-        true,
-        ["encrypt", "decrypt"]
-      )
-    }
-
-    // Takes a hex-encoded string (02 or 03) and uses web crypto
-    // to import the key. It's WAAAY more complicated than it should be...
-    var loadQuorumKeyForEcdh = async function(publicKeyString) {
-      const publicKeyBytes = bufferFromHexString(publicKeyString);
-
-      // Takes a Uint8 Array and outputs a JsonWebKey    
-      // point[0] must be 2 (false) or 3 (true).
-      // this maps to the initial "02" or "03" prefix
-      const lsb = publicKeyBytes[0] === 3;
-      const x = BigInt("0x" + publicKeyString.substring(2));
-
-      // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf (Appendix D).
-      const p = BigInt("115792089210356248762697446949407573530086143415290314195533631308867097853951");
-      const b = BigInt("0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b");
-      const a = p - BigInt(3);
-
-      const rhs = ((x * x + a) * x + b) % p;
-      let y = modSqrt(rhs, p);
-      if (lsb !== testBit(y, 0)) {
-        y = (p - y) % p;
-      }
-
-      if (x < BigInt(0) || x >= p) {
-        throw new Error("x is out of range");
-      }
-
-      const jwk =  {
-        kty: "EC",
-        crv: "P-256",
-        x: base64EncodeURL(bnToBuf(x)),
-        y: base64EncodeURL(bnToBuf(y)),
-        ext: true,
-      };
-
-      return await crypto.subtle.importKey("jwk", jwk, {name: "ECDH", namedCurve: "P-256"}, true, []);
-    }
-
-    function base64EncodeURL(byteArray) {
-      return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
-        return String.fromCharCode(val);
-      }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
-    }
-
-    function bnToBuf(bn) {
-      var hex = BigInt(bn).toString(16);
-      if (hex.length % 2) { hex = '0' + hex; }
-
-      var len = hex.length / 2;
-      var u8 = new Uint8Array(len);
-
-      var i = 0;
-      var j = 0;
-      while (i < len) {
-        u8[i] = parseInt(hex.slice(j, j+2), 16);
-        i += 1;
-        j += 2;
-      }
-
-      return u8;
-    }
-
-    function integerToByteArray(i) {
-      let input = i.toString(16);
-      // If necessary, prepend leading zero to ensure that input length is even.
-      input = input.length % 2 === 0 ? input : "0" + input;
-      return Bytes.fromHex(input);
-    }
-
-    function testBit(n, i) {
-      const m = BigInt(1) << BigInt(i);
-      return (n & m) !== BigInt(0);
-    }
-
-    function modSqrt(x, p) {
-      if (p <= BigInt(0)) {
-        throw new Error("p must be positive");
-      }
-      const base = x % p;
-      // The currently supported NIST curves P-256, P-384, and P-521 all satisfy
-      // p % 4 == 3.  However, although currently a no-op, the following check
-      // should be left in place in case other curves are supported in the future.
-      if (testBit(p, 0) && /* istanbul ignore next */ testBit(p, 1)) {
-        // Case p % 4 == 3 (applies to NIST curves P-256, P-384, and P-521)
-        // q = (p + 1) / 4
-        const q = (p + BigInt(1)) >> BigInt(2);
-        const squareRoot = modPow(base, q, p);
-        if ((squareRoot * squareRoot) % p !== base) {
-          throw new Error("could not find a modular square root");
-        }
-        return squareRoot;
-      }
-      // Skipping other elliptic curve types that require Cipolla's algorithm.
-      throw new Error("unsupported modulus value");
-    }
-
-    function modPow(b, exp, p) {
-      if (exp === BigInt(0)) {
-        return BigInt(1);
-      }
-      let result = b;
-      const exponentBitString = exp.toString(2);
-      for (let i = 1; i < exponentBitString.length; ++i) {
-        result = (result * result) % p;
-        if (exponentBitString[i] === "1") {
-          result = (result * b) % p;
-        }
-      }
-      return result;
-    }
-        // Takes a hex-encoded string (02 or 03) and
-
-
-    var setEmbeddedKey = function(key) {
-      console.log("setting (stringified)", JSON.stringify(key))
-      return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(key))
+    var setEmbeddedKey = function(targetKey) {
+      console.log("setting (stringified)", JSON.stringify(targetKey))
+      return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
     }
 
     var clearEmbeddedKey = function() {
       window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
     }
 
-    // Converts an ArrayBuffer to a hex-encoded string
-    var buf2hex = function(buffer) {
-      return [...new Uint8Array(buffer)]
-          .map(x => x.toString(16).padStart(2, '0'))
-          .join('');
-    }
-
-    // Takes a base64url-encoded string (e.g. "nMueRPiAm51YXEjRtka8S_8Ura3HaqbmqDqMJCZmvkM")
-    // and return the corresponding bytes, as an array buffer.
-    var base64urlDecode = function(s) {
-      // Go from base64url encoding to base64 encoding
-      s = s.replace(/-/g, '+').replace(/_/g, '/');
-      // use `atob` to decode base64
-      return Uint8Array.from(atob(s), c => c.charCodeAt(0))
-    }
-
-    // Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
-    var compressRawPublicKey = function(rawPublicKey) {
-      const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
-      const len = rawPublicKeyBytes.byteLength
-
-      // Drop the y coordinate
-      var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
-
-      // Encode the parity of `y` in first bit
-      compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01) 
-      return compressedBytes.buffer
-    }
-
-    // returns a JSONWebKey; takes a CryptoKey
-    var exportPrivateKey = async function(privateKey) {
-      return await crypto.subtle.exportKey("jwk", privateKey);
-    }
-
-    // Takes a CryptoKey (private key) and returns the compressed public key for display in the UI
-    var getCompressedPublicKey = async function(privateKey) {
-        const jwkPrivate = await crypto.subtle.exportKey("jwk", privateKey);
-        delete jwkPrivate.d;
-        jwkPrivate.key_ops = ["verify"];
-        const publicKey = await crypto.subtle.importKey("jwk", jwkPrivate, {name: "ECDSA", namedCurve: "P-256"}, true, ["verify"]);
-
-        // Export the raw public key. By default this will export in uncompressed format
-        const rawPublicKey = await crypto.subtle.exportKey("raw", publicKey);
-        const compressedPublicKeyBuffer = compressRawPublicKey(rawPublicKey)
-        return buf2hex(compressedPublicKeyBuffer)
-    }
-
-    // Create a new P-256 keypair
-    var p256Keygen = async function() {
-      return await crypto.subtle.generateKey({
-        name: 'ECDSA',
-        namedCurve: 'P-256',
-      }, true, ['sign',]);
-    }
-
     /*
-     * Load a p256 key pair from a private key
-     * Private keys are persisted in hex form.
-     * Return a CryptoKey object (private key)
-     */
-    var loadP256PrivateKey = async function(jwk) {
-      return await window.crypto.subtle.importKey("jwk", jwk, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"])
+    * Import a raw public key as a `CryptoKey`
+    */
+    var importPublicKey = async function(publicKey) {
+      return await crypto.subtle.importKey(
+        "raw",
+        publicKey,
+        { name: "ECDSA", namedCurve: "P-256" },
+        true,
+        ["verify"]
+      );
     }
 
     /*
@@ -401,6 +218,130 @@
           .map(x => x.toString(16).padStart(2, '0'))
           .join('');
     }
+
+    /*
+    * Verify the signature from the enclave auth key and then decrypt.
+    */
+    var verifyAndDecrypt = async function(
+      {
+        enclaveAuthKeyBuf,
+        encappedKeyEnclaveAuthSignatureBuf,
+        ciphertextBuf,
+        encappedKeyBuf,
+        receiverPrivJwk,
+      }
+    ) {
+
+      var enclaveAuthKey = await importPublicKey(enclaveAuthKeyBuf);
+
+      var verified = await crypto.subtle.verify(
+        { name: 'ECDSA', namedCurve: 'P-256',  hash: "SHA-256" },
+        enclaveAuthKey,
+        encappedKeyEnclaveAuthSignatureBuf,
+        encappedKeyBuf,
+      );
+      if (!verified) {
+        window.alert("Invalid Enclave Auth Signature over Encapped Key")
+        throw Error("Invalid Enclave Auth Signature over Encapped Key");
+      }
+
+      return await baseDecrypt({
+        ciphertextBuf,
+        encappedKeyBuf,
+        receiverPrivJwk,
+      });
+    }
+
+    /*
+    * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
+    * and the receivers private key (JSON Web Key).
+    */
+    var baseDecrypt = async function({
+        ciphertextBuf,
+        encappedKeyBuf,
+        receiverPrivJwk,
+      }) {
+        var kemContext = new hpke.DhkemP256HkdfSha256();
+        var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
+
+
+        var suite = new hpke.CipherSuite({
+          kem: kemContext,
+          kdf: new hpke.HkdfSha256(),
+          aead: new hpke.Aes256Gcm(),
+        });
+
+        var recipientCtx = await suite.createRecipientContext({
+          recipientKey: receiverPriv,
+          enc: encappedKeyBuf,
+          info: new TextEncoder().encode("turnkey_hpke"),
+        });
+
+        var receiverPubBuf = await p256JWKPrivateToPublic(receiverPrivJwk);
+        var aad = additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+        var res;
+        try {
+          res = await recipientCtx.open(ciphertextBuf, aad);
+        } catch (e) {
+          console.log("decryption failed", e)
+          alert("decryption failed", e)
+        }
+
+        return res
+      }
+
+    /*
+    * Generate a key to encrypt to and export it as a JSON Web Key.
+    */
+    var generateTargetKey = async function() {
+        var kemContext = new hpke.DhkemP256HkdfSha256();
+        var kp = await kemContext.generateKeyPair();
+
+        return await crypto.subtle.exportKey("jwk", kp.privateKey);
+      }
+
+    /*
+    * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+    */
+    var additionalAssociatedData = function(
+        senderPubBuf,
+        receiverPubBuf,
+      ) {
+        var s = Array.from(new Uint8Array(senderPubBuf));
+        var r = Array.from(new Uint8Array(receiverPubBuf));
+        return new Uint8Array([...s, ...r]);
+      }
+
+      var verifyHardcodedTest = async function() {
+        var authKeyHex = "040c901d423c831ca85e27c73c263ba132721bb9d7a84c4f0380b2a6756fd601331c8870234dec878504c174144fa4b14b66a651691606d8173e55bd37e381569e";
+        var authKeyBuf = bufferFromHexString(authKeyHex);
+        var authKey = await crypto.subtle.importKey(
+          "raw",
+          authKeyBuf,
+          { name: "ECDSA", namedCurve: "P-256" },
+          true,
+          ["verify"]
+        );
+
+        var encappedKeyHex = "0488876afb290045e2d282d59f6f2d3256198c0eba83088570b9d5665033372680740c14b5b5b78c5484869b2e832c1242fa52c36dd9cff754160f0245c11a41ee";
+        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
+
+        var encappedKeySignatureHex = "b7a61b5282723f276cbd9ee19860bc92eca5a6414e73a2e5755c004ba0319c88204b0073e731476ca67f9b0284c0b946ae4c9eaa6b18ae4c53eab8068aebad3b";
+        var encappedSignatureBuf = bufferFromHexString(encappedKeySignatureHex);
+
+        var verified = await crypto.subtle.verify(
+            { name: 'ECDSA', namedCurve: 'P-256', hash: "SHA-256" },
+            authKey,
+            encappedSignatureBuf,
+            encappedKeyBuf,
+          );
+
+        if (verified === true) {
+          alert("it verified")
+        } else {
+          alert("verification failed")
+        }
+      }
   </script>
 </body>
 </html>
