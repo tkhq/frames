@@ -100,8 +100,6 @@
   <script type="module">
     import * as hpke from "https://esm.sh/@hpke/core";
     document.addEventListener("DOMContentLoaded", async function () {
-
-      // await verifyHardcodedTest()
       await initEmbeddedKey();
       var embeddedKeyJwk = await getEmbeddedPrivateKey();
       var targetPubBuf = await p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -310,37 +308,6 @@
         var s = Array.from(new Uint8Array(senderPubBuf));
         var r = Array.from(new Uint8Array(receiverPubBuf));
         return new Uint8Array([...s, ...r]);
-      }
-
-      var verifyHardcodedTest = async function() {
-        var authKeyHex = "040c901d423c831ca85e27c73c263ba132721bb9d7a84c4f0380b2a6756fd601331c8870234dec878504c174144fa4b14b66a651691606d8173e55bd37e381569e";
-        var authKeyBuf = bufferFromHexString(authKeyHex);
-        var authKey = await crypto.subtle.importKey(
-          "raw",
-          authKeyBuf,
-          { name: "ECDSA", namedCurve: "P-256" },
-          true,
-          ["verify"]
-        );
-
-        var encappedKeyHex = "0488876afb290045e2d282d59f6f2d3256198c0eba83088570b9d5665033372680740c14b5b5b78c5484869b2e832c1242fa52c36dd9cff754160f0245c11a41ee";
-        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
-
-        var encappedKeySignatureHex = "b7a61b5282723f276cbd9ee19860bc92eca5a6414e73a2e5755c004ba0319c88204b0073e731476ca67f9b0284c0b946ae4c9eaa6b18ae4c53eab8068aebad3b";
-        var encappedSignatureBuf = bufferFromHexString(encappedKeySignatureHex);
-
-        var verified = await crypto.subtle.verify(
-            { name: 'ECDSA', namedCurve: 'P-256', hash: "SHA-256" },
-            authKey,
-            encappedSignatureBuf,
-            encappedKeyBuf,
-          );
-
-        if (verified === true) {
-          alert("it verified")
-        } else {
-          alert("verification failed")
-        }
       }
   </script>
 </body>
