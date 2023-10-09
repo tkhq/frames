@@ -9,6 +9,8 @@
     body {
       text-align: center;
       font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+      max-width: 1024px;
+      margin: auto;
     }
     label {
       display:inline-block;
@@ -45,7 +47,7 @@
       border: 1px rgb(112, 42, 42) solid;
       cursor: pointer;
     }
-    #ecdh {
+    #inject, #stamp {
       color: white;
       width: 7em;
       font-size: 1em;
@@ -55,13 +57,26 @@
       border: 1px rgb(33, 33, 33) solid;
       cursor: pointer;
     }
+    #message-log {
+      border: 1px #2a2828 solid;
+      padding: 0 0.7em;
+      border-radius: 4px;
+      margin-top: 2em;
+      max-width: 800px;
+      margin: auto;
+    }
+    #message-log p {
+      font-size: 0.9em;
+      text-align: left;
+      word-break: break-all;
+    }
     .hidden { display: none; }
   </style>
 </head>
 
 <body>
-  <h2>Recovery Initialization</h2>
-  <p><em>This public key will be sent along with your email inside of a <code>CREATE_RECOVERY</code> activity</em></p>
+  <h2>Init Recovery</h2>
+  <p><em>This public key will be sent along with your email inside of a new <code>INIT_USER_EMAIL_RECOVERY</code> activity</em></p>
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
@@ -70,77 +85,185 @@
   <br>
   <br>
   <br>
-  <h2>Recovery Key Decryption</h2>
-  <p><em>Values for these fields will come from an email. For now, we can simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a></em></p>
+  <h2>Inject Recovery Bundle</h2>
+  <p><em>The recovery bundle comes from your email. We can also simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a>. A recovery bundle is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
   <form>
-    <label>Enclave Auth Key</label>
-    <input type="text" name="quorum-key" id="enclave-auth-key" value="040c901d423c831ca85e27c73c263ba132721bb9d7a84c4f0380b2a6756fd601331c8870234dec878504c174144fa4b14b66a651691606d8173e55bd37e381569e"/>
-    <br>
-
-    <label>Encapped Key</label>
-    <input type="text" name="quorum-key" id="encapped-key" value="02" />
-    <br>
-
-    <label>Encapped Key Signature</label>
-    <input type="text" name="quorum-key" id="encapped-key-signature" value="02" />
-    <br>
-
-    <label>Ciphertext</label>
-    <input type="text" name="encrypted-key" id="ciphertext" placeholder="Paste your encrypted recovery key ciphertext" value="02"/>
-    <br>
-
-    <br>
-    <input type="text" name="decrypted" id="decrypted" value="" class="hidden"/>
-    <br>
-    <br>
-    <button id="decrypt">Decrypt</button>
-
+    <label>Bundle</label>
+    <input type="text" name="recovery-bundle" id="recovery-bundle"/>
+    <button id="inject">Inject Bundle</button>
   </form>
+  <br>
+  <br>
+  <br>
+  <h2>Stamp</h2>
+  <p><em>Once you've injected the recovery bundle, the recovery credential is ready to sign. A new <code>RECOVER</code> activity for example. This iframe doesn't know anything about Turnkey activity however, it's a simple stamper!</em></p>
+  <form>
+    <label>Payload</label>
+    <input type="text" name="payload" id="payload"/>
+    <button id="stamp">Stamp</button>
+  </form>
+  <br>
+  <br>
+  <br>
+  <h2>Message log</h2>
+  <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
+  <div id="message-log"></div>
 
   <script type="module">
+    // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
     import * as hpke from "https://esm.sh/@hpke/core";
+
+    // In memory spot for the recovery credential to live. We do NOT persist it to localStorage.
+    var RECOVERY_CREDENTIAL_BYTES = null;
+
     document.addEventListener("DOMContentLoaded", async function () {
       await initEmbeddedKey();
       var embeddedKeyJwk = await getEmbeddedPrivateKey();
       var targetPubBuf = await p256JWKPrivateToPublic(embeddedKeyJwk);
       var targetPubHex = bufferToHexString(targetPubBuf);
       document.getElementById("embedded-key").value = targetPubHex;
+      sendMessage("PUBLIC_KEY_READY", targetPubHex)
 
-      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
-      document.getElementById("decrypt").addEventListener("click", async function(e) {
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data["type"] == "INJECT_BUNDLE") {
+          logReceivedMessage(event.data["type"], event.data["value"]);
+          onInjectBundle(event.data["value"])
+        }
+        if (event.data && event.data["type"] == "CHALLENGE") {
+          logReceivedMessage(event.data["type"], event.data["value"]);
+          onChallenge(event.data["value"]);
+        }
+      }, false);
+
+      /**
+       * Event handlers to power the recovery flow in standalone mode
+       * Instead of receiving events from the parent page, forms trigger them.
+       * This is useful for debugging as well.
+       */
+      document.getElementById("inject").addEventListener("click", async function(e) {
         e.preventDefault();
+        window.postMessage({
+          "type": "INJECT_BUNDLE",
+          "value": document.getElementById("recovery-bundle").value,
+        })
+      }, false);
+      document.getElementById("stamp").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({
+          "type": "CHALLENGE",
+          "value": document.getElementById("payload").value,
+        })
+      }, false);
 
-        var enclaveAuthKeyHex = document.getElementById("enclave-auth-key").value;
-        var enclaveAuthKeyBuf = bufferFromHexString(enclaveAuthKeyHex);
-
-        var encappedKeyHex = document.getElementById("encapped-key").value;
-        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
-
-        var encappedKeyEnclaveAuthSignatureHex = document.getElementById("encapped-key-signature").value;
-        var encappedKeyEnclaveAuthSignatureBuf = bufferFromHexString(encappedKeyEnclaveAuthSignatureHex);
-
-        var ciphertextHex = document.getElementById("ciphertext").value;
-        var ciphertextBuf = bufferFromHexString(ciphertextHex);
-
-        var res = await verifyAndDecrypt(
-          {
-            enclaveAuthKeyBuf,
-            encappedKeyEnclaveAuthSignatureBuf,
-            encappedKeyBuf,
-            ciphertextBuf,
-            receiverPrivJwk: embeddedKeyJwk
-          }
-          );
-        var decrypted = new TextDecoder().decode(res)
-
-        // Make the decrypt button disappear
-        e.target.classList.add("hidden");
-        document.getElementById("decrypted").value = "DECRYPTED! Recovery key: " + decrypted;
-        document.getElementById("decrypted").classList.remove("hidden");
-      })
+      /**
+       * DEBUG functionality only to clear the page's localStorage
+       */
+      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
     }, false);
 
-    /*
+    /**
+     * Function triggered when INJECT_BUNDLE event is received.
+     * The `bundle` param is the concatenation of a public key and an encrypted payload.
+     * For example:
+     * 04c1faba5812bde458fdbf505dc1fc9dc1eb3f7c8fbbc3284d399bcc8eef8d72f29baf967cd6f2b207005d86b74a51aff9525c553afbad4ac0835e47ffcf3623a2
+     * +
+     * 80b4a5708e2f95aa18dad9d90b8f49490893d1408a326c78abaa8a0d563ea7dbc28aaa35913f9d698be30d015afda49c
+     * ==
+     * 04c1faba5812bde458fdbf505dc1fc9dc1eb3f7c8fbbc3284d399bcc8eef8d72f29baf967cd6f2b207005d86b74a51aff9525c553afbad4ac0835e47ffcf3623a280b4a5708e2f95aa18dad9d90b8f49490893d1408a326c78abaa8a0d563ea7dbc28aaa35913f9d698be30d015afda49c
+     * @param {string} bundle
+     */
+    var onInjectBundle = async function(bundle) {
+        if (bundle.length <= 130) {
+          throw new Error("bundle size is too low. Expecting an uncompressed public key (130 chars) and an encrypted bundle!")
+        }
+
+        var encappedKeyHex = bundle.substring(0, 130);
+        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
+
+        var ciphertextHex = bundle.substring(130);
+        var ciphertextBuf = bufferFromHexString(ciphertextHex);
+
+        var embeddedKeyJwk = await getEmbeddedPrivateKey();
+        var recoveryCredentialBytes = await HpkeDecrypt(
+          {
+            ciphertextBuf,
+            encappedKeyBuf,
+            receiverPrivJwk: embeddedKeyJwk,
+          });
+
+        RECOVERY_CREDENTIAL_BYTES = recoveryCredentialBytes;
+        sendMessage("BUNDLE_INJECTED", null)
+    }
+    /**
+     * Function triggered when CHALLENGE event is received.
+     * @param {string} challenge hex-encoded string containing the bytes to sign.
+     */
+    var onChallenge = async function(challenge) {
+      if (RECOVERY_CREDENTIAL_BYTES === null) {
+        throw new Error("cannot sign payload without credential. Credential bytes are null");
+      }
+      var challengeBytes = bufferFromHexString(challenge);
+      var recoveryKey = await importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
+      var signatureIeee1363 = await window.crypto.subtle.sign(
+        {
+            name: "ECDSA",
+            hash: {name: "SHA-256"},
+        },
+        recoveryKey,
+        challengeBytes
+      );
+
+      var derSignature = convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
+      var derSignatureHexString = bufferToHexString(derSignature);
+
+      // This is a bit of a pain, but we need to go through this:
+      // - Key needs to be exported to JWK first
+      // - Then imported without the private "d" component, and exported to get the public key
+      //   ^^ (that's what `p256JWKPrivateToPublic` does)
+      // - Finally, compresse the public key.
+      var jwkKey = await crypto.subtle.exportKey("jwk", recoveryKey);
+      var publicKey = await p256JWKPrivateToPublic(jwkKey);
+      var compressedPublicKey = compressRawPublicKey(publicKey);
+
+      var stamp = {
+        publicKey: bufferToHexString(compressedPublicKey),
+        scheme: "SIGNATURE_SCHEME_TK_API_P256",
+        signature: derSignatureHexString,
+      };
+
+      var stampHeaderValue = stringToBase64urlString(JSON.stringify(stamp));
+      sendMessage("STAMP", stampHeaderValue)
+    }
+
+    /**
+     * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+     * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
+     * @param value message value
+     */
+    var sendMessage = function(type, value) {
+      if (window.top !== null) {
+        window.top.postMessage({
+            "type": type,
+            "value": value,
+        }, '*')
+      }
+      var messageLog = document.getElementById("message-log");
+      var message = document.createElement("p")
+      message.innerText = `⬆️ Sent message ${type}: ${value}`
+      messageLog.appendChild(message);
+    }
+
+    /**
+     * Function to log a received message.
+     */
+    var logReceivedMessage = function(type, value) {
+      var messageLog = document.getElementById("message-log");
+      var message = document.createElement("p")
+      message.innerText = `⬇️ Received message ${type}: ${value}`;
+      messageLog.appendChild(message);
+    }
+
+    /**
     * Convert a JSON Web Key private key to a public key and export the public
     * key in raw format.
     */
@@ -156,6 +279,37 @@
       return await crypto.subtle.exportKey("raw", publicKey);
     }
 
+    /**
+     * Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
+     * @param {ArrayBuffer} rawPublicKey
+     */
+    var compressRawPublicKey = function(rawPublicKey) {
+      const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
+      const len = rawPublicKeyBytes.byteLength
+
+      // Drop the y coordinate
+      var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
+
+      // Encode the parity of `y` in first bit
+      compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01)
+      return compressedBytes.buffer
+    }
+
+    /**
+     * Returns a CryptoKey from a P256 private key bytes
+     * These recovery bytes are pkcs8 bytes.
+     * This is painful because web crypto has to know x and y and can't figure these out on its own.
+     * @param {ArrayBuffer} privateKeyBytes
+     */
+    var importRecoveryCredential = async function(privateKeyBytes) {
+      var key = await window.crypto.subtle
+        .importKey("pkcs8", privateKeyBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+      return key
+    }
+
+    /**
+     * Creates a new public/private key pair and persists it in localStorage
+     */
     var initEmbeddedKey = async function() {
       var retrievedKey = await getEmbeddedPrivateKey();
       if (retrievedKey === null) {
@@ -166,7 +320,7 @@
       }
     }
 
-
+    /** constant for LocalStorage */
     const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
 
     // Gets the current embedded private key JWK. Returns `null` if not found.
@@ -188,109 +342,62 @@
       window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
     }
 
-    /*
-    * Import a raw public key as a `CryptoKey`
-    */
-    var importPublicKey = async function(publicKey) {
-      return await crypto.subtle.importKey(
-        "raw",
-        publicKey,
-        { name: "ECDSA", namedCurve: "P-256" },
-        true,
-        ["verify"]
-      );
-    }
-
-    /*
+    /**
      * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+     * @param {string} hexString
      */
     var bufferFromHexString = function(hexString) {
       return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16))).buffer;
     }
 
-    /*
-     * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
-     */
+     /**
+      * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+      */
      var bufferToHexString = function(buffer) {
       return [...new Uint8Array(buffer)]
           .map(x => x.toString(16).padStart(2, '0'))
           .join('');
     }
 
-    /*
-    * Verify the signature from the enclave auth key and then decrypt.
-    */
-    var verifyAndDecrypt = async function(
-      {
-        enclaveAuthKeyBuf,
-        encappedKeyEnclaveAuthSignatureBuf,
-        ciphertextBuf,
-        encappedKeyBuf,
-        receiverPrivJwk,
-      }
-    ) {
+    /**
+     * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
+     * and the receivers private key (JSON Web Key).
+     */
+    var HpkeDecrypt = async function({
+      ciphertextBuf,
+      encappedKeyBuf,
+      receiverPrivJwk,
+    }) {
+      var kemContext = new hpke.DhkemP256HkdfSha256();
+      var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
 
-      var enclaveAuthKey = await importPublicKey(enclaveAuthKeyBuf);
 
-      var verified = await crypto.subtle.verify(
-        { name: 'ECDSA', namedCurve: 'P-256',  hash: "SHA-256" },
-        enclaveAuthKey,
-        encappedKeyEnclaveAuthSignatureBuf,
-        encappedKeyBuf,
-      );
-      if (!verified) {
-        window.alert("Invalid Enclave Auth Signature over Encapped Key")
-        throw Error("Invalid Enclave Auth Signature over Encapped Key");
-      }
-
-      return await baseDecrypt({
-        ciphertextBuf,
-        encappedKeyBuf,
-        receiverPrivJwk,
+      var suite = new hpke.CipherSuite({
+        kem: kemContext,
+        kdf: new hpke.HkdfSha256(),
+        aead: new hpke.Aes256Gcm(),
       });
+
+      var recipientCtx = await suite.createRecipientContext({
+        recipientKey: receiverPriv,
+        enc: encappedKeyBuf,
+        info: new TextEncoder().encode("turnkey_hpke"),
+      });
+
+      var receiverPubBuf = await p256JWKPrivateToPublic(receiverPrivJwk);
+      var aad = additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+      var res;
+      try {
+        res = await recipientCtx.open(ciphertextBuf, aad);
+      } catch (e) {
+        throw new Error("decryption failed: " + e);
+      }
+      return res
     }
 
     /*
-    * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
-    * and the receivers private key (JSON Web Key).
-    */
-    var baseDecrypt = async function({
-        ciphertextBuf,
-        encappedKeyBuf,
-        receiverPrivJwk,
-      }) {
-        var kemContext = new hpke.DhkemP256HkdfSha256();
-        var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
-
-
-        var suite = new hpke.CipherSuite({
-          kem: kemContext,
-          kdf: new hpke.HkdfSha256(),
-          aead: new hpke.Aes256Gcm(),
-        });
-
-        var recipientCtx = await suite.createRecipientContext({
-          recipientKey: receiverPriv,
-          enc: encappedKeyBuf,
-          info: new TextEncoder().encode("turnkey_hpke"),
-        });
-
-        var receiverPubBuf = await p256JWKPrivateToPublic(receiverPrivJwk);
-        var aad = additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
-        var res;
-        try {
-          res = await recipientCtx.open(ciphertextBuf, aad);
-        } catch (e) {
-          console.log("decryption failed", e)
-          alert("decryption failed", e)
-        }
-
-        return res
-      }
-
-    /*
-    * Generate a key to encrypt to and export it as a JSON Web Key.
-    */
+     * Generate a key to encrypt to and export it as a JSON Web Key.
+     */
     var generateTargetKey = async function() {
         var kemContext = new hpke.DhkemP256HkdfSha256();
         var kp = await kemContext.generateKeyPair();
@@ -298,17 +405,118 @@
         return await crypto.subtle.exportKey("jwk", kp.privateKey);
       }
 
-    /*
-    * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
-    */
+    /**
+     * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+     */
     var additionalAssociatedData = function(
-        senderPubBuf,
-        receiverPubBuf,
-      ) {
-        var s = Array.from(new Uint8Array(senderPubBuf));
-        var r = Array.from(new Uint8Array(receiverPubBuf));
-        return new Uint8Array([...s, ...r]);
+      senderPubBuf,
+      receiverPubBuf,
+    ) {
+      var s = Array.from(new Uint8Array(senderPubBuf));
+      var r = Array.from(new Uint8Array(receiverPubBuf));
+      return new Uint8Array([...s, ...r]);
+    }
+
+    /**
+     * Encodes a buffer into base64url
+     */
+    function base64urlEncode(byteArray) {
+      return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
+        return String.fromCharCode(val);
+      }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
+    }
+
+    /**
+     * `SubtleCrypto.sign(...)` outputs signature in IEEE P1363 format:
+     * - https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#ecdsa
+     *
+     * Turnkey expects the signature encoding to be DER-encoded ASN.1:
+     * - https://github.com/tkhq/tkcli/blob/7f0159af5a73387ff050647180d1db4d3a3aa033/src/internal/apikey/apikey.go#L149
+     *
+     * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L114
+     *
+     * Transform an ECDSA signature in IEEE 1363 encoding to DER encoding.
+     *
+     * @param {Uint8Array} ieee the ECDSA signature in IEEE encoding
+     * @return ECDSA signature in DER encoding
+     */
+    function convertEcdsaIeee1363ToDer(ieee) {
+      if (ieee.length % 2 != 0 || ieee.length == 0 || ieee.length > 132) {
+        throw new Error(
+          "Invalid IEEE P1363 signature encoding. Length: " + ieee.length
+        );
       }
+      const r = toUnsignedBigNum(ieee.subarray(0, ieee.length / 2));
+      const s = toUnsignedBigNum(ieee.subarray(ieee.length / 2, ieee.length));
+      let offset = 0;
+      const length = 1 + 1 + r.length + 1 + 1 + s.length;
+      let der;
+      if (length >= 128) {
+        der = new Uint8Array(length + 3);
+        der[offset++] = 48;
+        der[offset++] = 128 + 1;
+        der[offset++] = length;
+      } else {
+        der = new Uint8Array(length + 2);
+        der[offset++] = 48;
+        der[offset++] = length;
+      }
+      der[offset++] = 2;
+      der[offset++] = r.length;
+      der.set(r, offset);
+      offset += r.length;
+      der[offset++] = 2;
+      der[offset++] = s.length;
+      der.set(s, offset);
+      return der;
+    }
+
+    /**
+     * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L311
+     *
+     * Transform a big integer in big endian to minimal unsigned form which has
+     * no extra zero at the beginning except when the highest bit is set.
+     *
+     * @param {Uint8Array} bytes
+     *
+     */
+    function toUnsignedBigNum(bytes) {
+      // Remove zero prefixes.
+      let start = 0;
+      while (start < bytes.length && bytes[start] == 0) {
+        start++;
+      }
+      if (start == bytes.length) {
+        start = bytes.length - 1;
+      }
+      let extraZero = 0;
+
+      // If the 1st bit is not zero, add 1 zero byte.
+      if ((bytes[start] & 128) == 128) {
+        // Add extra zero.
+        extraZero = 1;
+      }
+      const res = new Uint8Array(bytes.length - start + extraZero);
+      res.set(bytes.subarray(start), extraZero);
+      return res;
+    }
+
+    /**
+     * Code modified from https://github.com/github/webauthn-json/blob/e932b3585fa70b0bd5b5a4012ba7dbad7b0a0d0f/src/webauthn-json/base64url.ts#L23
+     * @param {string} input
+     */
+    var stringToBase64urlString = function(input) {
+      const base64String = btoa(input);
+      return base64StringToBase64UrlEncodedString(base64String);
+    }
+
+    /**
+     * Converts base64-encoded string into a base64url-encoded string
+     * @param {string} input
+     */
+    var base64StringToBase64UrlEncodedString = function(input) {
+      return input.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+    }
   </script>
 </body>
 </html>
