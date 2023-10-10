@@ -122,7 +122,7 @@
       var targetPubBuf = await p256JWKPrivateToPublic(embeddedKeyJwk);
       var targetPubHex = bufferToHexString(targetPubBuf);
       document.getElementById("embedded-key").value = targetPubHex;
-      sendMessage("PUBLIC_KEY_READY", targetPubHex)
+      sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
 
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
@@ -194,7 +194,7 @@
           });
 
         RECOVERY_CREDENTIAL_BYTES = recoveryCredentialBytes;
-        sendMessage("BUNDLE_INJECTED", true)
+        sendMessageUp("BUNDLE_INJECTED", true)
     }
     /**
      * Function triggered when STAMP_REQUEST event is received.
@@ -234,7 +234,7 @@
       };
 
       var stampHeaderValue = stringToBase64urlString(JSON.stringify(stamp));
-      sendMessage("STAMP", stampHeaderValue)
+      sendMessageUp("STAMP", stampHeaderValue)
     }
 
     /**
@@ -242,7 +242,7 @@
      * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
      * @param value message value
      */
-    var sendMessage = function(type, value) {
+    var sendMessageUp = function(type, value) {
       if (window.top !== null) {
         window.top.postMessage({
             "type": type,
