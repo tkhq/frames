@@ -124,14 +124,16 @@
       document.getElementById("embedded-key").value = targetPubHex;
       sendMessage("PUBLIC_KEY_READY", targetPubHex)
 
+      // TODO: find a way to filter messages and ensure they're coming from the parent window?
+      // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", function(event) {
-        if (event.data && event.data["type"] == "INJECT_BUNDLE") {
-          logReceivedMessage(event.data["type"], event.data["value"]);
+        if (event.data && event.data["type"] == "INJECT_RECOVERY_BUNDLE") {
+          logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           onInjectBundle(event.data["value"])
         }
-        if (event.data && event.data["type"] == "CHALLENGE") {
-          logReceivedMessage(event.data["type"], event.data["value"]);
-          onChallenge(event.data["value"]);
+        if (event.data && event.data["type"] == "STAMP_REQUEST") {
+          logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          onStampRequest(event.data["value"]);
         }
       }, false);
 
@@ -143,14 +145,14 @@
       document.getElementById("inject").addEventListener("click", async function(e) {
         e.preventDefault();
         window.postMessage({
-          "type": "INJECT_BUNDLE",
+          "type": "INJECT_RECOVERY_BUNDLE",
           "value": document.getElementById("recovery-bundle").value,
         })
       }, false);
       document.getElementById("stamp").addEventListener("click", async function(e) {
         e.preventDefault();
         window.postMessage({
-          "type": "CHALLENGE",
+          "type": "STAMP_REQUEST",
           "value": document.getElementById("payload").value,
         })
       }, false);
@@ -162,7 +164,7 @@
     }, false);
 
     /**
-     * Function triggered when INJECT_BUNDLE event is received.
+     * Function triggered when INJECT_RECOVERY_BUNDLE event is received.
      * The `bundle` param is the concatenation of a public key and an encrypted payload.
      * For example:
      * 04c1faba5812bde458fdbf505dc1fc9dc1eb3f7c8fbbc3284d399bcc8eef8d72f29baf967cd6f2b207005d86b74a51aff9525c553afbad4ac0835e47ffcf3623a2
@@ -192,13 +194,13 @@
           });
 
         RECOVERY_CREDENTIAL_BYTES = recoveryCredentialBytes;
-        sendMessage("BUNDLE_INJECTED", null)
+        sendMessage("BUNDLE_INJECTED", true)
     }
     /**
-     * Function triggered when CHALLENGE event is received.
+     * Function triggered when STAMP_REQUEST event is received.
      * @param {string} challenge hex-encoded string containing the bytes to sign.
      */
-    var onChallenge = async function(challenge) {
+    var onStampRequest = async function(challenge) {
       if (RECOVERY_CREDENTIAL_BYTES === null) {
         throw new Error("cannot sign payload without credential. Credential bytes are null");
       }
@@ -247,19 +249,16 @@
             "value": value,
         }, '*')
       }
-      var messageLog = document.getElementById("message-log");
-      var message = document.createElement("p")
-      message.innerText = `⬆️ Sent message ${type}: ${value}`
-      messageLog.appendChild(message);
+      logMessage(`⬆️ Sent message ${type}: ${value}`)
     }
 
     /**
-     * Function to log a received message.
+     * Function to log a message and persist it in the page's DOM.
      */
-    var logReceivedMessage = function(type, value) {
+    var logMessage = function(content) {
       var messageLog = document.getElementById("message-log");
       var message = document.createElement("p")
-      message.innerText = `⬇️ Received message ${type}: ${value}`;
+      message.innerText = content;
       messageLog.appendChild(message);
     }
 
