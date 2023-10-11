@@ -67,8 +67,9 @@ describe("TKHQ", () => {
   })
 
   it("imports recovery credentials", async () => {
-    var pkcs8ByteBuffer =  TKHQ.bufferFromHexString("308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104207632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205ca144034200040af4c5e293412d76867af92a19fc90cd621fd0078c39eb14e9ed7bdf38752ec853f1439b9ae8ed4414de7f9c5431d917261ffee14cf06b3c34a0e8a59a845310");
-    let key = await TKHQ.importRecoveryCredential(pkcs8ByteBuffer);
+    var pkcs8 = "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104207632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205ca144034200040af4c5e293412d76867af92a19fc90cd621fd0078c39eb14e9ed7bdf38752ec853f1439b9ae8ed4414de7f9c5431d917261ffee14cf06b3c34a0e8a59a845310";
+    var buffer = new Uint8Array(pkcs8.match(/../g).map(h=>parseInt(h,16))).buffer
+    let key = await TKHQ.importRecoveryCredential(buffer);
     expect(key.constructor.name).toEqual("CryptoKey");
     expect(key.algorithm).toEqual({ name: "ECDSA", namedCurve: "P-256"});
   })
