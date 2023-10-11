@@ -1,5 +1,5 @@
-import { fireEvent, getByText } from "@testing-library/dom"
-import "@testing-library/jest-dom/extend-expect"
+import { getByText } from "@testing-library/dom"
+import "@testing-library/jest-dom"
 import { JSDOM } from "jsdom"
 import fs from "fs"
 import path from "path"
@@ -90,7 +90,7 @@ describe("TKHQ", () => {
 
   it("contains additionalAssociatedData", async () => {
     // This is a trivial helper; concatenates the 2 arrays!
-    expect(TKHQ.additionalAssociatedData(new Uint8Array([1, 2]), new Uint8Array([3, 4]))).toEqual(new Uint8Array([1, 2, 3, 4]));
+    expect(TKHQ.additionalAssociatedData(new Uint8Array([1, 2]), new Uint8Array([3, 4])).buffer).toEqual(new Uint8Array([1, 2, 3, 4]).buffer);
   })
 
   it("stringToBase64urlString", () => {
