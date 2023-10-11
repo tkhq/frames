@@ -1,0 +1,22 @@
+{
+  "name": "recovery-tests",
+  "version": "1.0.0",
+  "main": "index.test.js",
+  "scripts": {
+    "start": "serve",
+    "test": "jest"
+  },
+  "repository": "git@github.com:tkhq/recovery.git",
+  "author": "Turnkey <hello@turnkey.com>",
+  "description": "This package is only here to help us test the main html file",
+  "license": "MIT",
+  "devDependencies": {
+    "@babel/core": "^7.9.0",
+    "@babel/preset-env": "^7.9.5",
+    "@testing-library/dom": "^7.2.1",
+    "@testing-library/jest-dom": "^5.5.0",
+    "babel-jest": "^25.3.0",
+    "jest": "^25.3.0",
+    "serve": "^11.3.0"
+  }
+}

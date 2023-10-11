@@ -109,6 +109,276 @@
   <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
   <div id="message-log"></div>
 
+  <!--
+    Script defining important helpers.
+    These helpers are unit-testable, so most of the logic should be written here.
+  -->
+  <script>
+    window.TKHQ = function() {
+      /** constant for LocalStorage */
+      var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
+
+      /**
+       * Creates a new public/private key pair and persists it in localStorage
+       */
+      var initEmbeddedKey = async function() {
+        var retrievedKey = await getEmbeddedKey();
+        if (retrievedKey === null) {
+          var targetKey = await generateTargetKey();
+          setEmbeddedKey(targetKey)
+        } else {
+          // Nothing to do, key is correctly initialized!
+        }
+      }
+
+      /*
+      * Generate a key to encrypt to and export it as a JSON Web Key.
+      */
+      var generateTargetKey = async function() {
+        var p256key = await crypto.subtle.generateKey({
+          name: 'ECDSA',
+          namedCurve: 'P-256',
+        }, true, ['sign',]);
+
+        return await crypto.subtle.exportKey("jwk", p256key.privateKey);
+      }
+
+      // Gets the current embedded private key JWK. Returns `null` if not found.
+      var getEmbeddedKey = function() {
+        var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
+        if (jwtKey === null || jwtKey === undefined || jwtKey === "") {
+          return null
+        } else {
+          return JSON.parse(jwtKey);
+        }
+      }
+
+      var setEmbeddedKey = function(targetKey) {
+        return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
+      }
+
+      var clearEmbeddedKey = function() {
+        window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
+      }
+
+      /**
+       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+       * @param {string} hexString
+       */
+      var bufferFromHexString = function(hexString) {
+        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16))).buffer;
+      }
+
+      /**
+        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+        */
+      var bufferToHexString = function(buffer) {
+        return [...new Uint8Array(buffer)]
+            .map(x => x.toString(16).padStart(2, '0'))
+            .join('');
+      }
+
+      /**
+       * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+       */
+      var additionalAssociatedData = function(
+        senderPubBuf,
+        receiverPubBuf,
+      ) {
+        var s = Array.from(new Uint8Array(senderPubBuf));
+        var r = Array.from(new Uint8Array(receiverPubBuf));
+        return new Uint8Array([...s, ...r]);
+      }
+
+      /**
+       * Encodes a buffer into base64url
+       */
+      function base64urlEncode(byteArray) {
+        return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
+          return String.fromCharCode(val);
+        }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
+      }
+
+      /**
+       * `SubtleCrypto.sign(...)` outputs signature in IEEE P1363 format:
+       * - https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#ecdsa
+       *
+       * Turnkey expects the signature encoding to be DER-encoded ASN.1:
+       * - https://github.com/tkhq/tkcli/blob/7f0159af5a73387ff050647180d1db4d3a3aa033/src/internal/apikey/apikey.go#L149
+       *
+       * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L114
+       *
+       * Transform an ECDSA signature in IEEE 1363 encoding to DER encoding.
+       *
+       * @param {Uint8Array} ieee the ECDSA signature in IEEE encoding
+       * @return ECDSA signature in DER encoding
+       */
+      function convertEcdsaIeee1363ToDer(ieee) {
+        if (ieee.length % 2 != 0 || ieee.length == 0 || ieee.length > 132) {
+          throw new Error(
+            "Invalid IEEE P1363 signature encoding. Length: " + ieee.length
+          );
+        }
+        const r = toUnsignedBigNum(ieee.subarray(0, ieee.length / 2));
+        const s = toUnsignedBigNum(ieee.subarray(ieee.length / 2, ieee.length));
+        let offset = 0;
+        const length = 1 + 1 + r.length + 1 + 1 + s.length;
+        let der;
+        if (length >= 128) {
+          der = new Uint8Array(length + 3);
+          der[offset++] = 48;
+          der[offset++] = 128 + 1;
+          der[offset++] = length;
+        } else {
+          der = new Uint8Array(length + 2);
+          der[offset++] = 48;
+          der[offset++] = length;
+        }
+        der[offset++] = 2;
+        der[offset++] = r.length;
+        der.set(r, offset);
+        offset += r.length;
+        der[offset++] = 2;
+        der[offset++] = s.length;
+        der.set(s, offset);
+        return der;
+      }
+
+      /**
+       * (private function, only called by `convertEcdsaIeee1363ToDer`)
+       * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L311
+       *
+       * Transform a big integer in big endian to minimal unsigned form which has
+       * no extra zero at the beginning except when the highest bit is set.
+       *
+       * @param {Uint8Array} bytes
+       *
+       */
+      function toUnsignedBigNum(bytes) {
+        // Remove zero prefixes.
+        let start = 0;
+        while (start < bytes.length && bytes[start] == 0) {
+          start++;
+        }
+        if (start == bytes.length) {
+          start = bytes.length - 1;
+        }
+        let extraZero = 0;
+
+        // If the 1st bit is not zero, add 1 zero byte.
+        if ((bytes[start] & 128) == 128) {
+          // Add extra zero.
+          extraZero = 1;
+        }
+        const res = new Uint8Array(bytes.length - start + extraZero);
+        res.set(bytes.subarray(start), extraZero);
+        return res;
+      }
+
+      /**
+       * Code modified from https://github.com/github/webauthn-json/blob/e932b3585fa70b0bd5b5a4012ba7dbad7b0a0d0f/src/webauthn-json/base64url.ts#L23
+       * @param {string} input
+       */
+      var stringToBase64urlString = function(input) {
+          const base64String = btoa(input);
+          return base64String.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+      }
+
+      /**
+       * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+       * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
+       * @param value message value
+       */
+      var sendMessageUp = function(type, value) {
+        if (window.top !== null) {
+          window.top.postMessage({
+              "type": type,
+              "value": value,
+          }, '*')
+        }
+        logMessage(`⬆️ Sent message ${type}: ${value}`)
+      }
+
+      /**
+       * Function to log a message and persist it in the page's DOM.
+       */
+      var logMessage = function(content) {
+        var messageLog = document.getElementById("message-log");
+        var message = document.createElement("p")
+        message.innerText = content;
+        messageLog.appendChild(message);
+      }
+
+      /**
+      * Convert a JSON Web Key private key to a public key and export the public
+      * key in raw format.
+      */
+      var p256JWKPrivateToPublic = async function(jwkPrivate) {
+        // make a copy so we don't modify the underlying object
+        const jwkPrivateCopy = { ... jwkPrivate }
+        // change jwk so it will be imported as a public key
+        delete jwkPrivateCopy.d;
+        jwkPrivateCopy.key_ops = ["verify"];
+
+        var publicKey =  await window.crypto.subtle
+          .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+        return await crypto.subtle.exportKey("raw", publicKey);
+      }
+
+      /**
+       * Returns a CryptoKey from a P256 private key bytes
+       * These recovery bytes are pkcs8 bytes...for NOW
+       * This is painful because web crypto has to know x and y and can't figure these out on its own.
+       * @param {ArrayBuffer} privateKeyBytes
+       */
+      var importRecoveryCredential = async function(privateKeyBytes) {
+        var key = await window.crypto.subtle
+          .importKey("pkcs8", privateKeyBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+        return key
+      }
+
+      /**
+       * Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
+       * @param {ArrayBuffer} rawPublicKey
+       */
+       var compressRawPublicKey = function(rawPublicKey) {
+        const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
+        const len = rawPublicKeyBytes.byteLength
+
+        // Drop the y coordinate
+        var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
+
+        // Encode the parity of `y` in first bit
+        compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01)
+        return compressedBytes.buffer
+      }
+
+      return {
+        initEmbeddedKey,
+        generateTargetKey,
+        getEmbeddedKey,
+        setEmbeddedKey,
+        clearEmbeddedKey,
+        importRecoveryCredential,
+        compressRawPublicKey,
+        p256JWKPrivateToPublic,
+        convertEcdsaIeee1363ToDer,
+        sendMessageUp,
+        logMessage,
+        base64urlEncode,
+        stringToBase64urlString,
+        bufferToHexString,
+        bufferFromHexString,
+        additionalAssociatedData
+      }
+    }();
+  </script>
+
+  <!--
+    Script importing HPKE lib until we can replace it
+    Because this is loaded as a module JSDOM can't load it properly
+    Code in here isn't tested, so let's keep this to a minimum!
+  -->
   <script type="module">
     // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
     import * as hpke from "https://esm.sh/@hpke/core";
@@ -117,22 +387,22 @@
     var RECOVERY_CREDENTIAL_BYTES = null;
 
     document.addEventListener("DOMContentLoaded", async function () {
-      await initEmbeddedKey();
-      var embeddedKeyJwk = await getEmbeddedPrivateKey();
-      var targetPubBuf = await p256JWKPrivateToPublic(embeddedKeyJwk);
-      var targetPubHex = bufferToHexString(targetPubBuf);
+      await TKHQ.initEmbeddedKey();
+      var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+      var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+      var targetPubHex = TKHQ.bufferToHexString(targetPubBuf);
       document.getElementById("embedded-key").value = targetPubHex;
-      sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
 
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", function(event) {
         if (event.data && event.data["type"] == "INJECT_RECOVERY_BUNDLE") {
-          logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           onInjectBundle(event.data["value"])
         }
         if (event.data && event.data["type"] == "STAMP_REQUEST") {
-          logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           onStampRequest(event.data["value"]);
         }
       }, false);
@@ -160,7 +430,7 @@
       /**
        * DEBUG functionality only to clear the page's localStorage
        */
-      document.getElementById("clear").addEventListener("click", clearEmbeddedKey);
+      document.getElementById("clear").addEventListener("click", TKHQ.clearEmbeddedKey);
     }, false);
 
     /**
@@ -180,12 +450,12 @@
         }
 
         var encappedKeyHex = bundle.substring(0, 130);
-        var encappedKeyBuf = bufferFromHexString(encappedKeyHex);
+        var encappedKeyBuf = TKHQ.bufferFromHexString(encappedKeyHex);
 
         var ciphertextHex = bundle.substring(130);
-        var ciphertextBuf = bufferFromHexString(ciphertextHex);
+        var ciphertextBuf = TKHQ.bufferFromHexString(ciphertextHex);
 
-        var embeddedKeyJwk = await getEmbeddedPrivateKey();
+        var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var recoveryCredentialBytes = await HpkeDecrypt(
           {
             ciphertextBuf,
@@ -194,7 +464,7 @@
           });
 
         RECOVERY_CREDENTIAL_BYTES = recoveryCredentialBytes;
-        sendMessageUp("BUNDLE_INJECTED", true)
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
     }
     /**
      * Function triggered when STAMP_REQUEST event is received.
@@ -204,8 +474,8 @@
       if (RECOVERY_CREDENTIAL_BYTES === null) {
         throw new Error("cannot sign payload without credential. Credential bytes are null");
       }
-      var challengeBytes = bufferFromHexString(challenge);
-      var recoveryKey = await importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
+      var challengeBytes = TKHQ.bufferFromHexString(challenge);
+      var recoveryKey = await TKHQ.importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
       var signatureIeee1363 = await window.crypto.subtle.sign(
         {
             name: "ECDSA",
@@ -215,8 +485,8 @@
         challengeBytes
       );
 
-      var derSignature = convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
-      var derSignatureHexString = bufferToHexString(derSignature);
+      var derSignature = TKHQ.convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
+      var derSignatureHexString = TKHQ.bufferToHexString(derSignature);
 
       // This is a bit of a pain, but we need to go through this:
       // - Key needs to be exported to JWK first
@@ -224,138 +494,17 @@
       //   ^^ (that's what `p256JWKPrivateToPublic` does)
       // - Finally, compresse the public key.
       var jwkKey = await crypto.subtle.exportKey("jwk", recoveryKey);
-      var publicKey = await p256JWKPrivateToPublic(jwkKey);
-      var compressedPublicKey = compressRawPublicKey(publicKey);
+      var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
+      var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
 
       var stamp = {
-        publicKey: bufferToHexString(compressedPublicKey),
+        publicKey: TKHQ.bufferToHexString(compressedPublicKey),
         scheme: "SIGNATURE_SCHEME_TK_API_P256",
         signature: derSignatureHexString,
       };
 
-      var stampHeaderValue = stringToBase64urlString(JSON.stringify(stamp));
+      var stampHeaderValue = TKHQ.stringToBase64urlString(JSON.stringify(stamp));
       sendMessageUp("STAMP", stampHeaderValue)
-    }
-
-    /**
-     * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
-     * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
-     * @param value message value
-     */
-    var sendMessageUp = function(type, value) {
-      if (window.top !== null) {
-        window.top.postMessage({
-            "type": type,
-            "value": value,
-        }, '*')
-      }
-      logMessage(`⬆️ Sent message ${type}: ${value}`)
-    }
-
-    /**
-     * Function to log a message and persist it in the page's DOM.
-     */
-    var logMessage = function(content) {
-      var messageLog = document.getElementById("message-log");
-      var message = document.createElement("p")
-      message.innerText = content;
-      messageLog.appendChild(message);
-    }
-
-    /**
-    * Convert a JSON Web Key private key to a public key and export the public
-    * key in raw format.
-    */
-    var p256JWKPrivateToPublic = async function(jwkPrivate) {
-      // make a copy so we don't modify the underlying object
-      const jwkPrivateCopy = { ... jwkPrivate }
-      // change jwk so it will be imported as a public key
-      delete jwkPrivateCopy.d;
-      jwkPrivateCopy.key_ops = ["verify"];
-
-      var publicKey =  await window.crypto.subtle
-        .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
-      return await crypto.subtle.exportKey("raw", publicKey);
-    }
-
-    /**
-     * Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
-     * @param {ArrayBuffer} rawPublicKey
-     */
-    var compressRawPublicKey = function(rawPublicKey) {
-      const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
-      const len = rawPublicKeyBytes.byteLength
-
-      // Drop the y coordinate
-      var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
-
-      // Encode the parity of `y` in first bit
-      compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01)
-      return compressedBytes.buffer
-    }
-
-    /**
-     * Returns a CryptoKey from a P256 private key bytes
-     * These recovery bytes are pkcs8 bytes.
-     * This is painful because web crypto has to know x and y and can't figure these out on its own.
-     * @param {ArrayBuffer} privateKeyBytes
-     */
-    var importRecoveryCredential = async function(privateKeyBytes) {
-      var key = await window.crypto.subtle
-        .importKey("pkcs8", privateKeyBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-      return key
-    }
-
-    /**
-     * Creates a new public/private key pair and persists it in localStorage
-     */
-    var initEmbeddedKey = async function() {
-      var retrievedKey = await getEmbeddedPrivateKey();
-      if (retrievedKey === null) {
-        var targetKey = await generateTargetKey();
-        setEmbeddedKey(targetKey)
-      } else {
-        // Nothing to do, key is correctly initialized
-      }
-    }
-
-    /** constant for LocalStorage */
-    const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
-
-    // Gets the current embedded private key JWK. Returns `null` if not found.
-    var getEmbeddedPrivateKey = async function() {
-      var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
-      if (jwtKey === null || jwtKey === undefined || jwtKey === "") {
-        return null
-      } else {
-        return JSON.parse(jwtKey);
-      }
-    }
-
-    var setEmbeddedKey = function(targetKey) {
-      console.log("setting (stringified)", JSON.stringify(targetKey))
-      return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
-    }
-
-    var clearEmbeddedKey = function() {
-      window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
-    }
-
-    /**
-     * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
-     * @param {string} hexString
-     */
-    var bufferFromHexString = function(hexString) {
-      return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16))).buffer;
-    }
-
-     /**
-      * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
-      */
-     var bufferToHexString = function(buffer) {
-      return [...new Uint8Array(buffer)]
-          .map(x => x.toString(16).padStart(2, '0'))
-          .join('');
     }
 
     /**
@@ -383,138 +532,16 @@
         info: new TextEncoder().encode("turnkey_hpke"),
       });
 
-      var receiverPubBuf = await p256JWKPrivateToPublic(receiverPrivJwk);
-      var aad = additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+      var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
+      var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
       var res;
       try {
         res = await recipientCtx.open(ciphertextBuf, aad);
       } catch (e) {
         throw new Error("decryption failed: " + e);
       }
+      console.log("result from HPKE", res);
       return res
-    }
-
-    /*
-     * Generate a key to encrypt to and export it as a JSON Web Key.
-     */
-    var generateTargetKey = async function() {
-        var kemContext = new hpke.DhkemP256HkdfSha256();
-        var kp = await kemContext.generateKeyPair();
-
-        return await crypto.subtle.exportKey("jwk", kp.privateKey);
-      }
-
-    /**
-     * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
-     */
-    var additionalAssociatedData = function(
-      senderPubBuf,
-      receiverPubBuf,
-    ) {
-      var s = Array.from(new Uint8Array(senderPubBuf));
-      var r = Array.from(new Uint8Array(receiverPubBuf));
-      return new Uint8Array([...s, ...r]);
-    }
-
-    /**
-     * Encodes a buffer into base64url
-     */
-    function base64urlEncode(byteArray) {
-      return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
-        return String.fromCharCode(val);
-      }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
-    }
-
-    /**
-     * `SubtleCrypto.sign(...)` outputs signature in IEEE P1363 format:
-     * - https://developer.mozilla.org/en-US/docs/Web/API/SubtleCrypto/sign#ecdsa
-     *
-     * Turnkey expects the signature encoding to be DER-encoded ASN.1:
-     * - https://github.com/tkhq/tkcli/blob/7f0159af5a73387ff050647180d1db4d3a3aa033/src/internal/apikey/apikey.go#L149
-     *
-     * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L114
-     *
-     * Transform an ECDSA signature in IEEE 1363 encoding to DER encoding.
-     *
-     * @param {Uint8Array} ieee the ECDSA signature in IEEE encoding
-     * @return ECDSA signature in DER encoding
-     */
-    function convertEcdsaIeee1363ToDer(ieee) {
-      if (ieee.length % 2 != 0 || ieee.length == 0 || ieee.length > 132) {
-        throw new Error(
-          "Invalid IEEE P1363 signature encoding. Length: " + ieee.length
-        );
-      }
-      const r = toUnsignedBigNum(ieee.subarray(0, ieee.length / 2));
-      const s = toUnsignedBigNum(ieee.subarray(ieee.length / 2, ieee.length));
-      let offset = 0;
-      const length = 1 + 1 + r.length + 1 + 1 + s.length;
-      let der;
-      if (length >= 128) {
-        der = new Uint8Array(length + 3);
-        der[offset++] = 48;
-        der[offset++] = 128 + 1;
-        der[offset++] = length;
-      } else {
-        der = new Uint8Array(length + 2);
-        der[offset++] = 48;
-        der[offset++] = length;
-      }
-      der[offset++] = 2;
-      der[offset++] = r.length;
-      der.set(r, offset);
-      offset += r.length;
-      der[offset++] = 2;
-      der[offset++] = s.length;
-      der.set(s, offset);
-      return der;
-    }
-
-    /**
-     * Code modified from https://github.com/google/tink/blob/6f74b99a2bfe6677e3670799116a57268fd067fa/javascript/subtle/elliptic_curves.ts#L311
-     *
-     * Transform a big integer in big endian to minimal unsigned form which has
-     * no extra zero at the beginning except when the highest bit is set.
-     *
-     * @param {Uint8Array} bytes
-     *
-     */
-    function toUnsignedBigNum(bytes) {
-      // Remove zero prefixes.
-      let start = 0;
-      while (start < bytes.length && bytes[start] == 0) {
-        start++;
-      }
-      if (start == bytes.length) {
-        start = bytes.length - 1;
-      }
-      let extraZero = 0;
-
-      // If the 1st bit is not zero, add 1 zero byte.
-      if ((bytes[start] & 128) == 128) {
-        // Add extra zero.
-        extraZero = 1;
-      }
-      const res = new Uint8Array(bytes.length - start + extraZero);
-      res.set(bytes.subarray(start), extraZero);
-      return res;
-    }
-
-    /**
-     * Code modified from https://github.com/github/webauthn-json/blob/e932b3585fa70b0bd5b5a4012ba7dbad7b0a0d0f/src/webauthn-json/base64url.ts#L23
-     * @param {string} input
-     */
-    var stringToBase64urlString = function(input) {
-      const base64String = btoa(input);
-      return base64StringToBase64UrlEncodedString(base64String);
-    }
-
-    /**
-     * Converts base64-encoded string into a base64url-encoded string
-     * @param {string} input
-     */
-    var base64StringToBase64UrlEncodedString = function(input) {
-      return input.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
     }
   </script>
 </body>
