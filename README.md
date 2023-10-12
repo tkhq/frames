@@ -4,6 +4,14 @@ This repository contains code for the recovery component of Turnkey. This self-c
 
 This page is hosted on Github pages at https://tkhq.github.io/recovery/
 
+# Running tests
+
+This HTML page has tests. They run on CI automatically. If you want to run them locally:
+```
+npm install
+npm test
+```
+
 # Running a fake recovery
 
 Download mono, then check out `zeke-recovery-demo`:
