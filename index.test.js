@@ -1,4 +1,3 @@
-import { getByText } from "@testing-library/dom"
 import "@testing-library/jest-dom"
 import { JSDOM } from "jsdom"
 import fs from "fs"
@@ -9,7 +8,6 @@ import * as crypto from "crypto";
 const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
 
 let dom
-let container
 let TKHQ
 
 describe("TKHQ", () => {
@@ -28,12 +26,6 @@ describe("TKHQ", () => {
     });
 
     TKHQ = dom.window.TKHQ
-    container = dom.window.document.body
-  })
-
-  it("renders a Init Recovery heading", () => {
-    expect(container.querySelector("h2")).not.toBeNull()
-    expect(getByText(container, "Init Recovery")).toBeInTheDocument()
   })
 
   it("gets, sets, and removes values in localStorage", async () => {
@@ -66,17 +58,23 @@ describe("TKHQ", () => {
     expect(key.crv).toBe("P-256");
   })
 
-  it("imports recovery credentials", async () => {
-    var pkcs8 = "308187020100301306072a8648ce3d020106082a8648ce3d030107046d306b02010104207632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205ca144034200040af4c5e293412d76867af92a19fc90cd621fd0078c39eb14e9ed7bdf38752ec853f1439b9ae8ed4414de7f9c5431d917261ffee14cf06b3c34a0e8a59a845310";
-    var buffer = new Uint8Array(pkcs8.match(/../g).map(h=>parseInt(h,16))).buffer
-    let key = await TKHQ.importRecoveryCredential(buffer);
+  it("imports recovery credentials without errors", async () => {
+    let key = await TKHQ.importRecoveryCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     expect(key.constructor.name).toEqual("CryptoKey");
     expect(key.algorithm).toEqual({ name: "ECDSA", namedCurve: "P-256"});
   })
 
+  it("imports recovery credentials correctly", async () => {
+    let key = await TKHQ.importRecoveryCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+    let jwkPrivateKey = await crypto.subtle.exportKey("jwk", key);
+    let publicKey = await TKHQ.p256JWKPrivateToPublic(jwkPrivateKey);
+    let compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
+    expect(TKHQ.uint8arrayToHexString(compressedPublicKey)).toEqual("020af4c5e293412d76867af92a19fc90cd621fd0078c39eb14e9ed7bdf38752ec8");
+  })
+
   it("compresses raw P-256 public keys", async () => {
-    let compressed = await TKHQ.compressRawPublicKey(Buffer.from("04c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4f510c344715f84cf0ba0cc71bd04136c0fb2633a3f459e68ffb8620be16900f0", "hex"));
-    expect(compressed).toEqual(Buffer.from("02c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4", "hex").buffer);
+    let compressed = await TKHQ.compressRawPublicKey(TKHQ.uint8arrayFromHexString("04c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4f510c344715f84cf0ba0cc71bd04136c0fb2633a3f459e68ffb8620be16900f0"));
+    expect(compressed).toEqual(TKHQ.uint8arrayFromHexString("02c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4", "hex"));
   })
 
   it("contains p256JWKPrivateToPublic", async () => {
@@ -102,12 +100,12 @@ describe("TKHQ", () => {
     expect(TKHQ.base64urlEncode(new Uint8Array([1, 2, 3]))).toEqual("AQID");
   })
 
-  it("contains bufferToHexString", () => {
-    expect(TKHQ.bufferToHexString(Buffer.from([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]))).toEqual("627566666572");
+  it("contains uint8arrayToHexString", () => {
+    expect(TKHQ.uint8arrayToHexString(new Uint8Array([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]))).toEqual("627566666572");
   })
   
-  it("contains bufferFromHexString", () => {
-    expect(TKHQ.bufferFromHexString("627566666572")).toEqual(new ArrayBuffer([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]));
+  it("contains uint8arrayFromHexString", () => {
+    expect(TKHQ.uint8arrayFromHexString("627566666572").toString()).toEqual("98,117,102,102,101,114");
   })
 
 

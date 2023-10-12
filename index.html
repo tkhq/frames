@@ -143,7 +143,9 @@
         return await crypto.subtle.exportKey("jwk", p256key.privateKey);
       }
 
-      // Gets the current embedded private key JWK. Returns `null` if not found.
+      /**
+       * Gets the current embedded private key JWK. Returns `null` if not found.
+       */
       var getEmbeddedKey = function() {
         var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
         if (jwtKey === null || jwtKey === undefined || jwtKey === "") {
@@ -164,16 +166,20 @@
       /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
        * @param {string} hexString
+       * @returns {Uint8Array}
        */
-      var bufferFromHexString = function(hexString) {
-        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16))).buffer;
+      var uint8arrayFromHexString = function(hexString) {
+        var res = new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+        return res
       }
 
       /**
-        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+        * Takes a Uint8Array and returns a hex string
+        * @param {Uint8Array} buffer
+        * @return {string}
         */
-      var bufferToHexString = function(buffer) {
-        return [...new Uint8Array(buffer)]
+      var uint8arrayToHexString = function(buffer) {
+        return [...buffer]
             .map(x => x.toString(16).padStart(2, '0'))
             .join('');
       }
@@ -312,6 +318,7 @@
       /**
       * Convert a JSON Web Key private key to a public key and export the public
       * key in raw format.
+      * @return {Uint8array}
       */
       var p256JWKPrivateToPublic = async function(jwkPrivate) {
         // make a copy so we don't modify the underlying object
@@ -322,35 +329,42 @@
 
         var publicKey =  await window.crypto.subtle
           .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
-        return await crypto.subtle.exportKey("raw", publicKey);
+        var buffer = await crypto.subtle.exportKey("raw", publicKey);
+        return new Uint8Array(buffer)
       }
 
       /**
        * Returns a CryptoKey from a P256 private key bytes
-       * These recovery bytes are pkcs8 bytes...for NOW
-       * This is painful because web crypto has to know x and y and can't figure these out on its own.
-       * @param {ArrayBuffer} privateKeyBytes
+       * This is a bit awkward because webcrypto can't import raw private key bytes.
+       * We first convert these to pkcs8 bytes before importing.
+       * @param {Uint8Array} privateKeyBytes
        */
       var importRecoveryCredential = async function(privateKeyBytes) {
+        var privateKeyHexString = uint8arrayToHexString(privateKeyBytes);
+
+        // Specific byte-sequence for curve prime256v1 (DER encoding)
+        var hexString = "308141020100301306072a8648ce3d020106082a8648ce3d030107042730250201010420" + privateKeyHexString
+        var pkcsBytes = new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)))
+        //var pkcs8Bytes = bufferFromHexString();
+
         var key = await window.crypto.subtle
-          .importKey("pkcs8", privateKeyBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
+          .importKey("pkcs8", pkcsBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
         return key
       }
 
       /**
        * Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
-       * @param {ArrayBuffer} rawPublicKey
+       * @param {Uint8Array} rawPublicKey
        */
        var compressRawPublicKey = function(rawPublicKey) {
-        const rawPublicKeyBytes = new Uint8Array(rawPublicKey)
-        const len = rawPublicKeyBytes.byteLength
+        const len = rawPublicKey.byteLength
 
         // Drop the y coordinate
-        var compressedBytes = rawPublicKeyBytes.slice(0, 1 + len >>> 1)
+        var compressedBytes = rawPublicKey.slice(0, 1 + len >>> 1)
 
         // Encode the parity of `y` in first bit
-        compressedBytes[0] = 0x2 | (rawPublicKeyBytes[len-1] & 0x01)
-        return compressedBytes.buffer
+        compressedBytes[0] = 0x2 | (rawPublicKey[len-1] & 0x01)
+        return compressedBytes
       }
 
       return {
@@ -367,8 +381,8 @@
         logMessage,
         base64urlEncode,
         stringToBase64urlString,
-        bufferToHexString,
-        bufferFromHexString,
+        uint8arrayToHexString,
+        uint8arrayFromHexString,
         additionalAssociatedData
       }
     }();
@@ -390,7 +404,7 @@
       await TKHQ.initEmbeddedKey();
       var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
       var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-      var targetPubHex = TKHQ.bufferToHexString(targetPubBuf);
+      var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
       document.getElementById("embedded-key").value = targetPubHex;
       TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
 
@@ -450,10 +464,10 @@
         }
 
         var encappedKeyHex = bundle.substring(0, 130);
-        var encappedKeyBuf = TKHQ.bufferFromHexString(encappedKeyHex);
+        var encappedKeyBuf = TKHQ.uint8arrayFromHexString(encappedKeyHex);
 
         var ciphertextHex = bundle.substring(130);
-        var ciphertextBuf = TKHQ.bufferFromHexString(ciphertextHex);
+        var ciphertextBuf = TKHQ.uint8arrayFromHexString(ciphertextHex);
 
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var recoveryCredentialBytes = await HpkeDecrypt(
@@ -468,13 +482,13 @@
     }
     /**
      * Function triggered when STAMP_REQUEST event is received.
-     * @param {string} challenge hex-encoded string containing the bytes to sign.
+     * @param {string} payload hex-encoded string containing the bytes to sign.
      */
-    var onStampRequest = async function(challenge) {
+    var onStampRequest = async function(payload) {
       if (RECOVERY_CREDENTIAL_BYTES === null) {
         throw new Error("cannot sign payload without credential. Credential bytes are null");
       }
-      var challengeBytes = TKHQ.bufferFromHexString(challenge);
+      var challengeBytes = TKHQ.uint8arrayFromHexString(payload);
       var recoveryKey = await TKHQ.importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
       var signatureIeee1363 = await window.crypto.subtle.sign(
         {
@@ -482,23 +496,23 @@
             hash: {name: "SHA-256"},
         },
         recoveryKey,
-        challengeBytes
+        challengeBytes.buffer
       );
 
       var derSignature = TKHQ.convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
-      var derSignatureHexString = TKHQ.bufferToHexString(derSignature);
+      var derSignatureHexString = TKHQ.uint8arrayToHexString(derSignature);
 
       // This is a bit of a pain, but we need to go through this:
       // - Key needs to be exported to JWK first
       // - Then imported without the private "d" component, and exported to get the public key
       //   ^^ (that's what `p256JWKPrivateToPublic` does)
-      // - Finally, compresse the public key.
+      // - Finally, compress the public key.
       var jwkKey = await crypto.subtle.exportKey("jwk", recoveryKey);
       var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
       var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
 
       var stamp = {
-        publicKey: TKHQ.bufferToHexString(compressedPublicKey),
+        publicKey: TKHQ.uint8arrayToHexString(compressedPublicKey),
         scheme: "SIGNATURE_SCHEME_TK_API_P256",
         signature: derSignatureHexString,
       };
@@ -540,7 +554,6 @@
       } catch (e) {
         throw new Error("decryption failed: " + e);
       }
-      console.log("result from HPKE", res);
       return res
     }
   </script>
