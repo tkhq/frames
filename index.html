@@ -148,7 +148,7 @@
        */
       var getEmbeddedKey = function() {
         var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
-        if (jwtKey === null || jwtKey === undefined || jwtKey === "") {
+        if (!jwtKey) {
           return null
         } else {
           return JSON.parse(jwtKey);
@@ -360,10 +360,14 @@
         const len = rawPublicKey.byteLength
 
         // Drop the y coordinate
+        // Uncompressed key is in the form 0x04||x||y
+        // `len >>> 1` is a more concise way to write `floor(len/2)`
         var compressedBytes = rawPublicKey.slice(0, 1 + len >>> 1)
 
         // Encode the parity of `y` in first bit
-        compressedBytes[0] = 0x2 | (rawPublicKey[len-1] & 0x01)
+        // `BYTE & 0x01` tests for parity and returns 0x00 when even, or 0x01 when odd
+        // Then `0x02 | <parity test result>` yields either 0x02 (even case) or 0x03 (odd).
+        compressedBytes[0] = 0x02 | (rawPublicKey[len-1] & 0x01)
         return compressedBytes
       }
 
