@@ -350,9 +350,9 @@
       /**
        * Returns a CryptoKey from a P256 private key bytes
        * This is a bit awkward because webcrypto can't import raw private key bytes.
-       * We use some custom code to derive the public key from the private key bytes.
-       * Note that this is NOT security sensitive because webcrypto libraries do validations on import
-       * In other words
+       * We use some custom crypto code to derive the public key from the private key bytes.
+       * Note that this is NOT security sensitive because browsers validate x/y coordinate
+       * when performing `crypto.subtle.importKey` operations.
        * @param {Uint8Array} privateKeyBytes
        */
       var importRecoveryCredential = async function(privateKeyBytes) {
@@ -413,6 +413,8 @@
       }
 
       /**********************************************************************************************
+       * Start of private crypto implementation for P256 public key derivation from a private key.
+       * ----
        * IMPORTANT NOTE: below we implement basic field arithmetic for P256
        * This is only used to compute public point from a secret key inside of
        * `importRecoveryCredential` above. If something goes wrong with the code below
