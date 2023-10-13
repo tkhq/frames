@@ -169,8 +169,7 @@
        * @returns {Uint8Array}
        */
       var uint8arrayFromHexString = function(hexString) {
-        var res = new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
-        return res
+        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
       }
 
       /**
@@ -198,11 +197,26 @@
 
       /**
        * Encodes a buffer into base64url
+       * @param {Uint8Array} byteArray
        */
       function base64urlEncode(byteArray) {
-        return btoa(Array.from(new Uint8Array(byteArray)).map(val => {
+        return btoa(Array.from(byteArray).map(val => {
           return String.fromCharCode(val);
         }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
+      }
+
+      /**
+       * Encodes a buffer into base64url
+       * @param {string} s
+       * @return {Uint8Array}
+       */
+      function base64urlDecode(s) {
+        var binaryString = atob(s.replace(/\-/g, '+').replace(/\_/g, '/'));
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
       }
 
       /**
@@ -336,20 +350,47 @@
       /**
        * Returns a CryptoKey from a P256 private key bytes
        * This is a bit awkward because webcrypto can't import raw private key bytes.
-       * We first convert these to pkcs8 bytes before importing.
+       * We use some custom crypto code to derive the public key from the private key bytes.
+       * Note that this is NOT security sensitive because browsers validate x/y coordinate
+       * when performing `crypto.subtle.importKey` operations.
        * @param {Uint8Array} privateKeyBytes
        */
       var importRecoveryCredential = async function(privateKeyBytes) {
         var privateKeyHexString = uint8arrayToHexString(privateKeyBytes);
+        var privateKey = BigInt('0x' + privateKeyHexString);
+        var publicKeyPoint = P256Generator.multiply(privateKey);
 
-        // Specific byte-sequence for curve prime256v1 (DER encoding)
-        var hexString = "308141020100301306072a8648ce3d020106082a8648ce3d030107042730250201010420" + privateKeyHexString
-        var pkcsBytes = new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)))
-        //var pkcs8Bytes = bufferFromHexString();
+        return await window.crypto.subtle.importKey(
+          "jwk",
+          {
+            kty: "EC",
+            crv: "P-256",
+            d: bigIntToBase64Url(privateKey),
+            x: bigIntToBase64Url(publicKeyPoint.x.num),
+            y: bigIntToBase64Url(publicKeyPoint.y.num),
+            ext: true,
+          },
+          {
+            name: "ECDSA",
+            namedCurve: "P-256",
+          },
+          true,
+          ["sign"]
+        )
+      }
 
-        var key = await window.crypto.subtle
-          .importKey("pkcs8", pkcsBytes, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]);
-        return key
+      /**
+       * Converts a `BigInt` into a base64url encoded string
+       * @param {BigInt} num
+       * @return {string}
+       */
+      var bigIntToBase64Url = function(num) {
+          var hexString = num.toString(16);
+          // Add an extra 0 to the start of the string to get a valid hex string (even length)
+          // (e.g. 0x0123 instead of 0x123)
+          var hexString = hexString.padStart(Math.ceil(hexString.length/2)*2, 0)
+          var buffer = uint8arrayFromHexString(hexString);
+          return base64urlEncode(buffer)
       }
 
       /**
@@ -371,6 +412,195 @@
         return compressedBytes
       }
 
+      /**********************************************************************************************
+       * Start of private crypto implementation for P256 public key derivation from a private key.
+       * ----
+       * IMPORTANT NOTE: below we implement basic field arithmetic for P256
+       * This is only used to compute public point from a secret key inside of
+       * `importRecoveryCredential` above. If something goes wrong with the code below
+       * the web crypto API will simply refuse to import the key.
+       * None of the functions below are returned from the closure to minimize the risk of misuse.
+       *********************************************************************************************/
+
+      /**
+       * P256FieldElement represents a finite field element
+       * The field is set to be the P256 prime:
+       * 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+       */
+      var P256FieldElement = function(num) {
+        this.num = BigInt(num);
+        this.prime = BigInt('0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff');
+      };
+      P256FieldElement.prototype.eq = function(other) {
+        return this.num === other.num;
+      }
+      P256FieldElement.prototype.add = function(other) {
+        num = this.num + other.num;
+        return new P256FieldElement(num % this.prime);
+      }
+      P256FieldElement.prototype.sub = function(other) {
+        res = (this.num - other.num) % this.prime;
+        if (res < BigInt(0)) { res += this.prime }
+        return new P256FieldElement(res);
+      }
+      P256FieldElement.prototype.mul = function(other) {
+        if (typeof(other) === "bigint") {
+          coefficient = other;
+        } else if (typeof(other) === "number") {
+          coefficient = BigInt(other)
+        } else if (other instanceof P256FieldElement) {
+          coefficient = other.num;
+        } else {
+          throw new Error("Cannot multiply element. Expected a BigInt, a Number or a P256FieldElement. Got: " + other);
+        }
+        num = (this.num * coefficient) % this.prime
+        return new P256FieldElement(num);
+      }
+      P256FieldElement.prototype.div = function(other) {
+        // This uses fermat's little theorem (https://en.wikipedia.org/wiki/Fermat%27s_little_theorem)
+        // => if p is prime, then for any integer a: a**(p-1) % p = 1
+        // => we can compute inverses for any a: 1/a = a**(p-2) % p
+        return new P256FieldElement(other.num).pow(this.prime - BigInt(2)).mul(this.num)
+      }
+      P256FieldElement.prototype.pow = function(exponent) {
+        var exponent = BigInt(exponent);
+        var base = this.num % this.prime;
+        // Pretty standard double-and-add loop
+        var result = 1n;
+        while (exponent > BigInt(0)) {
+          if (exponent % BigInt(2)) {
+            result = (result * base) % this.prime;
+          }
+          exponent = exponent / BigInt(2);
+          base = (base * base) % this.prime;
+        }
+        return new P256FieldElement(result);
+      };
+
+      /**
+       * P256Point is a point (x, y) on the following elliptic curve:
+       *     y**2 = x**3 + ax + b
+       *     (where x and y are both finite field elements on the P256 field)
+       * https://www.secg.org/sec2-v2.pdf, https://neuromancer.sk/std/nist/P-256
+       *
+       * We only define + and * since that's what's needed for public key derivation.
+       */
+      P256Point = function(x, y) {
+        if (!x instanceof P256FieldElement) {
+          throw new Error("expected a P256FieldElement for x. Got: " + x);
+        }
+        this.x = x;
+
+        if (!y instanceof P256FieldElement) {
+          throw new Error("expected a P256FieldElement for y. Got: " + y);
+        }
+        this.y = y;
+        this.a = new P256FieldElement(BigInt('0xffffffff00000001000000000000000000000000fffffffffffffffffffffffc'));
+        this.b = new P256FieldElement(BigInt('0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b'));
+
+        if (this.x === null && this.y === null) {
+          // Point at infinity
+          return
+        }
+
+        var left = this.y.pow(2).num;
+        var right = this.x.pow(3).add(this.x.mul(this.a)).add(this.b).num;
+
+        if (left != right){
+          // y**2 = x**3 + 7 is the elliptic curve equation
+          throw new Error('Not on the P256 curve! y**2 (' + left + ') != x3 + ax + b (' + right + ')');
+        }
+      }
+
+      /**
+       * Addition is a complex operation because of the number of cases involved.
+       * The point at infinity is represented by (x=null, y=null), and represents the logical "0".
+       * So, to compute `A.add(B)`:
+       * - Case 1a: if A is 0, return B (0+B=B)
+       * - Case 1b: if B is 0, return A (A+0=A)
+       * - Case 2: if A and B have the same x but different y coordinates, they're
+       *           opposite points: B is "-A". So, A+B=A+(-A)=0 (return point at infinity)
+       * - Case 3: if A and B are the same and at y=0, the A->B line is tangent to the y axis
+       *           -> return point at infinity
+       * - Case 4: if A and B are the same (with y≠0), the formula for the result R (x3, y3):
+       *           s = (3*x1**2 + a) / 2*y1
+       *           x3 = s**2 - 2*x1
+       *           y3 = s*(x1 - x3) - y1
+       *           -> return (x3, y3)
+       * - Case 5: general case (different x coordinates). To get R (x3, y3) from A and B:
+       *           s = (y2 -y1) / (x2 - x1)
+       *           x3 = s**2 - x1 - x2
+       *           y3 = s*(x1 - x3) - y1
+       *           -> return (x3, y3)
+       *
+       * See https://en.wikipedia.org/wiki/Elliptic_curve_point_multiplication#Point_addition for helpful visuals
+       */
+      P256Point.prototype.add = function(other) {
+        if (this.x === null) { return other; }  /* 1a */
+        if (other.x === null) { return this; }  /* 1b */
+
+        /* 2 */
+        if (this.x.eq(other.x) === true && this.y.eq(this.y) === false) {
+            return new P256Point(null, null);
+        }
+
+        /* 3 */
+        if (this.x.eq(other.x) && this.y.eq(other.y) && this.y.eq(new P256FieldElement(0))) {
+            return new P256Point(null, null);
+        }
+
+        /* 4 */
+        if (this.x.eq(other.x) && this.y.eq(other.y)) {
+            s = (this.x.pow(2).mul(3).add(this.a)).div(this.y.mul(2))
+            x = s.pow(2).sub(this.x.mul(2))
+            y = s.mul(this.x.sub(x)).sub(this.y)
+            return new P256Point(x, y)
+        }
+
+        /* 5 */
+        if (this.x.eq(other.x) === false) {
+            s = other.y.sub(this.y).div(other.x.sub(this.x));
+            x = s.pow(2).sub(this.x).sub(other.x);
+            y = s.mul(this.x.sub(x)).sub(this.y);
+            return new P256Point(x, y);
+        }
+
+        throw new Error('cannot handle addition of (' + this.x +  ', ' + this.y + ') with (' + other.x +  ', ' + other.y + ')');
+      }
+      /**
+       * Multiplication uses addition. Nothing crazy here.
+       * We start with "0" (point at infinity). Then we add increasing powers of 2.
+       * So, to multiply A by e.g. 25 (25 is 11001 in binary), we add 1*A, then compute
+       * 2*A, 4*A, 8*A by successive additions. Then add 8*A, then compute 16*A, then
+       * add 16*A.
+       */
+      P256Point.prototype.multiply = function(coefficient) {
+          var coef = BigInt(coefficient);
+          var current = this;
+          var result = new P256Point(null, null);
+          while(coef) {
+              if (coef & BigInt(1)) {
+                  result = result.add(current);
+              }
+              current = current.add(current);
+              coef >>= BigInt(1);
+          }
+          return result;
+      }
+
+      /**
+       * This is the P256 base point (aka generator)
+       * See https://www.secg.org/sec2-v2.pdf and https://neuromancer.sk/std/nist/P-256
+       */
+      var P256Generator = new P256Point(
+        new P256FieldElement(BigInt('0x6b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296')),
+        new P256FieldElement(BigInt('0x4fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5'))
+      )
+
+      /**********************************************************************************************
+       * End of private crypto implementation for P256 public key derivation from a private key.
+       *********************************************************************************************/
+
       return {
         initEmbeddedKey,
         generateTargetKey,
@@ -384,6 +614,7 @@
         sendMessageUp,
         logMessage,
         base64urlEncode,
+        base64urlDecode,
         stringToBase64urlString,
         uint8arrayToHexString,
         uint8arrayFromHexString,
@@ -453,25 +684,18 @@
 
     /**
      * Function triggered when INJECT_RECOVERY_BUNDLE event is received.
-     * The `bundle` param is the concatenation of a public key and an encrypted payload.
-     * For example:
-     * 04c1faba5812bde458fdbf505dc1fc9dc1eb3f7c8fbbc3284d399bcc8eef8d72f29baf967cd6f2b207005d86b74a51aff9525c553afbad4ac0835e47ffcf3623a2
-     * +
-     * 80b4a5708e2f95aa18dad9d90b8f49490893d1408a326c78abaa8a0d563ea7dbc28aaa35913f9d698be30d015afda49c
-     * ==
-     * 04c1faba5812bde458fdbf505dc1fc9dc1eb3f7c8fbbc3284d399bcc8eef8d72f29baf967cd6f2b207005d86b74a51aff9525c553afbad4ac0835e47ffcf3623a280b4a5708e2f95aa18dad9d90b8f49490893d1408a326c78abaa8a0d563ea7dbc28aaa35913f9d698be30d015afda49c
+     * The `bundle` param is the concatenation of a public key and an encrypted payload, and then base64 encoded
+     * Example: BNcKOotRE5od6mmnbLicwH29uUz_EbScMCU0EfmSZguTQIWC40kwdpmpFDwzYgr0jDgbSndeqPsX2kUpYQ_SCg-d1l7GSfiNZQ_P7MIgWtq2ZQx7jlbhNIyNW90fyHwcV_q3AwYl0qRlX7rHyoFRi98
      * @param {string} bundle
      */
     var onInjectBundle = async function(bundle) {
         if (bundle.length <= 130) {
           throw new Error("bundle size is too low. Expecting an uncompressed public key (130 chars) and an encrypted bundle!")
         }
+        var bundleBytes = TKHQ.base64urlDecode(bundle);
 
-        var encappedKeyHex = bundle.substring(0, 130);
-        var encappedKeyBuf = TKHQ.uint8arrayFromHexString(encappedKeyHex);
-
-        var ciphertextHex = bundle.substring(130);
-        var ciphertextBuf = TKHQ.uint8arrayFromHexString(ciphertextHex);
+        var encappedKeyBuf = bundleBytes.subarray(0,65);
+        var ciphertextBuf = bundleBytes.subarray(65);
 
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var recoveryCredentialBytes = await HpkeDecrypt(
@@ -481,7 +705,7 @@
             receiverPrivJwk: embeddedKeyJwk,
           });
 
-        RECOVERY_CREDENTIAL_BYTES = recoveryCredentialBytes;
+        RECOVERY_CREDENTIAL_BYTES = new Uint8Array(recoveryCredentialBytes);
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
     }
     /**
@@ -522,7 +746,7 @@
       };
 
       var stampHeaderValue = TKHQ.stringToBase64urlString(JSON.stringify(stamp));
-      sendMessageUp("STAMP", stampHeaderValue)
+      TKHQ.sendMessageUp("STAMP", stampHeaderValue)
     }
 
     /**
