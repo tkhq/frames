@@ -100,6 +100,10 @@ describe("TKHQ", () => {
     expect(TKHQ.base64urlEncode(new Uint8Array([1, 2, 3]))).toEqual("AQID");
   })
 
+  it("contains base64urlDecode", () => {
+    expect(TKHQ.base64urlDecode("AQID").buffer).toEqual(new Uint8Array([1, 2, 3]).buffer);
+  })
+
   it("contains uint8arrayToHexString", () => {
     expect(TKHQ.uint8arrayToHexString(new Uint8Array([0x62, 0x75, 0x66, 0x66, 0x65, 0x72]))).toEqual("627566666572");
   })
