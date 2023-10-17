@@ -394,6 +394,21 @@
       }
 
       /**
+       * Converts a `BigInt` into a hex encoded string
+       * @param {BigInt} num
+       * @param {number} length expected length of the resulting hex string
+       * @return {string}
+       */
+       var bigIntToHex = function(num, length) {
+          var hexString = num.toString(16);
+          if (hexString.length > length) {
+            throw new Error("number cannot fit in a hex string of " + length + " characters");
+          }
+          // Add an extra 0 to the start of the string to get to `length`
+          return hexString.padStart(length, 0)
+      }
+
+      /**
        * Accepts a public key array buffer, and returns a buffer with the compressed version of the public key
        * @param {Uint8Array} rawPublicKey
        */
@@ -410,6 +425,94 @@
         // Then `0x02 | <parity test result>` yields either 0x02 (even case) or 0x03 (odd).
         compressedBytes[0] = 0x02 | (rawPublicKey[len-1] & 0x01)
         return compressedBytes
+      }
+
+      /**
+       * Accepts a public key array buffer, and returns a buffer with the uncomrpessed version of the public key
+       * @param {Uint8Array} rawPublicKey
+       * @return {Uint8Array} the uncompressed bytes
+       */
+       var uncompressRawPublicKey = function(rawPublicKey) {
+        const len = rawPublicKey.byteLength
+
+        // point[0] must be 2 (false) or 3 (true).
+        // this maps to the initial "02" or "03" prefix
+        const lsb = rawPublicKey[0] === 3;
+        const x = BigInt("0x" + uint8arrayToHexString(rawPublicKey.subarray(1)));
+
+        // https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-4.pdf (Appendix D).
+        const p = BigInt("115792089210356248762697446949407573530086143415290314195533631308867097853951");
+        const b = BigInt("0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b");
+        const a = p - BigInt(3);
+
+        // Now compute y based on x
+        const rhs = ((x * x + a) * x + b) % p;
+        let y = modSqrt(rhs, p);
+        if (lsb !== testBit(y, 0)) {
+          y = (p - y) % p;
+        }
+
+        if (x < BigInt(0) || x >= p) {
+          throw new Error("x is out of range");
+        }
+
+        if (y < BigInt(0) || y >= p) {
+          throw new Error("y is out of range");
+        }
+
+        var uncompressedHexString = "04" + bigIntToHex(x, 64) + bigIntToHex(y, 64);
+        return uint8arrayFromHexString(uncompressedHexString)
+      }
+
+      /**
+       * Private helper to compute square root modulo p
+       */
+      function modSqrt(x, p) {
+        if (p <= BigInt(0)) {
+          throw new Error("p must be positive");
+        }
+        const base = x % p;
+        // The currently supported NIST curves P-256, P-384, and P-521 all satisfy
+        // p % 4 == 3.  However, although currently a no-op, the following check
+        // should be left in place in case other curves are supported in the future.
+        if (testBit(p, 0) && /* istanbul ignore next */ testBit(p, 1)) {
+          // Case p % 4 == 3 (applies to NIST curves P-256, P-384, and P-521)
+          // q = (p + 1) / 4
+          const q = (p + BigInt(1)) >> BigInt(2);
+          const squareRoot = modPow(base, q, p);
+          if ((squareRoot * squareRoot) % p !== base) {
+            throw new Error("could not find a modular square root");
+          }
+          return squareRoot;
+        }
+        // Skipping other elliptic curve types that require Cipolla's algorithm.
+        throw new Error("unsupported modulus value");
+      }
+
+      /**
+       * Private helper function used by `modSqrt`
+       */
+      function modPow(b, exp, p) {
+        if (exp === BigInt(0)) {
+          return BigInt(1);
+        }
+        let result = b;
+        const exponentBitString = exp.toString(2);
+        for (let i = 1; i < exponentBitString.length; ++i) {
+          result = (result * result) % p;
+          if (exponentBitString[i] === "1") {
+            result = (result * b) % p;
+          }
+        }
+        return result;
+      }
+
+      /**
+       * Another private helper function used as part of `modSqrt`
+       */
+      function testBit(n, i) {
+        const m = BigInt(1) << BigInt(i);
+        return (n & m) !== BigInt(0);
       }
 
       /**********************************************************************************************
@@ -609,12 +712,14 @@
         clearEmbeddedKey,
         importRecoveryCredential,
         compressRawPublicKey,
+        uncompressRawPublicKey,
         p256JWKPrivateToPublic,
         convertEcdsaIeee1363ToDer,
         sendMessageUp,
         logMessage,
         base64urlEncode,
         base64urlDecode,
+        bigIntToHex,
         stringToBase64urlString,
         uint8arrayToHexString,
         uint8arrayFromHexString,
@@ -685,19 +790,22 @@
     /**
      * Function triggered when INJECT_RECOVERY_BUNDLE event is received.
      * The `bundle` param is the concatenation of a public key and an encrypted payload, and then base64 encoded
-     * Example: BNcKOotRE5od6mmnbLicwH29uUz_EbScMCU0EfmSZguTQIWC40kwdpmpFDwzYgr0jDgbSndeqPsX2kUpYQ_SCg-d1l7GSfiNZQ_P7MIgWtq2ZQx7jlbhNIyNW90fyHwcV_q3AwYl0qRlX7rHyoFRi98
+     * Example: A6ZPGAlxBRZhjKWky4RpXnHVceGzJjTuBrzKvMGnIgZ3r6JD4D1iiSg_m-y_u0BgJKI397Xjn0wgu17w9wuRooEp-F38m4ql57FgQ7sX9nQA
      * @param {string} bundle
      */
     var onInjectBundle = async function(bundle) {
-        if (bundle.length <= 130) {
-          throw new Error("bundle size is too low. Expecting an uncompressed public key (130 chars) and an encrypted bundle!")
-        }
         var bundleBytes = TKHQ.base64urlDecode(bundle);
+        if (bundleBytes.byteLength <= 33) {
+          throw new Error("bundle size " + bundleBytes.byteLength + " is too low. Expecting a compressed public key (33 bytes) and an encrypted credential")
+        }
 
-        var encappedKeyBuf = bundleBytes.subarray(0,65);
-        var ciphertextBuf = bundleBytes.subarray(65);
-
+        var compressedEncappedKeyBuf = bundleBytes.subarray(0,33);
+        var ciphertextBuf = bundleBytes.subarray(33);
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+
+        // Decompress the compressed key
+        var encappedKeyBuf = TKHQ.uncompressRawPublicKey(compressedEncappedKeyBuf);
+
         var recoveryCredentialBytes = await HpkeDecrypt(
           {
             ciphertextBuf,
@@ -710,13 +818,12 @@
     }
     /**
      * Function triggered when STAMP_REQUEST event is received.
-     * @param {string} payload hex-encoded string containing the bytes to sign.
+     * @param {string} payload to sign
      */
     var onStampRequest = async function(payload) {
       if (RECOVERY_CREDENTIAL_BYTES === null) {
         throw new Error("cannot sign payload without credential. Credential bytes are null");
       }
-      var challengeBytes = TKHQ.uint8arrayFromHexString(payload);
       var recoveryKey = await TKHQ.importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
       var signatureIeee1363 = await window.crypto.subtle.sign(
         {
@@ -724,7 +831,7 @@
             hash: {name: "SHA-256"},
         },
         recoveryKey,
-        challengeBytes.buffer
+        new TextEncoder().encode(payload)
       );
 
       var derSignature = TKHQ.convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
