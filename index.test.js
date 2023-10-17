@@ -122,9 +122,12 @@ describe("TKHQ", () => {
   })
 
   it("contains bigIntToHex", () => {
-    expect(TKHQ.bigIntToHex(BigInt(1))).toEqual("01");
-    expect(TKHQ.bigIntToHex(BigInt(23))).toEqual("17");
-    expect(TKHQ.bigIntToHex(BigInt(255))).toEqual("ff");
+    expect(TKHQ.bigIntToHex(BigInt(1, 1))).toEqual("1");
+    expect(TKHQ.bigIntToHex(BigInt(1), 2)).toEqual("01");
+    expect(TKHQ.bigIntToHex(BigInt(1), 4)).toEqual("0001");
+    expect(TKHQ.bigIntToHex(BigInt(23), 2)).toEqual("17");
+    expect(TKHQ.bigIntToHex(BigInt(255), 2)).toEqual("ff");
+    expect(() => { TKHQ.bigIntToHex(BigInt(256), 2) }).toThrow("number cannot fit in a hex string of 2 characters");
   })
 
   it("logs messages and sends messages up", async () => {

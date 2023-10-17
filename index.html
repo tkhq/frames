@@ -396,13 +396,16 @@
       /**
        * Converts a `BigInt` into a hex encoded string
        * @param {BigInt} num
+       * @param {number} length expected length of the resulting hex string
        * @return {string}
        */
-       var bigIntToHex = function(num) {
+       var bigIntToHex = function(num, length) {
           var hexString = num.toString(16);
-          // Add an extra 0 to the start of the string to get a valid hex string (even length)
-          // (e.g. 0x0123 instead of 0x123)
-          return hexString.padStart(Math.ceil(hexString.length/2)*2, 0)
+          if (hexString.length > length) {
+            throw new Error("number cannot fit in a hex string of " + length + " characters");
+          }
+          // Add an extra 0 to the start of the string to get to `length`
+          return hexString.padStart(length, 0)
       }
 
       /**
@@ -457,7 +460,7 @@
           throw new Error("y is out of range");
         }
 
-        var uncompressedHexString = "04" + bigIntToHex(x) + bigIntToHex(y);
+        var uncompressedHexString = "04" + bigIntToHex(x, 64) + bigIntToHex(y, 64);
         return uint8arrayFromHexString(uncompressedHexString)
       }
 
