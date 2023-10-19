@@ -37,7 +37,7 @@
       font-weight: bold;
       text-align: center;
     }
-    #clear {
+    #reset {
       color: white;
       width: 7em;
       font-size: 1em;
@@ -80,7 +80,7 @@
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
-    <button id="clear">Reset Key</button>
+    <button id="reset">Reset Key</button>
   </form>
   <br>
   <br>
@@ -116,7 +116,8 @@
   <script>
     window.TKHQ = function() {
       /** constant for LocalStorage */
-      var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
+      var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+      var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
 
       /**
        * Creates a new public/private key pair and persists it in localStorage
@@ -136,9 +137,9 @@
       */
       var generateTargetKey = async function() {
         var p256key = await crypto.subtle.generateKey({
-          name: 'ECDSA',
+          name: 'ECDH',
           namedCurve: 'P-256',
-        }, true, ['sign',]);
+        }, true, ['deriveBits',]);
 
         return await crypto.subtle.exportKey("jwk", p256key.privateKey);
       }
@@ -147,7 +148,7 @@
        * Gets the current embedded private key JWK. Returns `null` if not found.
        */
       var getEmbeddedKey = function() {
-        var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
+        var jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY)
         if (!jwtKey) {
           return null
         } else {
@@ -156,12 +157,54 @@
       }
 
       var setEmbeddedKey = function(targetKey) {
-        return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
+        return setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
       }
 
-      var clearEmbeddedKey = function() {
+      var onResetEmbeddedKey = function() {
         window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
       }
+
+      /**
+       * Set an item in localStorage with an expiration time
+       * @param {string} key
+       * @param {string} value
+       * @param {number} ttl expiration time in milliseconds
+       */
+      var setItemWithExpiry = function(key, value, ttl) {
+        const now = new Date();
+        const item = {
+            value: value,
+            expiry: now.getTime() + ttl,
+        };
+        window.localStorage.setItem(key, JSON.stringify(item));
+      };
+
+      /**
+       * Get an item from localStorage. If it has expired, remove
+       * the item from localStorage and return null.
+       * @param {string} key
+       */
+      const getItemWithExpiry = (key) => {
+        const itemStr = window.localStorage.getItem(key);
+
+        if (!itemStr) {
+            return null;
+        }
+
+        const item = JSON.parse(itemStr);
+
+        if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+          window.localStorage.removeItem(key);
+          return null;
+        }
+
+        const now = new Date();
+        if (now.getTime() > item.expiry) {
+            window.localStorage.removeItem(key);
+            return null;
+        }
+        return item.value;
+      };
 
       /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
@@ -707,9 +750,10 @@
       return {
         initEmbeddedKey,
         generateTargetKey,
+        setItemWithExpiry,
+        getItemWithExpiry,
         getEmbeddedKey,
         setEmbeddedKey,
-        clearEmbeddedKey,
         importRecoveryCredential,
         compressRawPublicKey,
         uncompressRawPublicKey,
@@ -759,6 +803,10 @@
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           onStampRequest(event.data["value"]);
         }
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          onResetEmbeddedKey();
+        }
       }, false);
 
       /**
@@ -780,11 +828,10 @@
           "value": document.getElementById("payload").value,
         })
       }, false);
-
-      /**
-       * DEBUG functionality only to clear the page's localStorage
-       */
-      document.getElementById("clear").addEventListener("click", TKHQ.clearEmbeddedKey);
+      document.getElementById("reset").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
+      }, false);
     }, false);
 
     /**
