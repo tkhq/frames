@@ -116,7 +116,8 @@
   <script>
     window.TKHQ = function() {
       /** constant for LocalStorage */
-      var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
+      var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+      var TURNKEY_EMBEDDED_KEY_TTL = 1000 * 60 * 60 * 48; // 48 hours in seconds
 
       /**
        * Creates a new public/private key pair and persists it in localStorage
@@ -147,7 +148,7 @@
        * Gets the current embedded private key JWK. Returns `null` if not found.
        */
       var getEmbeddedKey = function() {
-        var jwtKey = window.localStorage.getItem(TURNKEY_EMBEDDED_KEY)
+        var jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY)
         if (!jwtKey) {
           return null
         } else {
@@ -156,12 +157,50 @@
       }
 
       var setEmbeddedKey = function(targetKey) {
-        return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
+        return setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL);
       }
 
       var resetEmbeddedKey = function() {
         window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
       }
+
+      /**
+       * Set an item in localStorage with an expiration time.
+       */
+      var setItemWithExpiry = function(key, value, ttl) {
+        const now = new Date();
+        const item = {
+            value: value,
+            expiry: now.getTime() + ttl,
+        };
+        window.localStorage.setItem(key, JSON.stringify(item));
+      };
+
+      /**
+       * Get an item from localStorage. If it has expired, remove
+       * the item from localStorage and return null.
+       */
+      const getItemWithExpiry = (key) => {
+        const itemStr = window.localStorage.getItem(key);
+
+        if (!itemStr) {
+            return null;
+        }
+
+        const item = JSON.parse(itemStr);
+
+        if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+          window.localStorage.removeItem(key);
+          return null;
+        }
+
+        const now = new Date();
+        if (now.getTime() > item.expiry) {
+            window.localStorage.removeItem(key);
+            return null;
+        }
+        return item.value;
+      };
 
       /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
@@ -707,6 +746,8 @@
       return {
         initEmbeddedKey,
         generateTargetKey,
+        setItemWithExpiry,
+        getItemWithExpiry,
         getEmbeddedKey,
         setEmbeddedKey,
         resetEmbeddedKey,

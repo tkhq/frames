@@ -28,7 +28,32 @@ describe("TKHQ", () => {
     TKHQ = dom.window.TKHQ
   })
 
-  it("gets, sets, and removes values in localStorage", async () => {
+  it("gets and sets items with expiry localStorage", async () => {
+    // Set a TTL of 1000ms
+    TKHQ.setItemWithExpiry("k", "v", 1000);
+    let item = JSON.parse(dom.window.localStorage.getItem("k"));
+    expect(item.value).toBe("v");
+    expect(item.expiry).toBeTruthy();
+
+    // Get item that has not expired yet
+    item = TKHQ.getItemWithExpiry("k");
+    expect(item).toBe("v");
+
+    // Set a TTL of 500ms
+    TKHQ.setItemWithExpiry("a", "b", 500);
+    setTimeout(() => {
+      const expiredItem = getItemWithExpiry("a");
+      expect(expiredItem).toBeNull();
+      done();
+    }, 600); // Wait for 600ms to ensure the item has expired
+
+    // Returns null if getItemWithExpiry is called for item without expiry
+    dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+    item = TKHQ.getItemWithExpiry("k");
+    expect(item).toBeNull();
+  })
+
+  it("gets, sets and resets embedded key in localStorage", async () => {
     expect(TKHQ.getEmbeddedKey()).toBe(null);
     
     // Set a dummy "key"
