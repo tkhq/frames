@@ -160,7 +160,7 @@
         return setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
       }
 
-      var resetEmbeddedKey = function() {
+      var onResetEmbeddedKey = function() {
         window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
       }
 
@@ -754,7 +754,7 @@
         getItemWithExpiry,
         getEmbeddedKey,
         setEmbeddedKey,
-        resetEmbeddedKey,
+        onResetEmbeddedKey,
         importRecoveryCredential,
         compressRawPublicKey,
         uncompressRawPublicKey,
@@ -806,7 +806,7 @@
         }
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          resetEmbeddedKey();
+          onResetEmbeddedKey();
         }
       }, false);
 
@@ -831,7 +831,7 @@
       }, false);
       document.getElementById("reset").addEventListener("click", async function(e) {
         e.preventDefault();
-        window.postMessage({ "type": "RESET_EMBEDDED_KEYSET" })
+        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
       }, false);
     }, false);
 

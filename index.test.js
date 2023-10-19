@@ -60,7 +60,7 @@ describe("TKHQ", () => {
     expect(TKHQ.getEmbeddedKey()).toEqual({"foo": "bar"});
 
     // Now reset and assert we're back to no embedded key
-    TKHQ.resetEmbeddedKey();
+    TKHQ.onResetEmbeddedKey();
     expect(TKHQ.getEmbeddedKey()).toBe(null);
   })
   
