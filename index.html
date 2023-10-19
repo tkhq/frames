@@ -117,7 +117,7 @@
     window.TKHQ = function() {
       /** constant for LocalStorage */
       var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
-      var TURNKEY_EMBEDDED_KEY_TTL = 1000 * 60 * 60 * 48; // 48 hours in seconds
+      var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
 
       /**
        * Creates a new public/private key pair and persists it in localStorage
@@ -157,7 +157,7 @@
       }
 
       var setEmbeddedKey = function(targetKey) {
-        return setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL);
+        return setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
       }
 
       var resetEmbeddedKey = function() {
@@ -165,7 +165,10 @@
       }
 
       /**
-       * Set an item in localStorage with an expiration time.
+       * Set an item in localStorage with an expiration time
+       * @param {string} key
+       * @param {string} value
+       * @param {number} ttl expiration time in milliseconds
        */
       var setItemWithExpiry = function(key, value, ttl) {
         const now = new Date();
@@ -179,6 +182,7 @@
       /**
        * Get an item from localStorage. If it has expired, remove
        * the item from localStorage and return null.
+       * @param {string} key
        */
       const getItemWithExpiry = (key) => {
         const itemStr = window.localStorage.getItem(key);
@@ -825,11 +829,10 @@
           "value": document.getElementById("payload").value,
         })
       }, false);
-
-      /**
-       * DEBUG functionality only to reset the page's localStorage
-       */
-      document.getElementById("reset").addEventListener("click", TKHQ.resetEmbeddedKey);
+      document.getElementById("reset").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({ "type": "RESET_EMBEDDED_KEYSET" })
+      }, false);
     }, false);
 
     /**

@@ -44,7 +44,6 @@ describe("TKHQ", () => {
     setTimeout(() => {
       const expiredItem = TKHQ.getItemWithExpiry("a");
       expect(expiredItem).toBeNull();
-      done();
     }, 600); // Wait for 600ms to ensure the item has expired
 
     // Returns null if getItemWithExpiry is called for item without expiry
