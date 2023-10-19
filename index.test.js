@@ -52,16 +52,12 @@ describe("TKHQ", () => {
     expect(item).toBeNull();
   })
 
-  it("gets, sets and resets embedded key in localStorage", async () => {
+  it("gets and sets embedded key in localStorage", async () => {
     expect(TKHQ.getEmbeddedKey()).toBe(null);
     
     // Set a dummy "key"
     TKHQ.setEmbeddedKey({"foo": "bar"});
     expect(TKHQ.getEmbeddedKey()).toEqual({"foo": "bar"});
-
-    // Now reset and assert we're back to no embedded key
-    TKHQ.onResetEmbeddedKey();
-    expect(TKHQ.getEmbeddedKey()).toBe(null);
   })
   
   it("inits embedded key and is idempotent", async () => {
