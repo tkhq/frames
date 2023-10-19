@@ -42,7 +42,7 @@ describe("TKHQ", () => {
     // Set a TTL of 500ms
     TKHQ.setItemWithExpiry("a", "b", 500);
     setTimeout(() => {
-      const expiredItem = getItemWithExpiry("a");
+      const expiredItem = TKHQ.getItemWithExpiry("a");
       expect(expiredItem).toBeNull();
       done();
     }, 600); // Wait for 600ms to ensure the item has expired
