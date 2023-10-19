@@ -136,9 +136,9 @@
       */
       var generateTargetKey = async function() {
         var p256key = await crypto.subtle.generateKey({
-          name: 'ECDSA',
+          name: 'ECDH',
           namedCurve: 'P-256',
-        }, true, ['sign',]);
+        }, true, ['deriveBits',]);
 
         return await crypto.subtle.exportKey("jwk", p256key.privateKey);
       }

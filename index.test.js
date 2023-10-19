@@ -56,6 +56,7 @@ describe("TKHQ", () => {
     expect(key.kty).toEqual("EC");
     expect(key.ext).toBe(true);
     expect(key.crv).toBe("P-256");
+    expect(key.key_ops).toContain("deriveBits");
   })
 
   it("imports recovery credentials without errors", async () => {
