@@ -37,7 +37,7 @@
       font-weight: bold;
       text-align: center;
     }
-    #clear {
+    #reset {
       color: white;
       width: 7em;
       font-size: 1em;
@@ -80,7 +80,7 @@
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
-    <button id="clear">Reset Key</button>
+    <button id="reset">Reset Key</button>
   </form>
   <br>
   <br>
@@ -159,7 +159,7 @@
         return window.localStorage.setItem(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey))
       }
 
-      var clearEmbeddedKey = function() {
+      var resetEmbeddedKey = function() {
         window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY)
       }
 
@@ -709,7 +709,7 @@
         generateTargetKey,
         getEmbeddedKey,
         setEmbeddedKey,
-        clearEmbeddedKey,
+        resetEmbeddedKey,
         importRecoveryCredential,
         compressRawPublicKey,
         uncompressRawPublicKey,
@@ -759,6 +759,10 @@
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           onStampRequest(event.data["value"]);
         }
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          resetEmbeddedKey();
+        }
       }, false);
 
       /**
@@ -782,9 +786,9 @@
       }, false);
 
       /**
-       * DEBUG functionality only to clear the page's localStorage
+       * DEBUG functionality only to reset the page's localStorage
        */
-      document.getElementById("clear").addEventListener("click", TKHQ.clearEmbeddedKey);
+      document.getElementById("reset").addEventListener("click", TKHQ.resetEmbeddedKey);
     }, false);
 
     /**
