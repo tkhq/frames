@@ -21,7 +21,9 @@ jobs:
           node-version: 18
 
       - name: Install dependencies
+        working-directory: ./recovery
         run: npm install
 
       - name: Run Tests
+        working-directory: ./recovery
         run: npm test
