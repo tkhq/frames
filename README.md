@@ -16,8 +16,8 @@ This page is hosted at https://export.tkhqlabs.xyz/
 
 Clone the repo:
 ```sh
-git clone git@github.com:tkhq/recovery.git
-cd recovery/
+git clone git@github.com:tkhq/frames.git
+cd frames/
 ```
 
 Install dependencies
@@ -28,8 +28,7 @@ npm install
 # Unit Testing
 
 This HTML page has tests. They run on CI automatically. If you want to run them locally:
-```
-npm install
+```sh
 npm test
 ```
 
