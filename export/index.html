@@ -3,9 +3,573 @@
 
 <head>
   <meta charset="utf-8">
-  <title>Turnkey Recovery</title>
+  <title>Turnkey Export</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+      text-align: center;
+      font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+      max-width: 1024px;
+      margin: auto;
+    }
+    label {
+      display:inline-block;
+      width: 8em;
+    }
+    input[type=text] {
+      width: 40em;
+      margin: 0.5em;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 1em;
+      height: 1.8em;
+      color: rgb(18, 87, 18);
+      border: 1px rgb(217, 240, 221) solid;
+      border-radius: 4px;
+    }
+    input:disabled {
+      background-color: rgb(239, 243, 240);
+    }
+    #reset {
+      color: white;
+      width: 7em;
+      font-size: 1em;
+      padding: 0.38em;
+      border-radius: 4px;
+      background-color: rgb(187, 100, 100);
+      border: 1px rgb(112, 42, 42) solid;
+      cursor: pointer;
+      display: inline;
+    }
+    #inject-key, #inject-wallet {
+      color: white;
+      width: 7em;
+      font-size: 1em;
+      padding: 0.38em;
+      border-radius: 4px;
+      background-color: rgb(50, 44, 44);
+      border: 1px rgb(33, 33, 33) solid;
+      cursor: pointer;
+      display: inline;
+    }
+    #message-log {
+      border: 1px #2a2828 solid;
+      padding: 0 0.7em;
+      border-radius: 4px;
+      margin-top: 2em;
+      max-width: 800px;
+      margin: auto;
+      display: block;
+    }
+    #message-log p {
+      font-size: 0.9em;
+      text-align: left;
+      word-break: break-all;
+    }
+    .hidden { display: none; }
+  </style>
+</head>
+
 <body>
-    <h1>Placeholder</h1>
+  <h2>Export Key Material</h2>
+  <p><em>This public key will be sent along with a private key ID or wallet ID inside of a new <code>EXPORT_PRIVATE_KEY</code> or <code>EXPORT_WALLET</code> activity</em></p>
+  <form>
+    <label>Embedded key</label>
+    <input type="text" name="embedded-key" id="embedded-key" disabled/>
+    <button id="reset">Reset Key</button>
+  </form>
+  <br>
+  <br>
+  <br>
+  <h2>Inject Export Bundle</h2>
+  <p><em>The export bundle comes from the parent page and is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
+  <form>
+    <label>Key Bundle</label>
+    <input type="text" name="key-export-bundle" id="key-export-bundle"/>
+    <button id="inject-key">Inject Bundle</button>
+  </form>
+  <br>
+  <form>
+    <label>Wallet Bundle</label>
+    <input type="text" name="wallet-export-bundle" id="wallet-export-bundle"/>
+    <button id="inject-wallet">Inject Bundle</button>
+  </form>
+  <br>
+  <br>
+  <h2>Message log</h2>
+  <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
+  <div id="message-log"></div>
+
+  <!--
+    Script defining important helpers.
+    These helpers are unit-testable, so most of the logic should be written here.
+  -->
+  <script>
+    window.TKHQ = function() {
+      /** constant for LocalStorage */
+      const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
+      /** 48 hours in milliseconds */
+      const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
+
+      /**
+       * Creates a new public/private key pair and persists it in localStorage
+       */
+      const initEmbeddedKey = async () => {
+        const retrievedKey = await getEmbeddedKey();
+        if (retrievedKey === null) {
+          const targetKey = await generateTargetKey();
+          setEmbeddedKey(targetKey);
+        }
+        // Nothing to do, key is correctly initialized!
+      }
+
+      /*
+      * Generate a key to encrypt to and export it as a JSON Web Key.
+      */
+      const generateTargetKey = async () => {
+        const p256key = await crypto.subtle.generateKey({
+          name: 'ECDH',
+          namedCurve: 'P-256',
+        }, true, ['deriveBits',]);
+
+        return await crypto.subtle.exportKey("jwk", p256key.privateKey);
+      }
+
+      /**
+       * Gets the current embedded private key JWK. Returns `null` if not found.
+       */
+      const getEmbeddedKey = () => {
+        const jwtKey = TKHQ.getItemWithExpiry(TURNKEY_EMBEDDED_KEY)
+        return jwtKey ?  JSON.parse(jwtKey) : null;
+      }
+
+      /**
+       * Sets the embedded private key JWK with the default expiration time. 
+       * @param {JsonWebKey} targetKey
+       */
+      const setEmbeddedKey = targetKey =>
+        setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
+
+      /**
+       * Resets the current embedded private key JWK.
+       */
+      const onResetEmbeddedKey = () =>
+        window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+
+       /**
+       * Set an item in localStorage with an expiration time
+       * @param {string} key
+       * @param {string} value
+       * @param {number} ttl expiration time in milliseconds
+       */
+       const setItemWithExpiry = (key, value, ttl) => {
+        const now = new Date();
+        const item = {
+          value: value,
+          expiry: now.getTime() + ttl,
+        };
+        window.localStorage.setItem(key, JSON.stringify(item));
+      };
+
+      /**
+       * Get an item from localStorage. Returns `null` and
+       * removes the item from localStorage if expired or
+       * expiry time is missing.
+       * @param {string} key
+       */
+      const getItemWithExpiry = (key) => {
+        const itemStr = window.localStorage.getItem(key);
+        if (!itemStr) {
+          return null;
+        }
+        const item = JSON.parse(itemStr);
+        if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+          window.localStorage.removeItem(key);
+          return null;
+        }
+        const now = new Date();
+        if (now.getTime() > item.expiry) {
+          window.localStorage.removeItem(key);
+          return null;
+        }
+        return item.value;
+      };
+
+
+      /**
+       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+       * @param {string} hexString
+       * @returns {Uint8Array}
+       */
+       const uint8arrayFromHexString = hexString => 
+        new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+
+      /**
+        * Takes a Uint8Array and returns a hex string
+        * @param {Uint8Array} buffer
+        * @return {string}
+        */
+      const uint8arrayToHexString = buffer => {
+        return [...buffer]
+          .map(x => x.toString(16).padStart(2, '0'))
+          .join('');
+      }
+
+      /**
+       * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+       */
+      const additionalAssociatedData = (senderPubBuf, receiverPubBuf) => {
+        const s = Array.from(new Uint8Array(senderPubBuf));
+        const r = Array.from(new Uint8Array(receiverPubBuf));
+        return new Uint8Array([...s, ...r]);
+      }
+
+      /**
+       * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+       * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
+       * @param value message value
+       */
+      const sendMessageUp = (type, value) => {
+        if (window.top !== null) {
+          window.top.postMessage({
+              "type": type,
+              "value": value,
+          }, '*')
+        }
+        logMessage(`⬆️ Sent message ${type}: ${value}`)
+      }
+
+      /**
+       * Function to log a message and persist it in the page's DOM.
+       */
+      const logMessage = content => {
+        const messageLog = document.getElementById("message-log");
+        const message = document.createElement("p")
+        message.innerText = content;
+        messageLog.appendChild(message);
+      }
+
+      /**
+      * Convert a JSON Web Key private key to a public key and export the public
+      * key in raw format.
+      * @return {Uint8array}
+      */
+      const p256JWKPrivateToPublic = async jwkPrivate => {
+        // make a copy so we don't modify the underlying object
+        const jwkPrivateCopy = { ... jwkPrivate }
+        // change jwk so it will be imported as a public key
+        delete jwkPrivateCopy.d;
+        jwkPrivateCopy.key_ops = ["verify"];
+
+        const publicKey =  await window.crypto.subtle
+          .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+        const buffer = await crypto.subtle.exportKey("raw", publicKey);
+        return new Uint8Array(buffer)
+      }
+
+      /**
+       * Returns a hex-encoded raw private key from private key bytes.
+       * @param {Uint8Array} privateKeyBytes
+       */
+      const parseKey = privateKeyBytes => {
+        const privateKeyHexString = uint8arrayToHexString(privateKeyBytes);
+        return "0x" + privateKeyHexString;
+      }
+
+      /**
+       * Returns a UTF-8 encoded wallet mnemonic + newline optional passphrase
+       * from wallet bytes.
+       * @param {Uint8Array} walletBytes
+       */
+       const parseWallet = walletBytes => {
+        const decoder = new TextDecoder("utf-8");
+        const wallet = decoder.decode(walletBytes);
+        let mnemonic;
+        let passphrase = null;
+
+        if (wallet.includes("\n")) {
+            const parts = wallet.split("\n");
+            mnemonic = parts[0];
+            passphrase = parts[1];
+        } else {
+            mnemonic = wallet;
+        }
+
+        return {
+            mnemonic: mnemonic,
+            passphrase: passphrase
+        };
+      }
+
+      return {
+        initEmbeddedKey,
+        generateTargetKey,
+        setItemWithExpiry,
+        getItemWithExpiry,
+        getEmbeddedKey,
+        setEmbeddedKey,
+        onResetEmbeddedKey,
+        p256JWKPrivateToPublic,
+        parseKey,
+        parseWallet,
+        sendMessageUp,
+        logMessage,
+        uint8arrayFromHexString,
+        uint8arrayToHexString,
+        additionalAssociatedData
+      }
+    }();
+  </script>
+
+  <!--
+    Script importing HPKE lib until we can replace it
+    Because this is loaded as a module JSDOM can't load it properly
+    Code in here isn't tested, so let's keep this to a minimum!
+  -->
+  <script type="module">
+    // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
+    import * as hpke from "https://esm.sh/@hpke/core";
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      await TKHQ.initEmbeddedKey();
+      const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+      const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+      const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+      document.getElementById("embedded-key").value = targetPubHex;
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
+
+      // TODO: find a way to filter messages and ensure they're coming from the parent window?
+      // We do not want to arbitrarily receive messages from all origins.
+      window.addEventListener("message", event => {
+        if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          onInjectKeyBundle(event.data["value"])
+        }
+        if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          onInjectWalletBundle(event.data["value"])
+        }
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          onResetEmbeddedKey();
+        }
+      }, false);
+
+      /**
+       * Event handlers to power the export flow in standalone mode
+       * Instead of receiving events from the parent page, forms trigger them.
+       * This is useful for debugging as well.
+       */
+      document.getElementById("inject-key").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "INJECT_KEY_EXPORT_BUNDLE",
+          "value": document.getElementById("key-export-bundle").value,
+        })
+      }, false);
+      document.getElementById("inject-wallet").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "INJECT_WALLET_EXPORT_BUNDLE",
+          "value": document.getElementById("wallet-export-bundle").value,
+        })
+      }, false);
+      document.getElementById("reset").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
+      }, false);
+    }, false);
+
+    /**
+     * Hide every HTML element in <body> except any <script> elements.
+     * Then append an element containing the hex-encoded raw private key.
+     * @param {string} key
+     */ 
+    const displayKey = key => {
+      Array.from(document.body.children).forEach(child => {
+          if (child.tagName !== "SCRIPT") {
+            child.style.display = 'none';
+          }
+        });
+
+        const style = {
+          padding: "10px",
+          borderRadius: "8px",
+          borderWidth: "1px",
+          borderStyle: "solid",
+          borderColor: "rgba(216, 219, 227, 1)",
+          color: "#555b64",
+          fontWeight: "400",
+          fontSize: ".875rem",
+          lineHeight: "1.25rem",
+          fontFamily: "\"iA Writer Mono\", SFMono-Regular, Menlo, Consolas, monospace;",
+        };
+
+        // Create a new div with the key material and append the new div to the body
+        const keyDiv = document.createElement("div");
+        keyDiv.id = "key-div";
+        keyDiv.innerText = key;
+        for (let styleKey in style) {
+            keyDiv.style[styleKey] = style[styleKey];
+        }
+        document.body.appendChild(keyDiv);
+    }
+
+    /**
+     * Hide every HTML element in <body> except any <script> elements.
+     * Then append an element containing the wallet's mnemonic in a
+     * 3-column table where each row contains 3 words and their
+     * corresponding index.
+     * @param wallet
+     * 
+     * TODO: Append element for passphrase after import is released
+     */ 
+    const displayWallet = wallet => {
+      Array.from(document.body.children).forEach(child => {
+          if (child.tagName !== "SCRIPT") {
+            child.style.display = 'none';
+          }
+        });
+
+        const words = wallet.mnemonic.split(" ");
+
+        const numberCellStyle = {
+          backgroundColor: "#f9fbff",
+          border: "1px solid #ebedf2",
+          padding: "10px",
+          width: "20px",
+          color: "#6c727e",
+          height: "20px",
+        };
+
+        const wordCellStyle = {
+          border: "1px solid #ebedf2",
+          padding: "10px",
+          height: "20px",
+        }
+
+        const table = document.createElement("table");
+        const tbody = document.createElement("tbody");
+        tbody.id = "mnemonic-tbody";
+        table.id = "mnemonic-table";
+        table.appendChild(tbody);
+        table.style.borderCollapse = "collapse";
+        table.style.marginLeft = "auto";
+        table.style.marginRight = "auto";
+
+        for (let i = 0; i < words.length; i += 3) {
+          let row = document.createElement("tr");
+          for (let j = 0; j < 3; j++) {
+            if (i + j < words.length) {
+              let cellIndex = document.createElement("td");
+              cellIndex.innerText = i + j + 1;
+              for (let styleKey in numberCellStyle) {
+                cellIndex.style[styleKey] = numberCellStyle[styleKey];
+              }
+              row.appendChild(cellIndex);
+
+              let cellWord = document.createElement("td");
+              cellWord.innerText = words[i + j];
+              for (let styleKey in wordCellStyle) {
+                cellWord.style[styleKey] = wordCellStyle[styleKey];
+              }
+              row.appendChild(cellWord);
+            }
+          }
+
+          tbody.appendChild(row);
+        }
+
+        document.body.appendChild(table);
+    }
+
+    /**
+     * Parse and decrypt the export bundle.
+     * The `bundle` param is a JSON string of the encapsulated public
+     * key, encapsulated public key signature, and the ciphertext.
+     * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4"}
+     * @param {string} bundle
+     */ 
+    const decryptBundle = async bundle => {
+      const bundleObj = JSON.parse(bundle);
+      const encappedKeyBuf = TKHQ.uint8arrayFromHexString(bundleObj.encappedPublic);
+      const ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.ciphertext);
+      const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+      return await HpkeDecrypt(
+        {
+          ciphertextBuf,
+          encappedKeyBuf,
+          receiverPrivJwk: embeddedKeyJwk,
+        });
+    }
+
+    /**
+     * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+     * @param {string} bundle
+     */
+     const onInjectKeyBundle = async bundle => {
+        // Decrypt the export bundle
+        const keyBytes = await decryptBundle(bundle);
+
+        // Parse the decrypted key bytes
+        const key = TKHQ.parseKey(new Uint8Array(keyBytes));
+
+        // Display only the key
+        displayKey(key);
+
+        // Send up BUNDLE_INJECTED message
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
+    }
+
+    /**
+     * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+     * @param {string} bundle
+     */
+     const onInjectWalletBundle = async bundle => {
+        // Decrypt the export bundle
+        const walletBytes = await decryptBundle(bundle);
+
+        // Parse the decrypted wallet bytes
+        const wallet = TKHQ.parseWallet(new Uint8Array(walletBytes));
+
+        // Display only the wallet's mnemonic
+        displayWallet(wallet);
+
+        // Send up BUNDLE_INJECTED message
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
+    }
+
+    /**
+     * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
+     * and the receivers private key (JSON Web Key).
+     */
+    const HpkeDecrypt = async ({ ciphertextBuf, encappedKeyBuf, receiverPrivJwk }) => {
+      const kemContext = new hpke.DhkemP256HkdfSha256();
+      var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
+
+
+      var suite = new hpke.CipherSuite({
+        kem: kemContext,
+        kdf: new hpke.HkdfSha256(),
+        aead: new hpke.Aes256Gcm(),
+      });
+
+      var recipientCtx = await suite.createRecipientContext({
+        recipientKey: receiverPriv,
+        enc: encappedKeyBuf,
+        info: new TextEncoder().encode("turnkey_hpke"),
+      });
+
+      var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
+      var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+      var res;
+      try {
+        res = await recipientCtx.open(ciphertextBuf, aad);
+      } catch (e) {
+        throw new Error("decryption failed: " + e);
+      }
+      return res
+    }
+  </script>
 </body>
 </html>
