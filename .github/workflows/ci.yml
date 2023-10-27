@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: 18
 
+      - name: Change directory
+        run: cd recovery
+
       - name: Install dependencies
         run: npm install
 
