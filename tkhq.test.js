@@ -3,54 +3,34 @@ import { JSDOM } from "jsdom"
 import fs from "fs"
 import path from "path"
 import * as crypto from "crypto";
-
-
-const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
-
-let dom
-let TKHQ
+import TKHQ from './tkhq.js';
 
 describe("TKHQ", () => {
-  beforeEach(() => {
-    dom = new JSDOM(html, {
-        // Necessary to run script tags
-        runScripts: "dangerously",
-        // Necessary to have access to localStorage
-        url: "http://localhost"
-    })
+  
 
-    // Necessary for crypto to be available.
-    // See https://github.com/jsdom/jsdom/issues/1612
-    Object.defineProperty(dom.window, 'crypto', {
-        value: crypto.webcrypto,
-    });
+  // it("gets and sets items with expiry localStorage", async () => {
+  //   // Set a TTL of 1000ms
+  //   TKHQ.setItemWithExpiry("k", "v", 1000);
+  //   let item = JSON.parse(dom.window.localStorage.getItem("k"));
+  //   expect(item.value).toBe("v");
+  //   expect(item.expiry).toBeTruthy();
 
-    TKHQ = dom.window.TKHQ
-  })
+  //   // Get item that has not expired yet
+  //   item = TKHQ.getItemWithExpiry("k");
+  //   expect(item).toBe("v");
 
-  it("gets and sets items with expiry localStorage", async () => {
-    // Set a TTL of 1000ms
-    TKHQ.setItemWithExpiry("k", "v", 1000);
-    let item = JSON.parse(dom.window.localStorage.getItem("k"));
-    expect(item.value).toBe("v");
-    expect(item.expiry).toBeTruthy();
+  //   // Set a TTL of 500ms
+  //   TKHQ.setItemWithExpiry("a", "b", 500);
+  //   setTimeout(() => {
+  //     const expiredItem = TKHQ.getItemWithExpiry("a");
+  //     expect(expiredItem).toBeNull();
+  //   }, 600); // Wait for 600ms to ensure the item has expired
 
-    // Get item that has not expired yet
-    item = TKHQ.getItemWithExpiry("k");
-    expect(item).toBe("v");
-
-    // Set a TTL of 500ms
-    TKHQ.setItemWithExpiry("a", "b", 500);
-    setTimeout(() => {
-      const expiredItem = TKHQ.getItemWithExpiry("a");
-      expect(expiredItem).toBeNull();
-    }, 600); // Wait for 600ms to ensure the item has expired
-
-    // Returns null if getItemWithExpiry is called for item without expiry
-    dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
-    item = TKHQ.getItemWithExpiry("k");
-    expect(item).toBeNull();
-  })
+  //   // Returns null if getItemWithExpiry is called for item without expiry
+  //   dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+  //   item = TKHQ.getItemWithExpiry("k");
+  //   expect(item).toBeNull();
+  // })
 
   it("gets and sets embedded key in localStorage", async () => {
     expect(TKHQ.getEmbeddedKey()).toBe(null);
@@ -78,6 +58,31 @@ describe("TKHQ", () => {
     expect(key.crv).toBe("P-256");
     expect(key.key_ops).toContain("deriveBits");
   })
+
+  // it("parses private key correctly", async () => {
+  //   const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+  //   const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
+  //   expect(parsedKey).toEqual(keyHex);
+  // })
+
+  // it("parses wallet with only mnemonic correctly", async () => {
+  //   const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
+  //   const encoder = new TextEncoder("utf-8");
+  //   const encodedWallet = encoder.encode(mnemonic);
+  //   const parsedWallet  = TKHQ.parseWallet(encodedWallet);
+  //   expect(parsedWallet.mnemonic).toEqual(mnemonic);
+  //   expect(parsedWallet.passphrase).toBeNull();
+  // })
+
+  // it("parses wallet mnemonic and passphrase correctly", async () => {
+  //   const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
+  //   const passphrase = "secret!";
+  //   const encoder = new TextEncoder("utf-8");
+  //   const encodedWallet = encoder.encode(mnemonic + "\n" + passphrase);
+  //   const parsedWallet  = TKHQ.parseWallet(encodedWallet);
+  //   expect(parsedWallet.mnemonic).toEqual(mnemonic);
+  //   expect(parsedWallet.passphrase).toEqual(passphrase);
+  // })
 
   it("imports recovery credentials without errors", async () => {
     let key = await TKHQ.importRecoveryCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));

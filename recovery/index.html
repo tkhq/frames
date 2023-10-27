@@ -1,0 +1,186 @@
+<!doctype html>
+<html class="no-js" lang="">
+
+<head>
+  <meta charset="utf-8">
+  <title>Turnkey Recovery</title>
+  <link rel="icon" type="image/svg+xml" href="../favicon.svg" />
+  <link rel="stylesheet" href="../styles.css">
+  <script type="module" src="../tkhq.js"></script>
+  <script type="module" src="../hpkeDecrypt.js"></script>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <h2>Init Recovery</h2>
+  <p><em>This public key will be sent along with your email inside of a new <code>INIT_USER_EMAIL_RECOVERY</code> activity</em></p>
+  <form>
+    <label>Embedded key</label>
+    <input type="text" name="embedded-key" id="embedded-key" disabled/>
+    <button id="reset">Reset Key</button>
+  </form>
+  <br>
+  <br>
+  <br>
+  <h2>Inject Recovery Bundle</h2>
+  <p><em>The recovery bundle comes from your email. We can also simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a>. A recovery bundle is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
+  <form>
+    <label>Bundle</label>
+    <input type="text" name="recovery-bundle" id="recovery-bundle"/>
+    <button id="inject-recovery">Inject Bundle</button>
+  </form>
+  <br>
+  <br>
+  <br>
+  <h2>Stamp</h2>
+  <p><em>Once you've injected the recovery bundle, the recovery credential is ready to sign. A new <code>RECOVER</code> activity for example. This iframe doesn't know anything about Turnkey activity however, it's a simple stamper!</em></p>
+  <form>
+    <label>Payload</label>
+    <input type="text" name="payload" id="payload"/>
+    <button id="stamp">Stamp</button>
+  </form>
+  <br>
+  <br>
+  <br>
+  <h2>Message log</h2>
+  <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
+  <div id="message-log"></div>
+
+
+  <!--
+    Script using HPKE lib
+    Because this is loaded as a module JSDOM can't load it properly
+    Code in here isn't tested, so let's keep this to a minimum!
+  -->
+  <script type="module">
+    import { HpkeDecrypt } from "../hpkeDecrypt.js";
+
+    // In memory spot for the recovery credential to live. We do NOT persist it to localStorage.
+    var RECOVERY_CREDENTIAL_BYTES = null;
+
+    document.addEventListener("DOMContentLoaded", async function () {
+      await TKHQ.initEmbeddedKey();
+      var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+      var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+      var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+      document.getElementById("embedded-key").value = targetPubHex;
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
+
+      // TODO: find a way to filter messages and ensure they're coming from the parent window?
+      // We do not want to arbitrarily receive messages from all origins.
+      window.addEventListener("message", function(event) {
+        if (event.data && event.data["type"] == "INJECT_RECOVERY_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          onInjectBundle(event.data["value"])
+        }
+        if (event.data && event.data["type"] == "STAMP_REQUEST") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          onStampRequest(event.data["value"]);
+        }
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          TKHQ.onResetEmbeddedKey().then(newTargetKey => {
+            return TKHQ.p256JWKPrivateToPublic(newTargetKey);
+          }).then(targetPubBuf => {
+            const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+            document.getElementById("embedded-key").value = targetPubHex;
+          });
+        }
+      }, false);
+
+      /**
+       * Event handlers to power the recovery flow in standalone mode
+       * Instead of receiving events from the parent page, forms trigger them.
+       * This is useful for debugging as well.
+       */
+      document.getElementById("inject-recovery").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({
+          "type": "INJECT_RECOVERY_BUNDLE",
+          "value": document.getElementById("recovery-bundle").value,
+        })
+      }, false);
+      document.getElementById("stamp").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({
+          "type": "STAMP_REQUEST",
+          "value": document.getElementById("payload").value,
+        })
+      }, false);
+      document.getElementById("reset").addEventListener("click", async function(e) {
+        e.preventDefault();
+        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
+      }, false);
+    }, false);
+
+    /**
+     * Function triggered when INJECT_RECOVERY_BUNDLE event is received.
+     * The `bundle` param is the concatenation of a public key and an encrypted payload, and then base64 encoded
+     * Example: A6ZPGAlxBRZhjKWky4RpXnHVceGzJjTuBrzKvMGnIgZ3r6JD4D1iiSg_m-y_u0BgJKI397Xjn0wgu17w9wuRooEp-F38m4ql57FgQ7sX9nQA
+     * @param {string} bundle
+     */
+    var onInjectBundle = async function(bundle) {
+        var bundleBytes = TKHQ.base64urlDecode(bundle);
+        if (bundleBytes.byteLength <= 33) {
+          throw new Error("bundle size " + bundleBytes.byteLength + " is too low. Expecting a compressed public key (33 bytes) and an encrypted credential")
+        }
+
+        var compressedEncappedKeyBuf = bundleBytes.subarray(0,33);
+        var ciphertextBuf = bundleBytes.subarray(33);
+        var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+
+        // Decompress the compressed key
+        var encappedKeyBuf = TKHQ.uncompressRawPublicKey(compressedEncappedKeyBuf);
+
+        var recoveryCredentialBytes = await HpkeDecrypt(
+          {
+            ciphertextBuf,
+            encappedKeyBuf,
+            receiverPrivJwk: embeddedKeyJwk,
+          });
+
+        RECOVERY_CREDENTIAL_BYTES = new Uint8Array(recoveryCredentialBytes);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
+    }
+    /**
+     * Function triggered when STAMP_REQUEST event is received.
+     * @param {string} payload to sign
+     */
+    var onStampRequest = async function(payload) {
+      if (RECOVERY_CREDENTIAL_BYTES === null) {
+        throw new Error("cannot sign payload without credential. Credential bytes are null");
+      }
+      var recoveryKey = await TKHQ.importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
+      var signatureIeee1363 = await window.crypto.subtle.sign(
+        {
+            name: "ECDSA",
+            hash: {name: "SHA-256"},
+        },
+        recoveryKey,
+        new TextEncoder().encode(payload)
+      );
+
+      var derSignature = TKHQ.convertEcdsaIeee1363ToDer(new Uint8Array(signatureIeee1363));
+      var derSignatureHexString = TKHQ.uint8arrayToHexString(derSignature);
+
+      // This is a bit of a pain, but we need to go through this:
+      // - Key needs to be exported to JWK first
+      // - Then imported without the private "d" component, and exported to get the public key
+      //   ^^ (that's what `p256JWKPrivateToPublic` does)
+      // - Finally, compress the public key.
+      var jwkKey = await crypto.subtle.exportKey("jwk", recoveryKey);
+      var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
+      var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
+
+      var stamp = {
+        publicKey: TKHQ.uint8arrayToHexString(compressedPublicKey),
+        scheme: "SIGNATURE_SCHEME_TK_API_P256",
+        signature: derSignatureHexString,
+      };
+
+      var stampHeaderValue = TKHQ.stringToBase64urlString(JSON.stringify(stamp));
+      TKHQ.sendMessageUp("STAMP", stampHeaderValue)
+    }
+  </script>
+</body>
+</html>

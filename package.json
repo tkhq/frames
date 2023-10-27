@@ -1,14 +1,13 @@
 {
-  "name": "recovery-tests",
+  "name": "iframe-tests",
   "version": "1.0.0",
-  "main": "index.test.js",
   "scripts": {
     "start": "serve",
     "test": "jest"
   },
   "repository": "git@github.com:tkhq/recovery.git",
   "author": "Turnkey <hello@turnkey.com>",
-  "description": "This package is only here to help us test the main html file",
+  "description": "This package is only here to help us test the main html files",
   "license": "MIT",
   "devDependencies": {
     "@babel/core": "^7.23.0",
