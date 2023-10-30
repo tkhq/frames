@@ -22,5 +22,6 @@ COPY recovery ./recovery
 COPY export ./export
 
 EXPOSE 8080/tcp
+EXPOSE 8081/tcp
 
 CMD [ "nginx", "-c", "/home/nginx/nginx.conf" ]
