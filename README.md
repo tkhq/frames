@@ -49,3 +49,15 @@ Follow the README.md for the `key-export` example. Set the `NEXT_PUBLIC_EXPORT_I
 ```sh
 cd sdk/examples/wallet-export
 ```
+
+# Building and running in Docker
+
+To build:
+```
+docker build . -t frames
+```
+
+To run (mapping 8080 and 8081 to 18080/18081 because they're often busy):
+```
+docker run -p18080:8080 -p18081:8081 -ti frames
+```
