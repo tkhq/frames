@@ -61,3 +61,27 @@ To run (mapping 8080 and 8081 to 18080/18081 because they're often busy):
 ```
 docker run -p18080:8080 -p18081:8081 -ti frames
 ```
+
+# Deploying to a test cluster
+
+This requires `k3d` to be installed:
+```
+# Create a local cluster
+k3d cluster create -c kustomize/cluster.yaml --wait
+
+# Import the frames image into the cluster
+k3d image import frames
+
+# Deploy to it
+kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
+```
+
+To clean things up:
+```
+kubectl delete service frames
+```
+
+Or even:
+```
+k3d cluster delete -c kustomize/cluster.yaml
+```
