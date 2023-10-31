@@ -14,14 +14,14 @@ spec:
         - name: frames
           image: ghcr.io/tkhq/frames
           ports:
-            - name: http-recovery
+            - name: recovery
               containerPort: 8080
-            - name: http-export
+            - name: export
               containerPort: 8081
           livenessProbe:
             httpGet:
               path: /health
-              port: http-recovery
+              port: recovery
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
