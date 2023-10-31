@@ -75,10 +75,5 @@ kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
 
 To clean things up:
 ```
-kubectl delete service frames
-```
-
-Or even:
-```
 k3d cluster delete frames
 ```
