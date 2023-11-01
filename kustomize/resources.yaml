@@ -20,7 +20,7 @@ spec:
               containerPort: 8081
           livenessProbe:
             httpGet:
-              path: /health
+              path: /
               port: recovery
           securityContext:
             allowPrivilegeEscalation: false

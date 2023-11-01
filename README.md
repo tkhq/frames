@@ -59,7 +59,7 @@ docker build . -t frames
 
 To run (mapping 8080 and 8081 to 18080/18081 because they're often busy):
 ```
-docker run -p18080:8080 -p18081:8081 -ti frames
+docker run -p18080:8080 -p18081:8081 -t frames
 ```
 
 # Deploying to a test Kubernetes cluster
