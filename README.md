@@ -49,3 +49,31 @@ Follow the README.md for the `key-export` example. Set the `NEXT_PUBLIC_EXPORT_I
 ```sh
 cd sdk/examples/wallet-export
 ```
+
+# Building and running in Docker
+
+To build:
+```
+docker build . -t frames
+```
+
+To run (mapping 8080 and 8081 to 18080/18081 because they're often busy):
+```
+docker run -p18080:8080 -p18081:8081 -t frames
+```
+
+# Deploying to a test Kubernetes cluster
+
+This requires [`k3d`](https://k3d.io/) to be installed:
+```
+# Create a local cluster
+k3d cluster create frames
+
+# Deploy to it
+kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
+```
+
+To clean things up:
+```
+k3d cluster delete frames
+```
