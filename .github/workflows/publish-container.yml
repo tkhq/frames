@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - main
+      - rno/infra-setup
     tags:
       - "v*.*.*"
   workflow_dispatch: # Allows manual invocation
@@ -29,7 +30,7 @@ jobs:
           images: |
             ghcr.io/tkhq/frames
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=sha,format=long
