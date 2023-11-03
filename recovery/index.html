@@ -754,6 +754,7 @@
         getItemWithExpiry,
         getEmbeddedKey,
         setEmbeddedKey,
+        onResetEmbeddedKey,
         importRecoveryCredential,
         compressRawPublicKey,
         uncompressRawPublicKey,
@@ -805,7 +806,7 @@
         }
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          onResetEmbeddedKey();
+          TKHQ.onResetEmbeddedKey();
         }
       }, false);
 
