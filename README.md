@@ -5,12 +5,12 @@ This repository contains code for the recovery and export components of Turnkey.
 ## Email Recovery
 This self-contained HTML page is meant to be used as a standalone document to help first-party Turnkey root users. It's also going to be embedded as an iframe to help with sub-org root recovery.
 
-This page is hosted at https://recovery.tkhqlabs.xyz/
+This page is hosted at https://recovery.turnkey.com/
 
 ## Key and Wallet Export
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
 
-This page is hosted at https://export.tkhqlabs.xyz/
+This page is hosted at https://export.turnkey.com/
 
 # Getting Started
 
