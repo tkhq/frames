@@ -795,18 +795,30 @@
 
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
-      window.addEventListener("message", function(event) {
+      window.addEventListener("message", async function(event) {
         if (event.data && event.data["type"] == "INJECT_RECOVERY_BUNDLE") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
-          onInjectBundle(event.data["value"])
+          try {
+            await onInjectBundle(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
         if (event.data && event.data["type"] == "STAMP_REQUEST") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
-          onStampRequest(event.data["value"]);
+          try {
+            await onStampRequest(event.data["value"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          TKHQ.onResetEmbeddedKey();
+          try {
+            TKHQ.onResetEmbeddedKey();
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
       }, false);
 
