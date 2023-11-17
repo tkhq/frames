@@ -340,18 +340,30 @@
 
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
-      window.addEventListener("message", event => {
+      window.addEventListener("message", async function(event) {
         if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
-          onInjectKeyBundle(event.data["value"])
+          try {
+            await onInjectKeyBundle(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
         if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
-          onInjectWalletBundle(event.data["value"])
+          try {
+            await onInjectWalletBundle(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          TKHQ.onResetEmbeddedKey();
+          try {
+            TKHQ.onResetEmbeddedKey();
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
         }
       }, false);
 
@@ -522,7 +534,7 @@
     }
 
     /**
-     * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+     * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
      * @param {string} bundle
      */
      const onInjectWalletBundle = async bundle => {
