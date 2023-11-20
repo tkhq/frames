@@ -923,12 +923,12 @@
           // This isn't perfect: there's a small chance that a base64url-encoded string doesn't have any of these characters by chance!
           // But we accept this risk given this branching is only here to support our transition to base58check.
           // I hear you'd like to quantify this risk? Let's do it.
-          // Assuming random bytes in our bundle and a bundle length of 33 (public key, compressed) + 80 (encrypted cred) = 113 bytes.
+          // Assuming random bytes in our bundle and a bundle length of 33 (public key, compressed) + 48 (encrypted cred) = 81 bytes.
           // The odds of a byte being in the overlap set between base58 and base64url is 58/64=0.90625.
-          // Which means the odds of a 113 bytes string being in the overlap character set for its entire length is...
-          // ... 0.90625^113 = 0.00001475795604
+          // Which means the odds of a 81 bytes string being in the overlap character set for its entire length is...
+          // ... 0.90625^81 = 0.0003444209703
           // Are you convinced that this is good enough? I am :)
-          var bundleBytes = TKHQ.base58checkDecode(bundle);
+          var bundleBytes = await TKHQ.base58checkDecode(bundle);
         } else {
           var bundleBytes = TKHQ.base64urlDecode(bundle);
         }

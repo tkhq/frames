@@ -148,10 +148,10 @@ describe("TKHQ", () => {
     // Same input as above, except last digit changed.
     await expect(TKHQ.base58checkDecode("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb")).rejects.toThrow("checksums do not match: computed 194,155,125,147 but found 194,155,125,148");
 
-    // Realistic recovery code: concatenation of a 33 bytes P-256 public key + a 80-bytes long encrypted credential
+    // Realistic recovery code: concatenation of a 33 bytes P-256 public key + a 48-bytes long encrypted credential
     // Test vector from our internal repo, which uses Rust to encode in base58check.
-    expect(Array.from(await TKHQ.base58checkDecode("Mobo835D8oQBX4BWPSrtYFcVHFNGgsp1X14t1MM18QpZD3aJdZJ4MioQk6ChU2mZ6b7gM3RxyiV5ArnwK2TH8bTU19zNG29q4w9WbBEp8HWuJLYqBTCh3KJPbnCxVcvDdhHZQ5nmghUB7noTXLTXeu3nnHbnuEz"))).toEqual(
-      Array.from(TKHQ.uint8arrayFromHexString("03d61d659ab8485f30cfe261ff965179519b2aeb16223ccc217e99b09d5aeb94f1ce9e701341d6ab5b330bf39a3488dfe37a7fc0d04b556de1f7c4beaf4f3c131c2fbb5e28e9c3056d621b66a9bb0dac7c11759767c3ff10ca0f686a06c4a30b6e57902fadc9a2a840cf1356592220fc80"))
+    expect(Array.from(await TKHQ.base58checkDecode("szrFBNGDkhXyVvRoqjjDT6xd7kRhDXHmtQH3NVkPuVVkeiPFjn6UkyjbiTzuxH9wKH4QdEJUaWxZLM1ZLzByUFN1TNjxVh5aoZENCnKYrSEdZBnRWcK"))).toEqual(
+      Array.from(TKHQ.uint8arrayFromHexString("02cb30f1f44d411383cc2a7bb7135d87e0fbf265d0e002b460c9d38d97b14cd0d26114254d213cd77887293644d942a62516a3f174f01ed1ccb57dea1f8ac88664759bb6febcd8b060e7a11d23c614dd66"))
     );
   })
 
