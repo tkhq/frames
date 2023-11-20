@@ -278,7 +278,7 @@
         var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
         var decoded = BigInt(0);
         var decodedBytes = [];
-        var result = [];
+        var leadingZeros = [];
         for (var i = 0; i < s.length; i++) {
           if (alphabet.indexOf(s[i]) === -1) {
             throw new Error(`cannot base58-decode: ${s[i]} isn't a valid character`)
@@ -286,16 +286,24 @@
           var carry = alphabet.indexOf(s[i]);
 
           // If the current base58 digit is 0, append a 0 byte.
-          // "result.length == i" can only happen if we have not seen non-zero bytes so far
-          if (carry == 0 && result.length === i) {
-            result.push(0);
+          // "i == leadingZeros.length" can only be true if we have not seen non-zero bytes so far.
+          // If we had seen a non-zero byte, carry wouldn't be 0, and i would be strictly more than `leadingZeros.length`
+          if (carry == 0 && i === leadingZeros.length) {
+            leadingZeros.push(0);
           }
 
           var j = 0;
           while (j < decodedBytes.length || carry > 0) {
             var currentByte = decodedBytes[j];
-            // shift the current byte 58 units and add the carry amount (or just add the carry amount if this is a new byte)
-            currentByte = currentByte ? currentByte * 58 + carry : carry;
+
+            // shift the current byte 58 units and add the carry amount
+            // (or just add the carry amount if this is a new byte -- undefined case)
+            if (currentByte === undefined) {
+              currentByte = carry
+            } else {
+              currentByte = currentByte * 58 + carry
+            }
+
             // find the new carry amount (1-byte shift of current byte value)
             carry = currentByte >> 8;
             // reset the current byte to the remainder (the carry amount will pass on the overflow)
@@ -304,7 +312,7 @@
           }
         }
 
-        result = result.concat(decodedBytes.reverse());
+        var result = leadingZeros.concat(decodedBytes.reverse());
 
         var foundChecksum = result.slice(result.length - 4)
 
