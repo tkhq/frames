@@ -131,7 +131,28 @@ describe("TKHQ", () => {
   })
 
   it("contains base64urlDecode", () => {
-    expect(TKHQ.base64urlDecode("AQID").buffer).toEqual(new Uint8Array([1, 2, 3]).buffer);
+    expect(Array.from(TKHQ.base64urlDecode("AQID"))).toEqual([1, 2, 3]);
+  })
+
+  it("contains base58checkDecode", async () => {
+    await expect(TKHQ.base58checkDecode("N0PE")).rejects.toThrow("cannot base58-decode a string of length < 5 (found length 4)");
+    await expect(TKHQ.base58checkDecode("NOOOO")).rejects.toThrow("cannot base58-decode: O isn't a valid character");
+
+    // Satoshi's Bitcoin address
+    expect(Array.from(await TKHQ.base58checkDecode("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"))).toEqual(
+      // Note: checksum is missing from this expected value since we chop the checksum as part of decoding.
+      // Decoded value on http://lenschulwitz.com/base58 has C29B7D93 (4 bytes) at the end, that's expected and normal.
+      Array.from(TKHQ.uint8arrayFromHexString("0062E907B15CBF27D5425399EBF6F0FB50EBB88F18"))
+    );
+
+    // Same input as above, except last digit changed.
+    await expect(TKHQ.base58checkDecode("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb")).rejects.toThrow("checksums do not match: computed 194,155,125,147 but found 194,155,125,148");
+
+    // Realistic recovery code: concatenation of a 33 bytes P-256 public key + a 48-bytes long encrypted credential
+    // Test vector from our internal repo, which uses Rust to encode in base58check.
+    expect(Array.from(await TKHQ.base58checkDecode("szrFBNGDkhXyVvRoqjjDT6xd7kRhDXHmtQH3NVkPuVVkeiPFjn6UkyjbiTzuxH9wKH4QdEJUaWxZLM1ZLzByUFN1TNjxVh5aoZENCnKYrSEdZBnRWcK"))).toEqual(
+      Array.from(TKHQ.uint8arrayFromHexString("02cb30f1f44d411383cc2a7bb7135d87e0fbf265d0e002b460c9d38d97b14cd0d26114254d213cd77887293644d942a62516a3f174f01ed1ccb57dea1f8ac88664759bb6febcd8b060e7a11d23c614dd66"))
+    );
   })
 
   it("contains uint8arrayToHexString", () => {
