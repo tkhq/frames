@@ -1,5 +1,5 @@
 {
-  "name": "recovery-tests",
+  "name": "email-auth-tests",
   "version": "1.0.0",
   "main": "index.test.js",
   "scripts": {
