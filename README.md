@@ -20,7 +20,13 @@ git clone git@github.com:tkhq/frames.git
 cd frames/
 ```
 
-Install dependencies
+Install Node:
+```sh
+nvm use
+```
+(the command above installs the version specified in `.nvmrc`, but any Node version >= v18 should do)
+
+Install dependencies:
 ```sh
 cd recovery && npm install
 cd export && npm install
