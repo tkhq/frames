@@ -80,13 +80,13 @@ describe("TKHQ", () => {
   })
 
   it("imports auth credentials without errors", async () => {
-    let key = await TKHQ.importEmailAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+    let key = await TKHQ.importAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     expect(key.constructor.name).toEqual("CryptoKey");
     expect(key.algorithm).toEqual({ name: "ECDSA", namedCurve: "P-256"});
   })
 
   it("imports auth credentials correctly", async () => {
-    let key = await TKHQ.importEmailAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+    let key = await TKHQ.importAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     let jwkPrivateKey = await crypto.subtle.exportKey("jwk", key);
     let publicKey = await TKHQ.p256JWKPrivateToPublic(jwkPrivateKey);
     let compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);

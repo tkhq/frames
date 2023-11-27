@@ -31,3 +31,12 @@ jobs:
           projectName: export
           directory: export
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish Auth
+        uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca #v1.5.0
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: auth
+          directory: auth
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
