@@ -7,6 +7,8 @@ LABEL org.opencontainers.image.source https://github.com/tkhq/frames
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
+# maintain recovery for backwards compatibility
+COPY auth /usr/share/nginx/recovery
 COPY auth /usr/share/nginx/auth
 COPY export /usr/share/nginx/export
 

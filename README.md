@@ -1,21 +1,18 @@
 # Frames
 
-This repository contains code for the recovery, export, and auth components of Turnkey. These components can be embedded as iframes by users to support end-users.
+This repository contains code for the auth (which includes recovery) and export components of Turnkey. These components can be embedded as iframes by users to support end-users.
 
-## Email Recovery
-This self-contained HTML page is meant to be used as a standalone document to help first-party Turnkey root users. It's also going to be embedded as an iframe to help with sub-org root recovery.
+## Auth
+This self-contained HTML page is meant to be used for the following use cases:
+- As a standalone document to enable first-party Turnkey root users to perform recovery and auth
+- Embedded as an iframe for sub-org root recovery and auth
 
-This page is hosted at https://auth.turnkey.com/
+This page is hosted at https://auth.turnkey.com/, but we will retain https://recovery.turnkey.com/for compatibility.
 
 ## Key and Wallet Export
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
 
 This page is hosted at https://export.turnkey.com/
-
-## Auth (via Email)
-This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
-
-This page is also hosted at https://auth.turnkey.com/
 
 # Getting Started
 

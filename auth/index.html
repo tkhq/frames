@@ -864,7 +864,7 @@
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
-        if (event.data && event.data["type"] == "INJECT_CREDENTIAL_BUNDLE") {
+        if (event.data && (event.data["type"] == "INJECT_CREDENTIAL_BUNDLE" || event.data["type"] == "INJECT_RECOVERY_BUNDLE")) {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           try {
             await onInjectBundle(event.data["value"])
@@ -891,7 +891,7 @@
       }, false);
 
       /**
-       * Event handlers to power the recovery flow in standalone mode
+       * Event handlers to power the recovery and auth flows in standalone mode
        * Instead of receiving events from the parent page, forms trigger them.
        * This is useful for debugging as well.
        */
