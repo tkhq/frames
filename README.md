@@ -5,7 +5,7 @@ This repository contains code for the recovery, export, and auth components of T
 ## Email Recovery
 This self-contained HTML page is meant to be used as a standalone document to help first-party Turnkey root users. It's also going to be embedded as an iframe to help with sub-org root recovery.
 
-This page is hosted at https://recovery.turnkey.com/
+This page is hosted at https://auth.turnkey.com/
 
 ## Key and Wallet Export
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
@@ -15,7 +15,7 @@ This page is hosted at https://export.turnkey.com/
 ## Auth (via Email)
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
 
-This page is hosted at https://auth.turnkey.com/
+This page is also hosted at https://auth.turnkey.com/
 
 # Getting Started
 
@@ -33,18 +33,16 @@ nvm use
 
 Install dependencies:
 ```sh
-cd recovery && npm install
-cd export && npm install
 cd auth && npm install
+cd export && npm install
 ```
 
 # Unit Testing
 
-The export, recovery, and auth pages each have tests. They run on CI automatically. If you want to run them locally:
+The auth and recovery pages each have tests. They run on CI automatically. If you want to run them locally:
 ```sh
-cd recovery && npm test
-cd export  && npm test
 cd auth && npm test
+cd export  && npm test
 ```
 
 # Running Local Wallet Export
@@ -86,9 +84,9 @@ To build:
 docker build . -t frames
 ```
 
-To run (mapping `[8080, 8081, 8082]` to `[18080, 18081, 18082]` because they're often busy):
+To run (mapping `[8080, 8081]` to `[18080, 18081]` because they're often busy):
 ```
-docker run -p18080:8080 -p18081:8081 -p18082:8082 -t frames
+docker run -p18080:8080 -p18081:8081 -t frames
 ```
 
 # Deploying to a test Kubernetes cluster

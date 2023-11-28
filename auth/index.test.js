@@ -79,14 +79,14 @@ describe("TKHQ", () => {
     expect(key.key_ops).toContain("deriveBits");
   })
 
-  it("imports auth credentials without errors", async () => {
-    let key = await TKHQ.importAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+  it("imports credentials (for recovery or auth) without errors", async () => {
+    let key = await TKHQ.importCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     expect(key.constructor.name).toEqual("CryptoKey");
     expect(key.algorithm).toEqual({ name: "ECDSA", namedCurve: "P-256"});
   })
 
-  it("imports auth credentials correctly", async () => {
-    let key = await TKHQ.importAuthCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+  it("imports credentials (for recovery or auth) correctly", async () => {
+    let key = await TKHQ.importCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     let jwkPrivateKey = await crypto.subtle.exportKey("jwk", key);
     let publicKey = await TKHQ.p256JWKPrivateToPublic(jwkPrivateKey);
     let compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
@@ -148,7 +148,7 @@ describe("TKHQ", () => {
     // Same input as above, except last digit changed.
     await expect(TKHQ.base58checkDecode("1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNb")).rejects.toThrow("checksums do not match: computed 194,155,125,147 but found 194,155,125,148");
 
-    // Realistic email auth code: concatenation of a 33 bytes P-256 public key + a 48-bytes long encrypted credential
+    // Realistic recovery code: concatenation of a 33 bytes P-256 public key + a 48-bytes long encrypted credential
     // Test vector from our internal repo, which uses Rust to encode in base58check.
     expect(Array.from(await TKHQ.base58checkDecode("szrFBNGDkhXyVvRoqjjDT6xd7kRhDXHmtQH3NVkPuVVkeiPFjn6UkyjbiTzuxH9wKH4QdEJUaWxZLM1ZLzByUFN1TNjxVh5aoZENCnKYrSEdZBnRWcK"))).toEqual(
       Array.from(TKHQ.uint8arrayFromHexString("02cb30f1f44d411383cc2a7bb7135d87e0fbf265d0e002b460c9d38d97b14cd0d26114254d213cd77887293644d942a62516a3f174f01ed1ccb57dea1f8ac88664759bb6febcd8b060e7a11d23c614dd66"))

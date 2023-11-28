@@ -14,13 +14,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v3.0.2
 
-      - name: Publish Recovery
+      - name: Publish Auth
         uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca #v1.5.0
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: recovery
-          directory: recovery
+          projectName: auth
+          directory: auth
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Export
@@ -30,13 +30,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: export
           directory: export
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Publish Auth
-        uses: cloudflare/pages-action@f0a1cd58cd66095dee69bfa18fa5efd1dde93bca #v1.5.0
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          projectName: auth
-          directory: auth
           gitHubToken: ${{ secrets.GITHUB_TOKEN }}
