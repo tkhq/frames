@@ -2,8 +2,9 @@
 <html class="no-js" lang="">
 
 <head>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <meta charset="utf-8">
-  <title>Turnkey Recovery</title>
+  <title>Turnkey Recovery and Auth</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
@@ -75,8 +76,8 @@
 </head>
 
 <body>
-  <h2>Init Recovery</h2>
-  <p><em>This public key will be sent along with your email inside of a new <code>INIT_USER_EMAIL_RECOVERY</code> activity</em></p>
+  <h2>Init Recovery or Auth</h2>
+  <p><em>This public key will be sent along with your email inside of a new <code>INIT_USER_EMAIL_RECOVERY</code> or <code>EMAIL_AUTH</code> activity</em></p>
   <form>
     <label>Embedded key</label>
     <input type="text" name="embedded-key" id="embedded-key" disabled/>
@@ -85,18 +86,18 @@
   <br>
   <br>
   <br>
-  <h2>Inject Recovery Bundle</h2>
-  <p><em>The recovery bundle comes from your email. We can also simulate this locally: see instructions <a href="https://github.com/tkhq/recovery#running-a-fake-recovery" target="_blank">here</a>. A recovery bundle is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
+  <h2>Inject Credential Bundle</h2>
+  <p><em>The credential bundle will come from your email. This bundle can then be used for email recovery or auth. We can simulate this locally: see instructions <a href="https://github.com/tkhq/frames#running-local-auth" target="_blank">here</a>. A credential bundle is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
   <form>
     <label>Bundle</label>
-    <input type="text" name="recovery-bundle" id="recovery-bundle"/>
+    <input type="text" name="credential-bundle" id="credential-bundle"/>
     <button id="inject">Inject Bundle</button>
   </form>
   <br>
   <br>
   <br>
   <h2>Stamp</h2>
-  <p><em>Once you've injected the recovery bundle, the recovery credential is ready to sign. A new <code>RECOVER</code> activity for example. This iframe doesn't know anything about Turnkey activity however, it's a simple stamper!</em></p>
+  <p><em>Once you've injected the credential bundle, the credential is ready to sign. A new <code>RECOVER</code> activity for example. This iframe doesn't know anything about Turnkey activity however, it's a simple stamper!</em></p>
   <form>
     <label>Payload</label>
     <input type="text" name="payload" id="payload"/>
@@ -464,7 +465,7 @@
        * when performing `crypto.subtle.importKey` operations.
        * @param {Uint8Array} privateKeyBytes
        */
-      var importRecoveryCredential = async function(privateKeyBytes) {
+      var importCredential = async function(privateKeyBytes) {
         var privateKeyHexString = uint8arrayToHexString(privateKeyBytes);
         var privateKey = BigInt('0x' + privateKeyHexString);
         var publicKeyPoint = P256Generator.multiply(privateKey);
@@ -537,7 +538,7 @@
       }
 
       /**
-       * Accepts a public key array buffer, and returns a buffer with the uncomrpessed version of the public key
+       * Accepts a public key array buffer, and returns a buffer with the uncompressed version of the public key
        * @param {Uint8Array} rawPublicKey
        * @return {Uint8Array} the uncompressed bytes
        */
@@ -629,7 +630,7 @@
        * ----
        * IMPORTANT NOTE: below we implement basic field arithmetic for P256
        * This is only used to compute public point from a secret key inside of
-       * `importRecoveryCredential` above. If something goes wrong with the code below
+       * `importCredential` above. If something goes wrong with the code below
        * the web crypto API will simply refuse to import the key.
        * None of the functions below are returned from the closure to minimize the risk of misuse.
        *********************************************************************************************/
@@ -821,7 +822,7 @@
         getEmbeddedKey,
         setEmbeddedKey,
         onResetEmbeddedKey,
-        importRecoveryCredential,
+        importCredential,
         compressRawPublicKey,
         uncompressRawPublicKey,
         p256JWKPrivateToPublic,
@@ -849,8 +850,8 @@
     // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
     import * as hpke from "https://esm.sh/@hpke/core";
 
-    // In memory spot for the recovery credential to live. We do NOT persist it to localStorage.
-    var RECOVERY_CREDENTIAL_BYTES = null;
+    // In memory spot for the credential to live. We do NOT persist it to localStorage.
+    var CREDENTIAL_BYTES = null;
 
     document.addEventListener("DOMContentLoaded", async function () {
       await TKHQ.initEmbeddedKey();
@@ -863,7 +864,7 @@
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
-        if (event.data && event.data["type"] == "INJECT_RECOVERY_BUNDLE") {
+        if (event.data && (event.data["type"] == "INJECT_CREDENTIAL_BUNDLE" || event.data["type"] == "INJECT_RECOVERY_BUNDLE")) {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           try {
             await onInjectBundle(event.data["value"])
@@ -890,15 +891,15 @@
       }, false);
 
       /**
-       * Event handlers to power the recovery flow in standalone mode
+       * Event handlers to power the recovery and auth flows in standalone mode
        * Instead of receiving events from the parent page, forms trigger them.
        * This is useful for debugging as well.
        */
       document.getElementById("inject").addEventListener("click", async function(e) {
         e.preventDefault();
         window.postMessage({
-          "type": "INJECT_RECOVERY_BUNDLE",
-          "value": document.getElementById("recovery-bundle").value,
+          "type": "INJECT_CREDENTIAL_BUNDLE",
+          "value": document.getElementById("credential-bundle").value,
         })
       }, false);
       document.getElementById("stamp").addEventListener("click", async function(e) {
@@ -915,7 +916,7 @@
     }, false);
 
     /**
-     * Function triggered when INJECT_RECOVERY_BUNDLE event is received.
+     * Function triggered when INJECT_CREDENTIAL_BUNDLE event is received.
      * The `bundle` param is the concatenation of a public key and an encrypted payload, and then base64 encoded
      * Example: A6ZPGAlxBRZhjKWky4RpXnHVceGzJjTuBrzKvMGnIgZ3r6JD4D1iiSg_m-y_u0BgJKI397Xjn0wgu17w9wuRooEp-F38m4ql57FgQ7sX9nQA
      * @param {string} bundle
@@ -952,14 +953,14 @@
         // Decompress the compressed key
         var encappedKeyBuf = TKHQ.uncompressRawPublicKey(compressedEncappedKeyBuf);
 
-        var recoveryCredentialBytes = await HpkeDecrypt(
+        var credentialBytes = await HpkeDecrypt(
           {
             ciphertextBuf,
             encappedKeyBuf,
             receiverPrivJwk: embeddedKeyJwk,
           });
 
-        RECOVERY_CREDENTIAL_BYTES = new Uint8Array(recoveryCredentialBytes);
+        CREDENTIAL_BYTES = new Uint8Array(credentialBytes);
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
     }
     /**
@@ -967,16 +968,16 @@
      * @param {string} payload to sign
      */
     var onStampRequest = async function(payload) {
-      if (RECOVERY_CREDENTIAL_BYTES === null) {
+      if (CREDENTIAL_BYTES === null) {
         throw new Error("cannot sign payload without credential. Credential bytes are null");
       }
-      var recoveryKey = await TKHQ.importRecoveryCredential(RECOVERY_CREDENTIAL_BYTES)
+      var key = await TKHQ.importCredential(CREDENTIAL_BYTES)
       var signatureIeee1363 = await window.crypto.subtle.sign(
         {
             name: "ECDSA",
             hash: {name: "SHA-256"},
         },
-        recoveryKey,
+        key,
         new TextEncoder().encode(payload)
       );
 
@@ -988,7 +989,7 @@
       // - Then imported without the private "d" component, and exported to get the public key
       //   ^^ (that's what `p256JWKPrivateToPublic` does)
       // - Finally, compress the public key.
-      var jwkKey = await crypto.subtle.exportKey("jwk", recoveryKey);
+      var jwkKey = await crypto.subtle.exportKey("jwk", key);
       var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
       var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
 

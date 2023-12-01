@@ -1,11 +1,13 @@
 # Frames
 
-This repository contains code for the recovery and export components of Turnkey. These components can be embedded as iframes by users to support end-users in recovery and export.
+This repository contains code for the auth (which includes recovery) and export components of Turnkey. These components can be embedded as iframes by users to support end-users.
 
-## Email Recovery
-This self-contained HTML page is meant to be used as a standalone document to help first-party Turnkey root users. It's also going to be embedded as an iframe to help with sub-org root recovery.
+## Auth
+This self-contained HTML page is meant to be used for the following use cases:
+- As a standalone document to enable first-party Turnkey root users to perform recovery and auth
+- Embedded as an iframe for sub-org root recovery and auth
 
-This page is hosted at https://recovery.turnkey.com/
+This page is hosted at https://auth.turnkey.com/, but we will retain https://recovery.turnkey.com/for compatibility.
 
 ## Key and Wallet Export
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
@@ -28,15 +30,15 @@ nvm use
 
 Install dependencies:
 ```sh
-cd recovery && npm install
+cd auth && npm install
 cd export && npm install
 ```
 
 # Unit Testing
 
-The export and recovery pages have tests. They run on CI automatically. If you want to run them locally:
+The auth and recovery pages each have tests. They run on CI automatically. If you want to run them locally:
 ```sh
-cd recovery && npm test
+cd auth && npm test
 cd export  && npm test
 ```
 
@@ -51,9 +53,25 @@ Clone the `sdk` repo.
 git clone git@github.com:tkhq/sdk.git
 ```
 
-Follow the README.md for the `key-export` example. Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/export"` in the example's environment variables configuration. The `wallet-export` example embeds this page as an iframe.
+Follow the README.md for the `wallet-export` [example](https://github.com/tkhq/sdk/tree/main/examples/wallet-export). Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/"` in the example's environment variables configuration. The `wallet-export` example embeds this page as an iframe.
 ```sh
 cd sdk/examples/wallet-export
+```
+
+# Running Local Auth
+Start the server. This command will run a simple static server on port 8080.
+```sh
+npm start
+```
+
+Clone the `sdk` repo.
+```sh
+git clone git@github.com:tkhq/sdk.git
+```
+
+Follow the README.md for the `email-auth` [example](https://github.com/tkhq/sdk/tree/main/examples/email-auth). Set the `NEXT_PUBLIC_AUTH_IFRAME_URL="http://localhost:3000/"` in the example's environment variables configuration. The `email-auth` example embeds this page as an iframe.
+```sh
+cd sdk/examples/email-auth
 ```
 
 # Building and running in Docker
@@ -63,7 +81,7 @@ To build:
 docker build . -t frames
 ```
 
-To run (mapping 8080 and 8081 to 18080/18081 because they're often busy):
+To run (mapping `[8080, 8081]` to `[18080, 18081]` because they're often busy):
 ```
 docker run -p18080:8080 -p18081:8081 -t frames
 ```

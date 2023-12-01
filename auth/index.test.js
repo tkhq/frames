@@ -79,14 +79,14 @@ describe("TKHQ", () => {
     expect(key.key_ops).toContain("deriveBits");
   })
 
-  it("imports recovery credentials without errors", async () => {
-    let key = await TKHQ.importRecoveryCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+  it("imports credentials (for recovery or auth) without errors", async () => {
+    let key = await TKHQ.importCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     expect(key.constructor.name).toEqual("CryptoKey");
     expect(key.algorithm).toEqual({ name: "ECDSA", namedCurve: "P-256"});
   })
 
-  it("imports recovery credentials correctly", async () => {
-    let key = await TKHQ.importRecoveryCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
+  it("imports credentials (for recovery or auth) correctly", async () => {
+    let key = await TKHQ.importCredential(TKHQ.uint8arrayFromHexString("7632de7338577bc12c1731fa29f08019206af381f74af60f4d5e0395218f205c"));
     let jwkPrivateKey = await crypto.subtle.exportKey("jwk", key);
     let publicKey = await TKHQ.p256JWKPrivateToPublic(jwkPrivateKey);
     let compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);

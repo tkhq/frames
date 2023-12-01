@@ -1,12 +1,12 @@
 {
-  "name": "recovery-tests",
+  "name": "auth-tests",
   "version": "1.0.0",
   "main": "index.test.js",
   "scripts": {
     "start": "serve",
     "test": "jest"
   },
-  "repository": "git@github.com:tkhq/recovery.git",
+  "repository": "git@github.com:tkhq/frames.git",
   "author": "Turnkey <hello@turnkey.com>",
   "description": "This package is only here to help us test the main html file",
   "license": "MIT",
