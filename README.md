@@ -7,7 +7,7 @@ This self-contained HTML page is meant to be used for the following use cases:
 - As a standalone document to enable first-party Turnkey root users to perform recovery and auth
 - Embedded as an iframe for sub-org root recovery and auth
 
-This page is hosted at https://auth.turnkey.com/, but we will retain https://recovery.turnkey.com/for compatibility.
+This page is hosted at https://auth.turnkey.com/, but we will retain https://recovery.turnkey.com/ for compatibility.
 
 ## Key and Wallet Export
 This self-contained HTML page is meant to be used as either a standalone document or to be embedded as an iframe.
