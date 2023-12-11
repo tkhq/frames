@@ -405,16 +405,12 @@
         });
 
         const style = {
-          padding: "10px",
-          borderRadius: "8px",
-          borderWidth: "1px",
-          borderStyle: "solid",
-          borderColor: "rgba(216, 219, 227, 1)",
+          border: "none",
           color: "#555b64",
           fontWeight: "400",
           fontSize: ".875rem",
           lineHeight: "1.25rem",
-          fontFamily: "\"iA Writer Mono\", SFMono-Regular, Menlo, Consolas, monospace;",
+          fontFamily: "\"iA Writer Mono\", SFMono-Regular, Menlo, Consolas, monospace",
         };
 
         // Create a new div with the key material and append the new div to the body
@@ -425,74 +421,6 @@
             keyDiv.style[styleKey] = style[styleKey];
         }
         document.body.appendChild(keyDiv);
-    }
-
-    /**
-     * Hide every HTML element in <body> except any <script> elements.
-     * Then append an element containing the wallet's mnemonic in a
-     * 3-column table where each row contains 3 words and their
-     * corresponding index.
-     * @param wallet
-     * 
-     * TODO: Append element for passphrase after import is released
-     */ 
-    const displayWallet = wallet => {
-      Array.from(document.body.children).forEach(child => {
-          if (child.tagName !== "SCRIPT") {
-            child.style.display = 'none';
-          }
-        });
-
-        const words = wallet.mnemonic.split(" ");
-
-        const numberCellStyle = {
-          backgroundColor: "#f9fbff",
-          border: "1px solid #ebedf2",
-          padding: "10px",
-          width: "20px",
-          color: "#6c727e",
-          height: "20px",
-        };
-
-        const wordCellStyle = {
-          border: "1px solid #ebedf2",
-          padding: "10px",
-          height: "20px",
-        }
-
-        const table = document.createElement("table");
-        const tbody = document.createElement("tbody");
-        tbody.id = "mnemonic-tbody";
-        table.id = "mnemonic-table";
-        table.appendChild(tbody);
-        table.style.borderCollapse = "collapse";
-        table.style.marginLeft = "auto";
-        table.style.marginRight = "auto";
-
-        for (let i = 0; i < words.length; i += 3) {
-          let row = document.createElement("tr");
-          for (let j = 0; j < 3; j++) {
-            if (i + j < words.length) {
-              let cellIndex = document.createElement("td");
-              cellIndex.innerText = i + j + 1;
-              for (let styleKey in numberCellStyle) {
-                cellIndex.style[styleKey] = numberCellStyle[styleKey];
-              }
-              row.appendChild(cellIndex);
-
-              let cellWord = document.createElement("td");
-              cellWord.innerText = words[i + j];
-              for (let styleKey in wordCellStyle) {
-                cellWord.style[styleKey] = wordCellStyle[styleKey];
-              }
-              row.appendChild(cellWord);
-            }
-          }
-
-          tbody.appendChild(row);
-        }
-
-        document.body.appendChild(table);
     }
 
     /**
@@ -545,7 +473,7 @@
         const wallet = TKHQ.parseWallet(new Uint8Array(walletBytes));
 
         // Display only the wallet's mnemonic
-        displayWallet(wallet);
+        displayKey(wallet.mnemonic);
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
