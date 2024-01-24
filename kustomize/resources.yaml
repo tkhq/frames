@@ -24,6 +24,9 @@ spec:
             httpGet:
               path: /health
               port: auth
+          resource:
+            requests:
+              memory: 5Mi
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
