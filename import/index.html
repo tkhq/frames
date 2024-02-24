@@ -30,17 +30,6 @@
     input:disabled {
       background-color: rgb(239, 243, 240);
     }
-    #reset {
-      color: white;
-      width: 7em;
-      font-size: 1em;
-      padding: 0.38em;
-      border-radius: 4px;
-      background-color: rgb(187, 100, 100);
-      border: 1px rgb(112, 42, 42) solid;
-      cursor: pointer;
-      display: inline;
-    }
     #inject-import-bundle, #encrypt-wallet-bundle {
       color: white;
       width: 10em;
@@ -72,17 +61,7 @@
 
 <body>
   <h2>Import Key Material</h2>
-  <!-- <p><em>This public key will be sent along with a private key ID or wallet ID inside of a new <code>EXPORT_PRIVATE_KEY</code> or <code>EXPORT_WALLET</code> activity</em></p> -->
-  <form>
-    <label>Embedded key</label>
-    <input type="text" name="embedded-key" id="embedded-key" disabled/>
-    <button id="reset">Reset Key</button>
-  </form>
-  <br>
-  <br>
-  <br>
   <h2>Bundles</h2>
-  <!-- <p><em>The export bundle comes from the parent page and is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p> -->
   <form>
     <label>Import Bundle</label>
     <input type="text" name="import-bundle" id="import-bundle"/>
@@ -107,24 +86,9 @@
   <script>
     window.TKHQ = function() {
       /** constants for LocalStorage */
-      const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
       const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
-      /** 48 hours in milliseconds */
-      const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
       /** 1 week in milliseconds */
       const TURNKEY_TARGET_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 24 * 7;
-
-      /**
-       * Creates a new public/private key pair and persists it in localStorage
-       */
-      const initEmbeddedKey = async () => {
-        const retrievedKey = await getEmbeddedKey();
-        if (retrievedKey === null) {
-          const targetKey = await generateTargetKey();
-          setEmbeddedKey(targetKey);
-        }
-        // Nothing to do, key is correctly initialized!
-      }
 
       /*
       * Import a key to encrypt to as a CryptoKey and export it as a JSON Web Key.
@@ -137,33 +101,6 @@
 
         return await crypto.subtle.exportKey("jwk", targetKey);
       }
-
-      /*
-      * Generate a key to encrypt to and export it as a JSON Web Key.
-      */
-      const generateTargetKey = async () => {
-        const p256key = await crypto.subtle.generateKey({
-          name: 'ECDH',
-          namedCurve: 'P-256',
-        }, true, ['encrypt']);
-
-        return await crypto.subtle.exportKey("jwk", p256key.privateKey);
-      }
-
-      /**
-       * Gets the current embedded private key JWK. Returns `null` if not found.
-       */
-      const getEmbeddedKey = () => {
-        const jwtKey = TKHQ.getItemWithExpiry(TURNKEY_EMBEDDED_KEY)
-        return jwtKey ?  JSON.parse(jwtKey) : null;
-      }
-
-      /**
-       * Sets the embedded private key JWK with the default expiration time. 
-       * @param {JsonWebKey} targetKey
-       */
-      const setEmbeddedKey = targetKey =>
-        setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
 
       /**
        * Gets the current target embedded private key JWK. Returns `null` if not found.
@@ -179,13 +116,6 @@
        */
       const setTargetEmbeddedKey = targetKey =>
         setItemWithExpiry(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_TARGET_EMBEDDED_KEY_TTL_IN_MILLIS);
-
-      /**
-       * Resets the current embedded private key JWK.
-       */
-      const onResetEmbeddedKey = async () => {
-        window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
-      }
 
        /**
        * Set an item in localStorage with an expiration time
@@ -279,36 +209,12 @@
         messageLog.appendChild(message);
       }
 
-      /**
-      * Convert a JSON Web Key private key to a public key and export the public
-      * key in raw format.
-      * @return {Uint8array}
-      */
-      const p256JWKPrivateToPublic = async jwkPrivate => {
-        // make a copy so we don't modify the underlying object
-        const jwkPrivateCopy = { ... jwkPrivate }
-        // change jwk so it will be imported as a public key
-        delete jwkPrivateCopy.d;
-        jwkPrivateCopy.key_ops = ["verify"];
-
-        const publicKey =  await window.crypto.subtle
-          .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
-        const buffer = await crypto.subtle.exportKey("raw", publicKey);
-        return new Uint8Array(buffer)
-      }
-
       return {
-        initEmbeddedKey,
-        generateTargetKey,
         importTargetKey,
         setItemWithExpiry,
         getItemWithExpiry,
-        getEmbeddedKey,
-        setEmbeddedKey,
         getTargetEmbeddedKey,
         setTargetEmbeddedKey,
-        onResetEmbeddedKey,
-        p256JWKPrivateToPublic,
         sendMessageUp,
         logMessage,
         uint8arrayFromHexString,
@@ -328,13 +234,6 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
-      await TKHQ.initEmbeddedKey();
-      const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-      const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-      const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
-      document.getElementById("embedded-key").value = targetPubHex;
-      TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
-
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
@@ -350,14 +249,6 @@
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           try {
             await onExtractWalletEncryptedBundle(event.data["value"])
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
-        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          try {
-            TKHQ.onResetEmbeddedKey();
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -382,10 +273,6 @@
           "type": "EXTRACT_WALLET_ENCRYPTED_BUNDLE",
           "value": document.getElementById("wallet-bundle").value,
         })
-      }, false);
-      document.getElementById("reset").addEventListener("click", async e => {
-        e.preventDefault();
-        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
       }, false);
     }, false);
 
@@ -426,61 +313,27 @@
 
       // Encrypt the bundle using the enclave target public key
       const plaintextBuf = new TextEncoder().encode(bundle);
-      const encryptedBundleBuf = await HpkeEncrypt(
+      const encryptedBundle = await HpkeEncrypt(
         {
           plaintextBuf,
           receiverPubJwk: targetKeyJwk,
         });
 
-      const encryptedBundleHex = TKHQ.uint8arrayToHexString(encryptedBundleBuf);
-
       // Send up BUNDLE_ENCRYPTED message
-      TKHQ.sendMessageUp("BUNDLE_ENCRYPTED", encryptedBundleHex)
-    }
-
-    /**
-     * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
-     * and the receivers private key (JSON Web Key).
-     */
-    const HpkeDecrypt = async ({ ciphertextBuf, encappedKeyBuf, receiverPrivJwk }) => {
-      const kemContext = new hpke.DhkemP256HkdfSha256();
-      var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
-
-
-      var suite = new hpke.CipherSuite({
-        kem: kemContext,
-        kdf: new hpke.HkdfSha256(),
-        aead: new hpke.Aes256Gcm(),
-      });
-
-      var recipientCtx = await suite.createRecipientContext({
-        recipientKey: receiverPriv,
-        enc: encappedKeyBuf,
-        info: new TextEncoder().encode("turnkey_hpke"),
-      });
-
-      var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
-      var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
-      var res;
-      try {
-        res = await recipientCtx.open(ciphertextBuf, aad);
-      } catch (e) {
-        throw new Error("decryption failed: " + e);
-      }
-      return res
+      TKHQ.sendMessageUp("BUNDLE_ENCRYPTED", encryptedBundle)
     }
 
     const HpkeEncrypt = async ({ plaintextBuf, receiverPubJwk }) => {
       const kemContext = new hpke.DhkemP256HkdfSha256();
-      var receiverPub = await kemContext.importKey("jwk", {...receiverPubJwk}, true);
+      const receiverPub = await kemContext.importKey("jwk", {...receiverPubJwk}, true);
 
-      var suite = new hpke.CipherSuite({
+      const suite = new hpke.CipherSuite({
         kem: kemContext,
         kdf: new hpke.HkdfSha256(),
         aead: new hpke.Aes256Gcm(),
       });
 
-      var senderCtx = await suite.createSenderContext({
+      const senderCtx = await suite.createSenderContext({
         recipientPublicKey: receiverPub,
       });
 
@@ -492,10 +345,19 @@
       const receiverPubRaw = await crypto.subtle.exportKey("raw", receiverPubCryptoKey);
       const receiverPubBuf = new Uint8Array(receiverPubRaw);
 
-      var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+      const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
       
-      const res = await senderCtx.seal(plaintextBuf, aad);
-      return new Uint8Array(res);
+      var ciphertextBuf;
+      try {
+        ciphertextBuf = await senderCtx.seal(plaintextBuf, aad);
+      } catch (e) {
+        throw new Error("encryption failed: " + e);
+      }
+      
+      const ciphertextHex = TKHQ.uint8arrayToHexString(new Uint8Array(ciphertextBuf));
+      const encappedKeyBufHex = TKHQ.uint8arrayToHexString(new Uint8Array(encappedKeyBuf));
+      const encryptedBundle = JSON.stringify({ encappedPublic: encappedKeyBufHex, ciphertext: ciphertextHex })
+      return encryptedBundle
     }
   </script>
 </body>
