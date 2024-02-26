@@ -234,6 +234,12 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
+      // This is a workaround for how the SDK's iframe stamper is initialized. Currently,
+      // init() waits for a public key to be initialized that can be used to send to the server
+      // which will encrypt messages to this public key.
+      // In the case of import, this public key is not used because the client encrypts messages
+      // to the server's public key.
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", "")
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
