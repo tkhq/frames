@@ -179,6 +179,12 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
+      // This is a workaround for how the SDK's iframe stamper is initialized. Currently,
+      // init() waits for a public key to be initialized that can be used to send to the server
+      // which will encrypt messages to this public key.
+      // In the case of import, this public key is not used because the client encrypts messages
+      // to the server's public key.
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", "")
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
@@ -210,27 +216,26 @@
         const targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
 
         // Import target public key generated from enclave and set in local storage
-        const targetKeyJwk = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
-        TKHQ.setTargetEmbeddedKey(targetKeyJwk);
+        const targetPublicKeyJwk = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
+        TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
 
-        // todo(olivia): verify the signature with the enclave quorum public key
+        // todo(olivia): verify the signature with the enclave quorum public key once returned in server messages
         // const targetSignatureBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublicSignature);
-        // const quorumPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.quorumPublic);
+        // const quorumPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.enclaveQuorumPublic);
         // const quorumKey = TKHQ.importTargetKey(new Uint8Array(quorumPublicBuf));
         // const verified = await crypto.subtle.verify(quorumKey, targetSignatureBuf, targetPublicBuf);
         // if (verified === false) {
-        //   throw new Error("verification failed: " + e);
+        //   throw new Error("verification failed");
         // }
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
     }
 
-    // todo: make a pretty box that is to be displayed
     const onExtractWalletEncryptedBundle = async () => {
       // Get target embedded key from previous step (onInjectImportBundle)
-      const targetKeyJwk = TKHQ.getTargetEmbeddedKey();
-      if (targetKeyJwk == null) {
+      const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
+      if (targetPublicKeyJwk == null) {
         throw new Error("no target key found");
       }
 
@@ -242,7 +247,7 @@
       const encryptedBundle = await HpkeEncrypt(
         {
           plaintextBuf,
-          receiverPubJwk: targetKeyJwk,
+          receiverPubJwk: targetPublicKeyJwk,
         });
 
       // Send up BUNDLE_ENCRYPTED message
@@ -263,13 +268,16 @@
         recipientPublicKey: receiverPub,
       });
 
-      const encappedKeyBuf = senderCtx.enc;
+      // Need to import the key again as a JWK to export as a raw key, the format needed to
+      // create the aad with the newly generated raw encapped key.
       const receiverPubCryptoKey = await crypto.subtle.importKey("jwk", receiverPubJwk, {
           name: 'ECDH',
           namedCurve: 'P-256',
         }, true, []);
       const receiverPubRaw = await crypto.subtle.exportKey("raw", receiverPubCryptoKey);
       const receiverPubBuf = new Uint8Array(receiverPubRaw);
+
+      const encappedKeyBuf = senderCtx.enc;
 
       const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
       
