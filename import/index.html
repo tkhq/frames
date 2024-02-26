@@ -250,8 +250,8 @@
           receiverPubJwk: targetPublicKeyJwk,
         });
 
-      // Send up BUNDLE_ENCRYPTED message
-      TKHQ.sendMessageUp("BUNDLE_ENCRYPTED", encryptedBundle)
+      // Send up ENCRYPTED_BUNDLE_EXTRACTED message
+      TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
     }
 
     const HpkeEncrypt = async ({ plaintextBuf, receiverPubJwk }) => {
