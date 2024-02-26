@@ -57,61 +57,22 @@ describe("TKHQ", () => {
     expect(item).toBeNull();
   })
 
-  it("gets and sets embedded key in localStorage", async () => {
-    expect(TKHQ.getEmbeddedKey()).toBe(null);
+  it("gets and sets embedded target key in localStorage", async () => {
+    expect(TKHQ.getTargetEmbeddedKey()).toBe(null);
     
     // Set a dummy "key"
-    TKHQ.setEmbeddedKey({"foo": "bar"});
-    expect(TKHQ.getEmbeddedKey()).toEqual({"foo": "bar"});
-  })
-  
-  it("inits embedded key and is idempotent", async () => {
-    expect(TKHQ.getEmbeddedKey()).toBe(null);
-    await TKHQ.initEmbeddedKey();
-    const generatedKey = TKHQ.getEmbeddedKey();
-    expect(generatedKey).not.toBeNull()
-
-    // This should have no effect; generated key should stay the same
-    await TKHQ.initEmbeddedKey();
-    expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
+    TKHQ.setTargetEmbeddedKey({"foo": "bar"});
+    expect(TKHQ.getTargetEmbeddedKey()).toEqual({"foo": "bar"});
   })
 
-  it("generates P256 keys", async () => {
-    let key = await TKHQ.generateTargetKey();
+  it("imports P256 keys", async () => {
+    const targetPubHex = "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f";
+    const targetPublicBuf = TKHQ.uint8arrayFromHexString(targetPubHex);
+    const key = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
     expect(key.kty).toEqual("EC");
     expect(key.ext).toBe(true);
     expect(key.crv).toBe("P-256");
-    expect(key.key_ops).toContain("deriveBits");
-  })
-
-  // it("parses private key correctly", async () => {
-  //   const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-  //   const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
-  //   expect(parsedKey).toEqual(keyHex);
-  // })
-
-  // it("parses wallet with only mnemonic correctly", async () => {
-  //   const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-  //   const encoder = new TextEncoder("utf-8");
-  //   const encodedWallet = encoder.encode(mnemonic);
-  //   const parsedWallet  = TKHQ.parseWallet(encodedWallet);
-  //   expect(parsedWallet.mnemonic).toEqual(mnemonic);
-  //   expect(parsedWallet.passphrase).toBeNull();
-  // })
-
-  // it("parses wallet mnemonic and passphrase correctly", async () => {
-  //   const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-  //   const passphrase = "secret!";
-  //   const encoder = new TextEncoder("utf-8");
-  //   const encodedWallet = encoder.encode(mnemonic + "\n" + passphrase);
-  //   const parsedWallet  = TKHQ.parseWallet(encodedWallet);
-  //   expect(parsedWallet.mnemonic).toEqual(mnemonic);
-  //   expect(parsedWallet.passphrase).toEqual(passphrase);
-  // })
-
-  it("contains p256JWKPrivateToPublic", async () => {
-    // TODO: test this
-    expect(true).toBe(true);
+    expect(key.key_ops).toEqual([]);
   })
 
   it("contains additionalAssociatedData", async () => {
