@@ -1,3 +1,7 @@
+<!--
+  Standalone Mode is for testing purposes only. When updating any functions in
+  index.html, please make the same updates in standalone.html.
+-->
 <!doctype html>
 <html class="no-js" lang="">
 
@@ -106,55 +110,16 @@
        * Gets the current target embedded private key JWK. Returns `null` if not found.
        */
        const getTargetEmbeddedKey = () => {
-        const jwtKey = TKHQ.getItemWithExpiry(TURNKEY_TARGET_EMBEDDED_KEY)
+        const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
         return jwtKey ?  JSON.parse(jwtKey) : null;
       }
 
       /**
-       * Sets the target embedded public key JWK with the default expiration time. 
+       * Sets the target embedded public key JWK.
        * @param {JsonWebKey} targetKey
        */
       const setTargetEmbeddedKey = targetKey =>
-        setItemWithExpiry(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_TARGET_EMBEDDED_KEY_TTL_IN_MILLIS);
-
-       /**
-       * Set an item in localStorage with an expiration time
-       * @param {string} key
-       * @param {string} value
-       * @param {number} ttl expiration time in milliseconds
-       */
-       const setItemWithExpiry = (key, value, ttl) => {
-        const now = new Date();
-        const item = {
-          value: value,
-          expiry: now.getTime() + ttl,
-        };
-        window.localStorage.setItem(key, JSON.stringify(item));
-      };
-
-      /**
-       * Get an item from localStorage. Returns `null` and
-       * removes the item from localStorage if expired or
-       * expiry time is missing.
-       * @param {string} key
-       */
-      const getItemWithExpiry = (key) => {
-        const itemStr = window.localStorage.getItem(key);
-        if (!itemStr) {
-          return null;
-        }
-        const item = JSON.parse(itemStr);
-        if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-        const now = new Date();
-        if (now.getTime() > item.expiry) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-        return item.value;
-      };
+        window.localStorage.setItem(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey));
 
       /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
@@ -211,8 +176,6 @@
 
       return {
         importTargetKey,
-        setItemWithExpiry,
-        getItemWithExpiry,
         getTargetEmbeddedKey,
         setTargetEmbeddedKey,
         sendMessageUp,
@@ -234,7 +197,7 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
-      // This is a workaround for how the SDK's iframe stamper is initialized. Currently,
+      // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
       // init() waits for a public key to be initialized that can be used to send to the server
       // which will encrypt messages to this public key.
       // In the case of import, this public key is not used because the client encrypts messages
