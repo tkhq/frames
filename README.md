@@ -32,6 +32,7 @@ Install dependencies:
 ```sh
 cd auth && npm install
 cd export && npm install
+cd import && npm install
 ```
 
 # Unit Testing
@@ -40,9 +41,10 @@ The auth and recovery pages each have tests. They run on CI automatically. If yo
 ```sh
 cd auth && npm test
 cd export  && npm test
+cd import && npm test
 ```
 
-# Running Local Wallet Export
+# Running Local Wallet Import/Export
 Start the server. This command will run a simple static server on port 8080.
 ```sh
 npm start

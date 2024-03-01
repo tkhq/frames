@@ -11,9 +11,11 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY auth /usr/share/nginx/auth
 COPY auth /usr/share/nginx/recovery
 COPY export /usr/share/nginx/export
+COPY import /usr/share/nginx/import
 
 EXPOSE 8080/tcp
 EXPOSE 8081/tcp
 EXPOSE 8082/tcp
+EXPOSE 8083/tcp
 
 CMD ["nginx"]

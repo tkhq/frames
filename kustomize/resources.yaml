@@ -20,6 +20,8 @@ spec:
               containerPort: 8081
             - name: recovery
               containerPort: 8082
+            - name: import
+              containerPort: 8083
           livenessProbe:
             httpGet:
               path: /health
@@ -51,3 +53,6 @@ spec:
     - name: http-recovery
       port: 8082
       targetPort: recovery
+    - name: http-import
+      port: 8083
+      targetPort: import

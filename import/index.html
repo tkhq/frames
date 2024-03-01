@@ -1,0 +1,269 @@
+<!--
+  This page is intended to be embedded in an iframe. When updating any functions in
+  index.html, please make the same updates in standalone.html.
+-->
+<!doctype html>
+<html class="no-js" lang="">
+
+<head>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <meta charset="utf-8">
+  <title>Turnkey Import</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body {
+    #wallet-mnemonic-plaintext {
+      width: 300px;
+      font-size: .875rem;
+      line-height: 1.25rem;
+      height: 110px;
+      color: #555b64;
+      border: none;
+      resize: none;
+      word-wrap: break-word;
+      overflow-wrap: break-word;
+      border: none;
+      font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+    }
+    textarea:focus {
+      outline: none;
+      border: none;
+    }
+  }
+  </style>
+</head>
+
+<body>
+  <form>
+    <textarea name="wallet-mnemonic-plaintext" id="wallet-mnemonic-plaintext"></textarea>
+  </form>
+
+  <!--
+    Script defining important helpers.
+    These helpers are unit-testable, so most of the logic should be written here.
+  -->
+  <script>
+    window.TKHQ = function() {
+      /** constants for LocalStorage */
+      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
+
+      /*
+      * Import a key to encrypt to as a CryptoKey and export it as a JSON Web Key.
+      */
+      const importTargetKey = async (targetPublic) => {
+        const targetKey = await crypto.subtle.importKey("raw", targetPublic, {
+          name: 'ECDH',
+          namedCurve: 'P-256',
+        }, true, []);
+
+        return await crypto.subtle.exportKey("jwk", targetKey);
+      }
+
+      /**
+       * Gets the current target embedded private key JWK. Returns `null` if not found.
+       */
+       const getTargetEmbeddedKey = () => {
+        const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
+        return jwtKey ?  JSON.parse(jwtKey) : null;
+      }
+
+      /**
+       * Sets the target embedded public key JWK.
+       * @param {JsonWebKey} targetKey
+       */
+      const setTargetEmbeddedKey = targetKey =>
+        window.localStorage.setItem(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey));
+
+      /**
+       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+       * @param {string} hexString
+       * @returns {Uint8Array}
+       */
+       const uint8arrayFromHexString = hexString => 
+        new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+
+      /**
+        * Takes a Uint8Array and returns a hex string
+        * @param {Uint8Array} buffer
+        * @return {string}
+        */
+      const uint8arrayToHexString = buffer => {
+        return [...buffer]
+          .map(x => x.toString(16).padStart(2, '0'))
+          .join('');
+      }
+
+      /**
+       * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+       */
+      const additionalAssociatedData = (senderPubBuf, receiverPubBuf) => {
+        const s = Array.from(new Uint8Array(senderPubBuf));
+        const r = Array.from(new Uint8Array(receiverPubBuf));
+        return new Uint8Array([...s, ...r]);
+      }
+
+      /**
+       * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+       * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
+       * @param value message value
+       */
+      const sendMessageUp = (type, value) => {
+        if (window.top !== null) {
+          window.top.postMessage({
+              "type": type,
+              "value": value,
+          }, '*')
+        }
+      }
+
+      return {
+        importTargetKey,
+        getTargetEmbeddedKey,
+        setTargetEmbeddedKey,
+        sendMessageUp,
+        uint8arrayFromHexString,
+        uint8arrayToHexString,
+        additionalAssociatedData
+      }
+    }();
+  </script>
+
+  <!--
+    Script importing HPKE lib until we can replace it
+    Because this is loaded as a module JSDOM can't load it properly
+    Code in here isn't tested, so let's keep this to a minimum!
+  -->
+  <script type="module">
+    // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
+    import * as hpke from "https://esm.sh/@hpke/core";
+
+    document.addEventListener("DOMContentLoaded", async () => {
+      // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
+      // init() waits for a public key to be initialized that can be used to send to the server
+      // which will encrypt messages to this public key.
+      // In the case of import, this public key is not used because the client encrypts messages
+      // to the server's public key.
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", "")
+      // TODO: find a way to filter messages and ensure they're coming from the parent window?
+      // We do not want to arbitrarily receive messages from all origins.
+      window.addEventListener("message", async function(event) {
+        if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
+          try {
+            await onInjectImportBundle(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
+          try {
+            await onExtractWalletEncryptedBundle()
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+      }, false);
+    }, false);
+
+    /**
+     * Function triggered when INJECT_IMPORT_BUNDLE event is received.
+     * Parses the `import_bundle` and stores the target public key as a JWK
+     * in local storage. Sends true upon success.
+     * @param {string} bundle
+     * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f"}
+     */
+    const onInjectImportBundle = async bundle => {
+      // Parse the import bundle
+      const bundleObj = JSON.parse(bundle);
+      const targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
+
+      // Import target public key generated from enclave and set in local storage
+      const targetPublicKeyJwk = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
+      TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
+
+      // todo(olivia): verify the signature with the enclave quorum public key once returned in server messages
+      // const targetSignatureBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublicSignature);
+      // const quorumPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.enclaveQuorumPublic);
+      // const quorumKey = TKHQ.importTargetKey(new Uint8Array(quorumPublicBuf));
+      // const verified = await crypto.subtle.verify(quorumKey, targetSignatureBuf, targetPublicBuf);
+      // if (verified === false) {
+      //   throw new Error("verification failed");
+      // }
+
+      // Send up BUNDLE_INJECTED message
+      TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
+    }
+
+    /**
+     * Function triggered when EXTRACT_WALLET_ENCRYPTED_BUNDLE event is received.
+     * Prerequisite: This function uses the target public key in local storage that is imported
+     * from the INJECT_IMPORT_BUNDLE event.
+     * Uses the target public key in local storage to encrypt the text entered in the
+     * `wallet-mnemonic-plaintext` textarea element. Upon successful encryption, sends
+     * an `encrypted_bundle` containing the ciphertext and encapped public key.
+     * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
+     */
+    const onExtractWalletEncryptedBundle = async () => {
+      // Get target embedded key from previous step (onInjectImportBundle)
+      const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
+      if (targetPublicKeyJwk == null) {
+        throw new Error("no target key found");
+      }
+
+      // Get plaintext wallet seedphrase
+      const plaintext = document.getElementById("wallet-mnemonic-plaintext").value;
+      const plaintextBuf = new TextEncoder().encode(plaintext);
+
+      // Encrypt the bundle using the enclave target public key
+      const encryptedBundle = await HpkeEncrypt(
+        {
+          plaintextBuf,
+          receiverPubJwk: targetPublicKeyJwk,
+        });
+
+      // Send up ENCRYPTED_BUNDLE_EXTRACTED message
+      TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
+    }
+
+    const HpkeEncrypt = async ({ plaintextBuf, receiverPubJwk }) => {
+      const kemContext = new hpke.DhkemP256HkdfSha256();
+      const receiverPub = await kemContext.importKey("jwk", {...receiverPubJwk}, true);
+
+      const suite = new hpke.CipherSuite({
+        kem: kemContext,
+        kdf: new hpke.HkdfSha256(),
+        aead: new hpke.Aes256Gcm(),
+      });
+
+      const senderCtx = await suite.createSenderContext({
+        recipientPublicKey: receiverPub,
+        info: new TextEncoder().encode("turnkey_hpke"),
+      });
+
+      // Need to import the key again as a JWK to export as a raw key, the format needed to
+      // create the aad with the newly generated raw encapped key.
+      const receiverPubCryptoKey = await crypto.subtle.importKey("jwk", receiverPubJwk, {
+          name: 'ECDSA',
+          namedCurve: 'P-256',
+        }, true, []);
+      const receiverPubRaw = await crypto.subtle.exportKey("raw", receiverPubCryptoKey);
+      const receiverPubBuf = new Uint8Array(receiverPubRaw);
+
+      const encappedKeyBuf = new Uint8Array(senderCtx.enc);
+
+      const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+      
+      var ciphertextBuf;
+      try {
+        ciphertextBuf = await senderCtx.seal(plaintextBuf, aad);
+      } catch (e) {
+        throw new Error("encryption failed: " + e);
+      }
+      
+      const ciphertextHex = TKHQ.uint8arrayToHexString(new Uint8Array(ciphertextBuf));
+      const encappedKeyBufHex = TKHQ.uint8arrayToHexString(encappedKeyBuf);
+      const encryptedBundle = JSON.stringify({ encappedPublic: encappedKeyBufHex, ciphertext: ciphertextHex })
+      return encryptedBundle
+    }
+  </script>
+</body>
+</html>
