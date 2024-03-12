@@ -272,8 +272,8 @@
        * @param {Uint8Array} privateKeyBytes
        */
       const parseKey = privateKeyBytes => {
-        const privateKeyHexString = uint8arrayToHexString(privateKeyBytes);
-        return "0x" + privateKeyHexString;
+        const decoder = new TextDecoder("utf-8");
+        return decoder.decode(privateKeyBytes);
       }
 
       /**
