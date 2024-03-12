@@ -12,7 +12,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
-    #wallet-mnemonic-plaintext {
+    #plaintext {
       width: 300px;
       font-size: .875rem;
       line-height: 1.25rem;
@@ -35,7 +35,7 @@
 
 <body>
   <form>
-    <textarea name="wallet-mnemonic-plaintext" id="wallet-mnemonic-plaintext"></textarea>
+    <textarea name="plaintext" id="plaintext"></textarea>
   </form>
 
   <!--
@@ -154,9 +154,17 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
+        // TODO: deprecate EXTRACT_WALLET_ENCRYPTED_BUNDLE in favor of EXTRACT_ENCRYPTED_BUNDLE
         if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
           try {
-            await onExtractWalletEncryptedBundle()
+            await onExtractEncryptedBundle()
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "EXTRACT_ENCRYPTED_BUNDLE") {
+          try {
+            await onExtractEncryptedBundle()
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -194,23 +202,24 @@
     }
 
     /**
-     * Function triggered when EXTRACT_WALLET_ENCRYPTED_BUNDLE event is received.
+     * Function triggered when EXTRACT_ENCRYPTED_BUNDLE (and previously EXTRACT_WALLET_ENCRYPTED_BUNDLE)
+     * event is received.
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
      * Uses the target public key in local storage to encrypt the text entered in the
-     * `wallet-mnemonic-plaintext` textarea element. Upon successful encryption, sends
+     * `plaintext` textarea element. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    const onExtractWalletEncryptedBundle = async () => {
+    const onExtractEncryptedBundle = async () => {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
         throw new Error("no target key found");
       }
 
-      // Get plaintext wallet seedphrase
-      const plaintext = document.getElementById("wallet-mnemonic-plaintext").value;
+      // Get plaintext wallet seedphrase or private key
+      const plaintext = document.getElementById("plaintext").value;
       const plaintextBuf = new TextEncoder().encode(plaintext);
 
       // Encrypt the bundle using the enclave target public key
