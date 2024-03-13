@@ -17,11 +17,14 @@
       max-width: 1024px;
       margin: auto;
     }
+    form {
+      text-align: left;
+    }
     label {
       display:inline-block;
       width: 8em;
     }
-    input[type=text] {
+    input[type=text], select {
       width: 40em;
       margin: 0.5em;
       font-family: 'Courier New', Courier, monospace;
@@ -34,7 +37,7 @@
     input:disabled {
       background-color: rgb(239, 243, 240);
     }
-    #inject-import-bundle, #encrypt-wallet-bundle {
+    #inject-import-bundle, #encrypt-wallet-bundle, #encrypt-key-bundle {
       color: white;
       width: 10em;
       font-size: 1em;
@@ -64,18 +67,30 @@
 </head>
 
 <body>
-  <h2>Import Key Material</h2>
-  <h2>Bundles</h2>
+  <h2>Initialize Import</h2>
   <form>
     <label>Import Bundle</label>
     <input type="text" name="import-bundle" id="import-bundle"/>
     <button id="inject-import-bundle">Inject Bundle</button>
   </form>
   <br>
+  <h2>Import Wallet</h2>
   <form>
     <label>Encrypted Bundle</label>
-    <input type="text" name="plaintext" id="plaintext"/>
+    <input type="text" name="wallet-plaintext" id="wallet-plaintext"/>
     <button id="encrypt-wallet-bundle">Encrypt Bundle</button>
+  </form>
+  <br>
+  <h2>Import Private Key</h2>
+  <form>
+    <label>Encrypted Bundle</label>
+    <input type="text" name="key-plaintext" id="key-plaintext"/>
+    <button id="encrypt-key-bundle">Encrypt Bundle</button>
+    <label>Key Format</label>
+    <select id="key-export-format" name="exampleDropdown">
+      <option value="HEXADECIMAL">Hexadecimal (Default)</option>
+      <option value="SOLANA">Solana</option>
+    </select>
   </form>
   <br>
   <br>
@@ -327,14 +342,14 @@
         e.preventDefault();
         window.postMessage({
           "type": "EXTRACT_WALLET_ENCRYPTED_BUNDLE",
-          "value": document.getElementById("plaintext").value,
+          "value": document.getElementById("wallet-plaintext").value,
         })
       }, false);
       document.getElementById("encrypt-key-bundle").addEventListener("click", async e => {
         e.preventDefault();
         window.postMessage({
           "type": "EXTRACT_KEY_ENCRYPTED_BUNDLE",
-          "value": document.getElementById("plaintext").value,
+          "value": document.getElementById("key-plaintext").value,
           "keyFormat": document.getElementById("keyFormat").value,
           "publicKey": document.getElementById("publicKey").value,
         })
