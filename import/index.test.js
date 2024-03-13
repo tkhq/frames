@@ -51,6 +51,38 @@ describe("TKHQ", () => {
     expect(key.key_ops).toEqual([]);
   })
 
+  it("formats hex-encoded private key correctly by default", async () => {
+    const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+    const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
+    const formattedKey = TKHQ.formatKey(keyHex);
+    expect(formattedKey.length).toEqual(keyBytes.length);
+    for (let i = 0; i < formattedKey.length; i++) {
+      expect(formattedKey[i]).toEqual(keyBytes[i]);
+    }
+  })
+
+  it("parses hex-encoded private key correctly", async () => {
+    const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+    const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
+    const formattedKey = TKHQ.formatKey(keyHex, "HEXADECIMAL");
+    expect(formattedKey.length).toEqual(keyBytes.length);
+    for (let i = 0; i < formattedKey.length; i++) {
+      expect(formattedKey[i]).toEqual(keyBytes[i]);
+    }
+  })
+
+  it("parses solana private key correctly", async () => {
+    const keySol = "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+    const keyBytes = TKHQ.base58Decode(keySol);
+    expect(keyBytes.length).toEqual(64);
+    const keyPrivBytes = keyBytes.subarray(0, 32);
+    const formattedKey = TKHQ.formatKey(keySol, "SOLANA");
+    expect(formattedKey.length).toEqual(keyPrivBytes.length);
+    for (let i = 0; i < formattedKey.length; i++) {
+      expect(formattedKey[i]).toEqual(keyPrivBytes[i]);
+    }
+  })
+
   it("contains additionalAssociatedData", async () => {
     // This is a trivial helper; concatenates the 2 arrays!
     expect(TKHQ.additionalAssociatedData(new Uint8Array([1, 2]), new Uint8Array([3, 4])).buffer).toEqual(new Uint8Array([1, 2, 3, 4]).buffer);

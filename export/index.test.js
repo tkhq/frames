@@ -84,20 +84,28 @@ describe("TKHQ", () => {
     expect(key.key_ops).toContain("deriveBits");
   })
 
-  it("parses hex-encoded private key correctly", async () => {
-    const keyHex = "13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const encoder = new TextEncoder("utf-8");
-    const encodedKey = encoder.encode(keyHex);
-    const parsedKey = TKHQ.parseKey(encodedKey);
+  it("parses hex-encoded private key correctly by default", async () => {
+    const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+    const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
     expect(parsedKey).toEqual(keyHex);
   })
 
-  it("parses base58-encoded private key correctly", async () => {
-    const keybase58 = "5HueCGU8rMjxExZhSwp1xXQPBDsMaZwk74rZkDfDXvDVpi7L6vBZp2uhZLyStgM9xXdwvCLSrqQfJCVDqWsRU8T7";
-    const encoder = new TextEncoder("utf-8");
-    const encodedKey = encoder.encode(keybase58);
-    const parsedKey = TKHQ.parseKey(encodedKey);
-    expect(parsedKey).toEqual(keybase58);
+  it("parses hex-encoded private key correctly", async () => {
+    const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+    const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)), "HEXADECIMAL");
+    expect(parsedKey).toEqual(keyHex);
+  })
+
+  it("parses solana private key correctly", async () => {
+    const keySol = "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+    const keySolBytes = TKHQ.base58Decode(keySol);
+    expect(keySolBytes.length).toEqual(64);
+    const keyPrivBytes = keySolBytes.subarray(0, 32);
+    const keyPubBytes = keySolBytes.subarray(32, 64);
+    const keyPubHex = TKHQ.uint8arrayToHexString(keyPubBytes);
+
+    const parsedKey = TKHQ.parseKey(keyPrivBytes, "SOLANA", keyPubHex);
+    expect(parsedKey).toEqual(keySol);
   })
 
   it("parses wallet with only mnemonic correctly", async () => {
