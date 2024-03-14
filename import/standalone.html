@@ -76,18 +76,18 @@
   <br>
   <h2>Import Wallet</h2>
   <form>
-    <label>Encrypted Bundle</label>
+    <label>Mnemonic</label>
     <input type="text" name="wallet-plaintext" id="wallet-plaintext"/>
     <button id="encrypt-wallet-bundle">Encrypt Bundle</button>
   </form>
   <br>
   <h2>Import Private Key</h2>
   <form>
-    <label>Encrypted Bundle</label>
+    <label>Private Key</label>
     <input type="text" name="key-plaintext" id="key-plaintext"/>
     <button id="encrypt-key-bundle">Encrypt Bundle</button>
     <label>Key Format</label>
-    <select id="key-export-format" name="exampleDropdown">
+    <select id="key-import-format" name="key-import-format">
       <option value="HEXADECIMAL">Hexadecimal (Default)</option>
       <option value="SOLANA">Solana</option>
     </select>
@@ -350,8 +350,7 @@
         window.postMessage({
           "type": "EXTRACT_KEY_ENCRYPTED_BUNDLE",
           "value": document.getElementById("key-plaintext").value,
-          "keyFormat": document.getElementById("keyFormat").value,
-          "publicKey": document.getElementById("publicKey").value,
+          "keyFormat": document.getElementById("key-import-format").value,
         })
       }, false);
     }, false);
