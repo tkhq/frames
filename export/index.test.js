@@ -84,19 +84,19 @@ describe("TKHQ", () => {
     expect(key.key_ops).toContain("deriveBits");
   })
 
-  it("parses hex-encoded private key correctly by default", async () => {
+  it("encodes hex-encoded private key correctly by default", async () => {
     const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
-    expect(parsedKey).toEqual(keyHex);
+    const encodedKey = TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
+    expect(encodedKey).toEqual(keyHex);
   })
 
-  it("parses hex-encoded private key correctly", async () => {
+  it("encodes hex-encoded private key correctly", async () => {
     const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const parsedKey = TKHQ.parseKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)), "HEXADECIMAL");
-    expect(parsedKey).toEqual(keyHex);
+    const encodedKey = TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)), "HEXADECIMAL");
+    expect(encodedKey).toEqual(keyHex);
   })
 
-  it("parses solana private key correctly", async () => {
+  it("encodes solana private key correctly", async () => {
     const keySol = "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
     const keySolBytes = TKHQ.base58Decode(keySol);
     expect(keySolBytes.length).toEqual(64);
@@ -104,27 +104,23 @@ describe("TKHQ", () => {
     const keyPubBytes = keySolBytes.subarray(32, 64);
     const keyPubHex = TKHQ.uint8arrayToHexString(keyPubBytes);
 
-    const parsedKey = TKHQ.parseKey(keyPrivBytes, "SOLANA", keyPubHex);
-    expect(parsedKey).toEqual(keySol);
+    const encodedKey = TKHQ.encodeKey(keyPrivBytes, "SOLANA", keyPubHex);
+    expect(encodedKey).toEqual(keySol);
   })
 
-  it("parses wallet with only mnemonic correctly", async () => {
+  it("encodes wallet with only mnemonic correctly", async () => {
     const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-    const encoder = new TextEncoder("utf-8");
-    const encodedWallet = encoder.encode(mnemonic);
-    const parsedWallet  = TKHQ.parseWallet(encodedWallet);
-    expect(parsedWallet.mnemonic).toEqual(mnemonic);
-    expect(parsedWallet.passphrase).toBeNull();
+    const encodedWallet  = TKHQ.encodeWallet(new TextEncoder("utf-8").encode(mnemonic));
+    expect(encodedWallet.mnemonic).toEqual(mnemonic);
+    expect(encodedWallet.passphrase).toBeNull();
   })
 
-  it("parses wallet mnemonic and passphrase correctly", async () => {
+  it("encodes wallet mnemonic and passphrase correctly", async () => {
     const mnemonic = "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
     const passphrase = "secret!";
-    const encoder = new TextEncoder("utf-8");
-    const encodedWallet = encoder.encode(mnemonic + "\n" + passphrase);
-    const parsedWallet  = TKHQ.parseWallet(encodedWallet);
-    expect(parsedWallet.mnemonic).toEqual(mnemonic);
-    expect(parsedWallet.passphrase).toEqual(passphrase);
+    const encodedWallet  = TKHQ.encodeWallet(new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase));
+    expect(encodedWallet.mnemonic).toEqual(mnemonic);
+    expect(encodedWallet.passphrase).toEqual(passphrase);
   })
 
   it("contains p256JWKPrivateToPublic", async () => {

@@ -373,7 +373,7 @@
        * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
        * @param {string} publicKey Hex-encoded public key, needed for Solana private keys
        */
-      const parseKey = (privateKeyBytes, keyFormat, publicKey) => {
+      const encodeKey = (privateKeyBytes, keyFormat, publicKey) => {
         switch (keyFormat) {
           case "SOLANA":
             if (!publicKey) {
@@ -403,7 +403,7 @@
        * from wallet bytes.
        * @param {Uint8Array} walletBytes
        */
-       const parseWallet = walletBytes => {
+       const encodeWallet = walletBytes => {
         const decoder = new TextDecoder("utf-8");
         const wallet = decoder.decode(walletBytes);
         let mnemonic;
@@ -434,8 +434,8 @@
         p256JWKPrivateToPublic,
         base58Encode,
         base58Decode,
-        parseKey,
-        parseWallet,
+        encodeKey,
+        encodeWallet,
         sendMessageUp,
         logMessage,
         uint8arrayFromHexString,
@@ -578,7 +578,7 @@
         const keyBytes = await decryptBundle(bundle);
 
         // Parse the decrypted key bytes
-        const key = TKHQ.parseKey(new Uint8Array(keyBytes), keyFormat, publicKey);
+        const key = TKHQ.encodeKey(new Uint8Array(keyBytes), keyFormat, publicKey);
 
         // Display only the key
         displayKey(key);
@@ -596,7 +596,7 @@
         const walletBytes = await decryptBundle(bundle);
 
         // Parse the decrypted wallet bytes
-        const wallet = TKHQ.parseWallet(new Uint8Array(walletBytes));
+        const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
 
         // Display only the wallet's mnemonic
         displayKey(wallet.mnemonic);

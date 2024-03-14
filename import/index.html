@@ -146,7 +146,7 @@
        * @param {string} privateKey
        * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
        */
-       const formatKey = (privateKey, keyFormat) => {
+       const decodeKey = (privateKey, keyFormat) => {
         switch (keyFormat) {
           case "SOLANA":
             const decodedKeyBytes = base58Decode(privateKey);
@@ -199,7 +199,7 @@
         uint8arrayFromHexString,
         uint8arrayToHexString,
         base58Decode,
-        formatKey,
+        decodeKey,
         additionalAssociatedData
       }
     }();
@@ -333,7 +333,7 @@
       if (!plaintext) {
         throw new Error("no private key entered");
       }
-      const plaintextBuf = TKHQ.formatKey(plaintext, keyFormat);
+      const plaintextBuf = TKHQ.decodeKey(plaintext, keyFormat);
 
       // Encrypt the bundle using the enclave target public key
       const encryptedBundle = await HpkeEncrypt(
