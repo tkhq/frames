@@ -17,11 +17,14 @@
       max-width: 1024px;
       margin: auto;
     }
+    form {
+      text-align: left;
+    }
     label {
       display:inline-block;
       width: 8em;
     }
-    input[type=text] {
+    input[type=text], select {
       width: 40em;
       margin: 0.5em;
       font-family: 'Courier New', Courier, monospace;
@@ -34,7 +37,7 @@
     input:disabled {
       background-color: rgb(239, 243, 240);
     }
-    #inject-import-bundle, #encrypt-wallet-bundle {
+    #inject-import-bundle, #encrypt-wallet-bundle, #encrypt-key-bundle {
       color: white;
       width: 10em;
       font-size: 1em;
@@ -64,18 +67,30 @@
 </head>
 
 <body>
-  <h2>Import Key Material</h2>
-  <h2>Bundles</h2>
+  <h2>Initialize Import</h2>
   <form>
     <label>Import Bundle</label>
     <input type="text" name="import-bundle" id="import-bundle"/>
     <button id="inject-import-bundle">Inject Bundle</button>
   </form>
   <br>
+  <h2>Import Wallet</h2>
   <form>
-    <label>Encrypted Bundle</label>
-    <input type="text" name="wallet-mnemonic-plaintext" id="wallet-mnemonic-plaintext"/>
+    <label>Mnemonic</label>
+    <input type="text" name="wallet-plaintext" id="wallet-plaintext"/>
     <button id="encrypt-wallet-bundle">Encrypt Bundle</button>
+  </form>
+  <br>
+  <h2>Import Private Key</h2>
+  <form>
+    <label>Private Key</label>
+    <input type="text" name="key-plaintext" id="key-plaintext"/>
+    <button id="encrypt-key-bundle">Encrypt Bundle</button>
+    <label>Key Format</label>
+    <select id="key-import-format" name="key-import-format">
+      <option value="HEXADECIMAL">Hexadecimal (Default)</option>
+      <option value="SOLANA">Solana</option>
+    </select>
   </form>
   <br>
   <br>
@@ -91,8 +106,6 @@
     window.TKHQ = function() {
       /** constants for LocalStorage */
       const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
-      /** 1 week in milliseconds */
-      const TURNKEY_TARGET_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 24 * 7;
 
       /*
       * Import a key to encrypt to as a CryptoKey and export it as a JSON Web Key.
@@ -141,6 +154,84 @@
       }
 
       /**
+       * Decodes a base58-encoded string into a buffer
+       * This function throws an error when the string contains invalid characters.
+       * @param {string} s The base58-encoded string.
+       * @return {Uint8Array} The decoded buffer.
+       */
+       function base58Decode(s) {
+        // See https://en.bitcoin.it/wiki/Base58Check_encoding
+        var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        var decoded = BigInt(0);
+        var decodedBytes = [];
+        var leadingZeros = [];
+        for (var i = 0; i < s.length; i++) {
+          if (alphabet.indexOf(s[i]) === -1) {
+            throw new Error(`cannot base58-decode: ${s[i]} isn't a valid character`)
+          }
+          var carry = alphabet.indexOf(s[i]);
+
+          // If the current base58 digit is 0, append a 0 byte.
+          // "i == leadingZeros.length" can only be true if we have not seen non-zero bytes so far.
+          // If we had seen a non-zero byte, carry wouldn't be 0, and i would be strictly more than `leadingZeros.length`
+          if (carry == 0 && i === leadingZeros.length) {
+            leadingZeros.push(0);
+          }
+
+          var j = 0;
+          while (j < decodedBytes.length || carry > 0) {
+            var currentByte = decodedBytes[j];
+
+            // shift the current byte 58 units and add the carry amount
+            // (or just add the carry amount if this is a new byte -- undefined case)
+            if (currentByte === undefined) {
+              currentByte = carry
+            } else {
+              currentByte = currentByte * 58 + carry
+            }
+
+            // find the new carry amount (1-byte shift of current byte value)
+            carry = currentByte >> 8;
+            // reset the current byte to the remainder (the carry amount will pass on the overflow)
+            decodedBytes[j] = currentByte % 256;
+            j++
+          }
+        }
+
+        var result = leadingZeros.concat(decodedBytes.reverse());
+        return new Uint8Array(result);
+      }
+
+      /**
+       * Returns private key bytes from a private key, represented in
+       * the encoding and format specified by `keyFormat`. Defaults to
+       * hex-encoding if `keyFormat` isn't passed.
+       * @param {string} privateKey
+       * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
+       */
+       const decodeKey = (privateKey, keyFormat) => {
+        switch (keyFormat) {
+          case "SOLANA":
+            const decodedKeyBytes = base58Decode(privateKey);
+            if (decodedKeyBytes.length !== 64) {
+              throw new Error(`invalid key length. Expected 64 bytes. Got ${decodedKeyBytes.length()}.`);
+            }
+            return decodedKeyBytes.subarray(0, 32);
+          case "HEXADECIMAL":
+            if (privateKey.startsWith("0x")) {
+              return uint8arrayFromHexString(privateKey.slice(2));
+            }
+            return uint8arrayFromHexString(privateKey);
+          default:
+            console.warn(`invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`);
+            if (privateKey.startsWith("0x")) {
+              return uint8arrayFromHexString(privateKey.slice(2));
+            }
+            return uint8arrayFromHexString(privateKey);
+        }
+      }
+
+      /**
        * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
        */
       const additionalAssociatedData = (senderPubBuf, receiverPubBuf) => {
@@ -182,6 +273,8 @@
         logMessage,
         uint8arrayFromHexString,
         uint8arrayToHexString,
+        base58Decode,
+        decodeKey,
         additionalAssociatedData
       }
     }();
@@ -214,10 +307,19 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
+        // TODO: deprecate EXTRACT_WALLET_ENCRYPTED_BUNDLE in favor of EXTRACT_ENCRYPTED_BUNDLE
         if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           try {
             await onExtractWalletEncryptedBundle(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}`);
+          try {
+            await onExtractKeyEncryptedBundle(event.data["value"], event.data["keyFormat"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -240,7 +342,15 @@
         e.preventDefault();
         window.postMessage({
           "type": "EXTRACT_WALLET_ENCRYPTED_BUNDLE",
-          "value": document.getElementById("wallet-mnemonic-plaintext").value,
+          "value": document.getElementById("wallet-plaintext").value,
+        })
+      }, false);
+      document.getElementById("encrypt-key-bundle").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "EXTRACT_KEY_ENCRYPTED_BUNDLE",
+          "value": document.getElementById("key-plaintext").value,
+          "keyFormat": document.getElementById("key-import-format").value,
         })
       }, false);
     }, false);
@@ -279,7 +389,7 @@
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
      * Uses the target public key in local storage to encrypt the text entered in the
-     * `wallet-mnemonic-plaintext` textarea element. Upon successful encryption, sends
+     * `plaintext` textarea element. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
@@ -290,8 +400,48 @@
         throw new Error("no target key found");
       }
 
+      // Get plaintext wallet mnemonic
+      const plaintext = bundle.trim();
+      if (!plaintext) {
+        throw new Error("no wallet mnemonic entered");
+      }
+      const plaintextBuf = new TextEncoder().encode(plaintext);
+
       // Encrypt the bundle using the enclave target public key
-      const plaintextBuf = new TextEncoder().encode(bundle);
+      const encryptedBundle = await HpkeEncrypt(
+        {
+          plaintextBuf,
+          receiverPubJwk: targetPublicKeyJwk,
+        });
+
+      // Send up ENCRYPTED_BUNDLE_EXTRACTED message
+      TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
+    }
+
+    /**
+     * Function triggered when EXTRACT_KEY_ENCRYPTED_BUNDLE event is received.
+     * Prerequisite: This function uses the target public key in local storage that is imported
+     * from the INJECT_IMPORT_BUNDLE event.
+     * Uses the target public key in local storage to encrypt the text entered in the
+     * `plaintext` textarea element. Upon successful encryption, sends
+     * an `encrypted_bundle` containing the ciphertext and encapped public key.
+     * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
+     */
+     const onExtractKeyEncryptedBundle = async (bundle, keyFormat) => {
+      // Get target embedded key from previous step (onInjectImportBundle)
+      const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
+      if (targetPublicKeyJwk == null) {
+        throw new Error("no target key found");
+      }
+
+      // Get plaintext private key
+      const plaintext = bundle.trim();
+      if (!plaintext) {
+        throw new Error("no private key entered");
+      }
+      const plaintextBuf = TKHQ.decodeKey(plaintext, keyFormat);
+
+      // Encrypt the bundle using the enclave target public key
       const encryptedBundle = await HpkeEncrypt(
         {
           plaintextBuf,
