@@ -96,9 +96,6 @@
       <option value="HEXADECIMAL">Hexadecimal (Default)</option>
       <option value="SOLANA">Solana</option>
     </select>
-    <br>
-    <label>Public Key (Optional)</label>
-    <input type="text" name="key-export-public-key" id="key-export-public-key"/>
   </form>
   <br>
   <h2>Inject Wallet Export Bundle</h2>
@@ -468,9 +465,9 @@
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
         if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["publicKey"]}`);
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}`);
           try {
-            await onInjectKeyBundle(event.data["value"], event.data["keyFormat"], event.data["publicKey"])
+            await onInjectKeyBundle(event.data["value"], event.data["keyFormat"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -504,7 +501,6 @@
           "type": "INJECT_KEY_EXPORT_BUNDLE",
           "value": document.getElementById("key-export-bundle").value,
           "keyFormat": document.getElementById("key-export-format").value,
-          "publicKey": document.getElementById("key-export-public-key").value,
         })
       }, false);
       document.getElementById("inject-wallet").addEventListener("click", async e => {
