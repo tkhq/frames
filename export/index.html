@@ -452,6 +452,9 @@
     // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
     import * as hpke from "https://esm.sh/@hpke/core";
     import * as ed from "https://esm.sh/@noble/ed25519";
+    import { sha512 } from 'https://esm.sh/@noble/hashes/sha512';
+
+    ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
     document.addEventListener("DOMContentLoaded", async () => {
       await TKHQ.initEmbeddedKey();
@@ -568,10 +571,6 @@
         });
     }
 
-    const getEd25519PublicKey = async (privateKeyHex) => {
-      return await ed.getPublicKey(privateKeyHex);
-    };
-
     /**
      * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
      * @param {string} bundle
@@ -581,13 +580,14 @@
         const keyBytes = await decryptBundle(bundle);
 
         // Parse the decrypted key bytes
+        var key;
         const privateKeyBytes = new Uint8Array(keyBytes);
         if (keyFormat === "SOLANA") {
           const privateKeyHex = TKHQ.uint8arrayToHexString(privateKeyBytes.subarray(0,32));
-          const publicKeyBytes = getEd25519PublicKey(privateKeyHex);
-          const key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
+          const publicKeyBytes = ed.getPublicKey(privateKeyHex);
+          key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
         } else {
-          const key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+          key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
         }
 
         // Display only the key
