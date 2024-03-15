@@ -86,13 +86,13 @@ describe("TKHQ", () => {
 
   it("encodes hex-encoded private key correctly by default", async () => {
     const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const encodedKey = TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
+    const encodedKey = await TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)));
     expect(encodedKey).toEqual(keyHex);
   })
 
   it("encodes hex-encoded private key correctly", async () => {
     const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const encodedKey = TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)), "HEXADECIMAL");
+    const encodedKey = await TKHQ.encodeKey(TKHQ.uint8arrayFromHexString(keyHex.slice(2)), "HEXADECIMAL");
     expect(encodedKey).toEqual(keyHex);
   })
 
@@ -102,9 +102,7 @@ describe("TKHQ", () => {
     expect(keySolBytes.length).toEqual(64);
     const keyPrivBytes = keySolBytes.subarray(0, 32);
     const keyPubBytes = keySolBytes.subarray(32, 64);
-    const keyPubHex = TKHQ.uint8arrayToHexString(keyPubBytes);
-
-    const encodedKey = TKHQ.encodeKey(keyPrivBytes, "SOLANA", keyPubHex);
+    const encodedKey = await TKHQ.encodeKey(keyPrivBytes, "SOLANA", keyPubBytes);
     expect(encodedKey).toEqual(keySol);
   })
 

@@ -371,18 +371,16 @@
        * hex-encoding if `keyFormat` isn't passed.
        * @param {Uint8Array} privateKeyBytes
        * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
-       * @param {string} publicKey Hex-encoded public key, needed for Solana private keys
        */
-      const encodeKey = (privateKeyBytes, keyFormat, publicKey) => {
+      const encodeKey = async (privateKeyBytes, keyFormat, publicKeyBytes) => {
         switch (keyFormat) {
           case "SOLANA":
-            if (!publicKey) {
+            if (!publicKeyBytes) {
               throw new Error("public key must be specified for SOLANA key format");
             }
             if (privateKeyBytes.length !== 32) {
               throw new Error(`invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`);
             }
-            const publicKeyBytes = uint8arrayFromHexString(publicKey);
             if (publicKeyBytes.length !== 32) {
               throw new Error(`invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`);
             }
@@ -453,6 +451,7 @@
   <script type="module">
     // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
     import * as hpke from "https://esm.sh/@hpke/core";
+    import * as ed from "https://esm.sh/@noble/ed25519";
 
     document.addEventListener("DOMContentLoaded", async () => {
       await TKHQ.initEmbeddedKey();
@@ -569,16 +568,27 @@
         });
     }
 
+    const getEd25519PublicKey = async (privateKeyHex) => {
+      return await ed.getPublicKey(privateKeyHex);
+    };
+
     /**
      * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
      * @param {string} bundle
      */
-     const onInjectKeyBundle = async (bundle, keyFormat, publicKey) => {
+     const onInjectKeyBundle = async (bundle, keyFormat) => {
         // Decrypt the export bundle
         const keyBytes = await decryptBundle(bundle);
 
         // Parse the decrypted key bytes
-        const key = TKHQ.encodeKey(new Uint8Array(keyBytes), keyFormat, publicKey);
+        const privateKeyBytes = new Uint8Array(keyBytes);
+        if (keyFormat === "SOLANA") {
+          const privateKeyHex = TKHQ.uint8arrayToHexString(privateKeyBytes.subarray(0,32));
+          const publicKeyBytes = getEd25519PublicKey(privateKeyHex);
+          const key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
+        } else {
+          const key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+        }
 
         // Display only the key
         displayKey(key);
