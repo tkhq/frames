@@ -380,11 +380,11 @@
               throw new Error("public key must be specified for SOLANA key format");
             }
             if (privateKeyBytes.length !== 32) {
-              throw new Error(`invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length()}.`);
+              throw new Error(`invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`);
             }
             const publicKeyBytes = uint8arrayFromHexString(publicKey);
             if (publicKeyBytes.length !== 32) {
-              throw new Error(`invalid public key length. Expected 32 bytes. Got ${privateKeyBytes.length()}.`);
+              throw new Error(`invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`);
             }
             const concatenatedBytes = new Uint8Array(64);
             concatenatedBytes.set(privateKeyBytes, 0);
