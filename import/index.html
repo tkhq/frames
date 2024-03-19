@@ -42,7 +42,8 @@
   <script>
     window.TKHQ = function() {
       /** constants for LocalStorage */
-      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
+      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
+      const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 
       /*
       * Import a key to encrypt to as a CryptoKey and export it as a JSON Web Key.
@@ -177,6 +178,52 @@
         return new Uint8Array([...s, ...r]);
       }
 
+    /**
+     * Parses the settings string into a JSON, validates expected fields, applies the settings.
+     * @param {string} settingsStr
+     */
+    const setSettings = settingsStr => {
+      if (!settingsStr) {
+        throw new Error("empty settings");
+      }
+
+      let settings = JSON.parse(settingsStr);
+
+      if (typeof settings !== "object" || settings === null || !settings.type || !settings.wallet_settings || !settings.private_key_settings) {
+        throw new Error("missing or incorrect `settings` structure");
+      }
+
+      if (settings.type === "wallet") {
+        if (settings.wallet_settings) {
+          if (settings.wallet_settings.styles) {
+            settings.wallet_settings.styles = JSON.parse(settings.wallet_settings.styles);
+            const plaintextElement = document.getElementById("plaintext");
+            if (!plaintextElement) {
+              throw new Error("failed to apply settings.wallet_settings.styles. cannot find `plaintext` HTML element."); 
+            }
+            for (let styleKey in settings.wallet_settings.styles) {
+              plaintextElement.style[styleKey] = settings.wallet_settings.styles[styleKey];
+            }
+          }
+        }
+      } else if (settings.type === "private_key") {
+        if (settings.private_key_settings) {
+          if (settings.private_key_settings.styles) {
+            settings.private_key_settings.styles = JSON.parse(settings.private_key_settings.styles);
+            const plaintextElement = document.getElementById("plaintext");
+            if (!plaintextElement) {
+              throw new Error("failed to apply settings.private_key_settings.styles. cannot find `plaintext` HTML element."); 
+            }
+            for (let styleKey in settings.private_key_settings.styles) {
+              plaintextElement.style[styleKey] = settings.private_key_settings.styles[styleKey];
+            }
+          }
+        }
+      }
+
+      return settingsStr;
+    }
+
       /**
        * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
@@ -200,7 +247,8 @@
         uint8arrayToHexString,
         base58Decode,
         decodeKey,
-        additionalAssociatedData
+        additionalAssociatedData,
+        setSettings
       }
     }();
   </script>
@@ -224,6 +272,13 @@
       // TODO: find a way to filter messages and ensure they're coming from the parent window?
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
+        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+          try {
+            await onApplySettings(event.data["value"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
         if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
           try {
             await onInjectImportBundle(event.data["value"])
@@ -248,6 +303,27 @@
         }
       }, false);
     }, false);
+
+    /**
+     * Function triggered when APPLY_SETTINGS event is received.
+     * @param {string} settingsStr
+     */
+     const onApplySettings = async settingsStr => {
+      // Set the private key and wallet settings
+      try {
+        const settings = TKHQ.setSettings(settingsStr);
+      } catch (e) {
+        TKHQ.sendMessageUp("ERROR", e.toString());
+      }
+
+      // If valid, set in local storage
+      if (settings) {
+        window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settingsStr));
+        TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
+      }
+
+      TKHQ.sendMessageUp("SETTINGS_APPLIED", false);
+    }
 
     /**
      * Function triggered when INJECT_IMPORT_BUNDLE event is received.
