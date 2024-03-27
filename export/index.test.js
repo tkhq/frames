@@ -137,6 +137,23 @@ describe("TKHQ", () => {
   
   it("contains uint8arrayFromHexString", () => {
     expect(TKHQ.uint8arrayFromHexString("627566666572").toString()).toEqual("98,117,102,102,101,114");
+    
+    // Error case: bad value
+    expect(() => {
+      TKHQ.uint8arrayFromHexString({});
+    }).toThrow('cannot create uint8array from invalid hex string: "[object Object]"');
+    // Error case: empty string
+    expect(() => {
+      TKHQ.uint8arrayFromHexString("");
+    }).toThrow('cannot create uint8array from invalid hex string: ""');
+    // Error case: odd number of characters
+    expect(() => {
+      TKHQ.uint8arrayFromHexString("123");
+    }).toThrow('cannot create uint8array from invalid hex string: "123"');
+    // Error case: bad characters outside of hex range
+    expect(() => {
+      TKHQ.uint8arrayFromHexString("oops");
+    }).toThrow('cannot create uint8array from invalid hex string: "oops"');
   })
 
   it("logs messages and sends messages up", async () => {
