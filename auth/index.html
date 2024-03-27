@@ -213,6 +213,9 @@
        * @returns {Uint8Array}
        */
       var uint8arrayFromHexString = function(hexString) {
+        if (!hexString || hexString.length % 2 != 0 || !/^[0-9A-Fa-f]+$/.test(hexString)) {
+          throw new Error('cannot create uint8array from invalid hex string: "' + hexString + '"');
+        }
         return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
       }
 
