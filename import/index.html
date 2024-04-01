@@ -43,6 +43,8 @@
     window.TKHQ = function() {
       /** constants for LocalStorage */
       const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
+      /** Turnkey Signer enclave's quorum public key */
+      const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = "04ca7c0d624c75de6f34af342e87a21e0d8c83efd1bd5b5da0c0177c147f744fba6f01f9f37356f9c617659aafa55f6e0af8d169a8f054d153ab3201901fb63ecb04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"
 
       /*
       * Import a key to encrypt to as a CryptoKey and export it as a JSON Web Key.
@@ -184,6 +186,26 @@
       }
 
       /**
+       * Function to verify enclave signature on import bundle received from the server. 
+       */
+      const verifyEnclaveSignature = async (enclaveQuorumPublic, publicKey, publicSignature) => {
+        // Second half is the public key for the enclave quorum encryption key
+        const encryptionQuorumPublic = TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY.slice(130, 260);
+
+        // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
+        if (enclaveQuorumPublic) {
+          if (enclaveQuorumPublic !== encryptionQuorumPublic) {
+            throw new Error("enclave quorum public keys from client and bundle do not match")
+          }
+        }
+
+        const publicKeyBuf = uint8arrayFromHexString(publicKey);
+        const publicSignatureBuf = uint8arrayFromHexString(publicSignature);
+        const quorumKey = importTargetKey(new Uint8Array(encryptionQuorumPublic));
+        return await crypto.subtle.verify( { name: "ECDSA", namedCurve: "P-256" }, quorumKey, publicSignatureBuf, publicKeyBuf);
+      }
+
+      /**
        * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
        * @param value message value
@@ -207,7 +229,8 @@
         uint8arrayToHexString,
         base58Decode,
         decodeKey,
-        additionalAssociatedData
+        additionalAssociatedData,
+        verifyEnclaveSignature
       }
     }();
   </script>
@@ -261,25 +284,22 @@
      * Parses the `import_bundle` and stores the target public key as a JWK
      * in local storage. Sends true upon success.
      * @param {string} bundle
-     * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f"}
+     * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
      */
     const onInjectImportBundle = async bundle => {
       // Parse the import bundle
       const bundleObj = JSON.parse(bundle);
-      const targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
+
+      // Verify enclave signature
+      const verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.targetPublic, bundleObj.targetPublicSignature);
+      if (!verified) {
+        throw new Error("failed to verify enclave signature");
+      }
 
       // Import target public key generated from enclave and set in local storage
+      const targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
       const targetPublicKeyJwk = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
       TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
-
-      // todo(olivia): verify the signature with the enclave quorum public key once returned in server messages
-      // const targetSignatureBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublicSignature);
-      // const quorumPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.enclaveQuorumPublic);
-      // const quorumKey = TKHQ.importTargetKey(new Uint8Array(quorumPublicBuf));
-      // const verified = await crypto.subtle.verify(quorumKey, targetSignatureBuf, targetPublicBuf);
-      // if (verified === false) {
-      //   throw new Error("verification failed");
-      // }
 
       // Send up BUNDLE_INJECTED message
       TKHQ.sendMessageUp("BUNDLE_INJECTED", true)

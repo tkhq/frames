@@ -121,6 +121,8 @@
       const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
       /** 48 hours in milliseconds */
       const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
+      /** Turnkey Signer enclave's public key */
+      const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = "04ca7c0d624c75de6f34af342e87a21e0d8c83efd1bd5b5da0c0177c147f744fba6f01f9f37356f9c617659aafa55f6e0af8d169a8f054d153ab3201901fb63ecb04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"
 
       /**
        * Creates a new public/private key pair and persists it in localStorage
@@ -238,6 +240,26 @@
         const s = Array.from(new Uint8Array(senderPubBuf));
         const r = Array.from(new Uint8Array(receiverPubBuf));
         return new Uint8Array([...s, ...r]);
+      }
+
+      /**
+       * Function to verify enclave signature on import bundle received from the server. 
+       */
+       const verifyEnclaveSignature = async (enclaveQuorumPublic, publicKey, publicSignature) => {
+        // Second half is the public key for the enclave quorum encryption key
+        const encryptionQuorumPublic = TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY.slice(130, 260);
+
+        // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
+        if (enclaveQuorumPublic) {
+          if (enclaveQuorumPublic !== encryptionQuorumPublic) {
+            throw new Error("enclave quorum public keys from client and bundle do not match")
+          }
+        }
+
+        const publicKeyBuf = uint8arrayFromHexString(publicKey);
+        const publicSignatureBuf = uint8arrayFromHexString(publicSignature);
+        const quorumKey = importTargetKey(new Uint8Array(encryptionQuorumPublic));
+        return await crypto.subtle.verify( { name: "ECDSA", namedCurve: "P-256" }, quorumKey, publicSignatureBuf, publicKeyBuf);
       }
 
       /**
@@ -440,7 +462,8 @@
         logMessage,
         uint8arrayFromHexString,
         uint8arrayToHexString,
-        additionalAssociatedData
+        additionalAssociatedData,
+        verifyEnclaveSignature
       }
     }();
   </script>
@@ -556,11 +579,23 @@
      * Parse and decrypt the export bundle.
      * The `bundle` param is a JSON string of the encapsulated public
      * key, encapsulated public key signature, and the ciphertext.
-     * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4"}
+     * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
      * @param {string} bundle
      */ 
     const decryptBundle = async bundle => {
+      // Second half is the public key for the enclave quorum encryption key
+      const encryptionQuorumPublicBuf = TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY.slice(130, 260);
+
+      // Parse the import bundle
       const bundleObj = JSON.parse(bundle);
+
+      // Verify enclave signature
+      const verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.encappedPublic, bundleObj.encappedPublicSignature);
+      if (!verified) {
+        throw new Error("failed to verify enclave signature");
+      }
+
+      // Decrypt the ciphertext
       const encappedKeyBuf = TKHQ.uint8arrayFromHexString(bundleObj.encappedPublic);
       const ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.ciphertext);
       const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
@@ -593,6 +628,7 @@
         } else {
           key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
         }
+        
 
         // Display only the key
         displayKey(key);
