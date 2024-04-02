@@ -72,6 +72,12 @@
         window.localStorage.setItem(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey));
 
       /**
+       * Resets the current target embedded private key JWK.
+       */
+      const resetTargetEmbeddedKey = () =>
+        window.localStorage.removeItem(TURNKEY_TARGET_EMBEDDED_KEY);
+
+      /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
        * @param {string} hexString
        * @returns {Uint8Array}
@@ -195,6 +201,7 @@
         importTargetKey,
         getTargetEmbeddedKey,
         setTargetEmbeddedKey,
+        resetTargetEmbeddedKey,
         sendMessageUp,
         uint8arrayFromHexString,
         uint8arrayToHexString,
@@ -308,6 +315,9 @@
           receiverPubJwk: targetPublicKeyJwk,
         });
 
+      // Reset target embedded key after using for encryption
+      TKHQ.resetTargetEmbeddedKey();
+
       // Send up ENCRYPTED_BUNDLE_EXTRACTED message
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
     }
@@ -341,6 +351,9 @@
           plaintextBuf,
           receiverPubJwk: targetPublicKeyJwk,
         });
+
+      // Reset target embedded key after using for encryption
+      TKHQ.resetTargetEmbeddedKey();
 
       // Send up ENCRYPTED_BUNDLE_EXTRACTED message
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
