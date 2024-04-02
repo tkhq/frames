@@ -121,6 +121,16 @@
         return await crypto.subtle.exportKey("jwk", targetKey);
       }
 
+      /*
+      * Imports the quorum public key as a CryptoKey and returns it.
+      */
+      const importQuorumKey = async quorumPublic => {
+        return await crypto.subtle.importKey("raw", quorumPublic, {
+          name: 'ECDSA',
+          namedCurve: 'P-256'
+        }, true, ['verify']);
+      }
+
       /**
        * Gets the current target embedded private key JWK. Returns `null` if not found.
        */
@@ -147,8 +157,13 @@
        * @param {string} hexString
        * @returns {Uint8Array}
        */
-       const uint8arrayFromHexString = hexString => 
-        new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+       const uint8arrayFromHexString = hexString => {
+        var hexRegex = /^[0-9A-Fa-f]+$/;
+        if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
+          throw new Error('cannot create uint8array from invalid hex string: "' + hexString + '"');
+        }
+        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+      }
 
       /**
         * Takes a Uint8Array and returns a hex string
@@ -251,7 +266,7 @@
       /**
        * Function to verify enclave signature on import bundle received from the server. 
        */
-       const verifyEnclaveSignature = async (enclaveQuorumPublic, publicKey, publicSignature) => {
+       const verifyEnclaveSignature = async (enclaveQuorumPublic, publicSignature, publicKey) => {
         // Second half is the public key for the enclave quorum encryption key
         const encryptionQuorumPublic = TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY.slice(130, 260);
 
@@ -261,11 +276,61 @@
             throw new Error("enclave quorum public keys from client and bundle do not match")
           }
         }
-
+  
+        // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
+        const publicSignatureBuf = fromDerSignature(publicSignature);
         const publicKeyBuf = uint8arrayFromHexString(publicKey);
-        const publicSignatureBuf = uint8arrayFromHexString(publicSignature);
-        const quorumKey = importTargetKey(new Uint8Array(encryptionQuorumPublic));
-        return await crypto.subtle.verify( { name: "ECDSA", namedCurve: "P-256" }, quorumKey, publicSignatureBuf, publicKeyBuf);
+        const encryptionQuorumPublicBuf = uint8arrayFromHexString(encryptionQuorumPublic);
+        const quorumKey = await importQuorumKey(new Uint8Array(encryptionQuorumPublicBuf));
+        return await crypto.subtle.verify( { name: "ECDSA", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, publicKeyBuf);
+      }
+
+      /**
+       * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
+       */ 
+      const fromDerSignature = (derSignature) => {
+        const derSignatureBuf = uint8arrayFromHexString(derSignature);
+        
+        // Skip the sequence tag (0x30)
+        let index = 2;
+
+        // Parse 'r' and check for integer tag (0x02)
+        if (derSignatureBuf[index] !== 0x02) {
+          throw new Error("failed to convert DER-encoded signature: invalid tag for r");
+        }
+        index++; // Move past the INTEGER tag
+        const rLength = derSignatureBuf[index];
+        index++; // Move past the length byte
+        const r = derSignatureBuf.slice(index, index + rLength);
+        index += rLength; // Move to the start of s
+
+        // Parse 's' and check for integer tag (0x02)
+        if (derSignatureBuf[index] !== 0x02) {
+          throw new Error("failed to convert DER-encoded signature: invalid tag for s");
+        }
+        index++; // Move past the INTEGER tag
+        const sLength = derSignatureBuf[index];
+        index++; // Move past the length byte
+        const s = derSignatureBuf.slice(index, index + sLength);
+
+        // Normalize 'r' and 's' to 32 bytes each
+        const rPadded = padStartWithZeroes(r, 32);
+        const sPadded = padStartWithZeroes(s, 32);
+
+        // Concatenate and return the raw signature
+        return new Uint8Array([...rPadded, ...sPadded]);
+      }
+
+      /**
+       * Function to pad byte array with 0's 
+       */
+      const padStartWithZeroes = (byteArray, targetLength) => {
+        const paddingLength = targetLength - byteArray.length;
+        if (paddingLength > 0) {
+          const padding = new Uint8Array(paddingLength).fill(0);
+          return new Uint8Array([...padding, ...byteArray]);
+        }
+        return byteArray;
       }
 
       /**
@@ -397,7 +462,7 @@
       const bundleObj = JSON.parse(bundle);
 
       // Verify enclave signature
-      const verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.targetPublic, bundleObj.targetPublicSignature);
+      const verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.targetPublicSignature, bundleObj.targetPublic);
       if (!verified) {
         throw new Error("failed to verify enclave signature");
       }
