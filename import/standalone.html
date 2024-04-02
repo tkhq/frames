@@ -106,13 +106,11 @@
     window.TKHQ = function() {
       /** constants for LocalStorage */
       const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
-      /** Turnkey Signer enclave's public key */
-      const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"
 
       /*
       * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
       */
-      const loadTargetKey = async (targetPublic) => {
+      async function loadTargetKey(targetPublic) {
         const targetKey = await crypto.subtle.importKey("raw", targetPublic, {
           name: 'ECDH',
           namedCurve: 'P-256',
@@ -124,7 +122,7 @@
       /*
       * Loads the quorum public key as a CryptoKey.
       */
-      const loadQuorumKey = async quorumPublic => {
+      async function loadQuorumKey(quorumPublic) {
         return await crypto.subtle.importKey("raw", quorumPublic, {
           name: 'ECDSA',
           namedCurve: 'P-256'
@@ -134,7 +132,7 @@
       /**
        * Gets the current target embedded private key JWK. Returns `null` if not found.
        */
-       const getTargetEmbeddedKey = () => {
+       function getTargetEmbeddedKey() {
         const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
         return jwtKey ?  JSON.parse(jwtKey) : null;
       }
@@ -143,21 +141,23 @@
        * Sets the target embedded public key JWK.
        * @param {JsonWebKey} targetKey
        */
-      const setTargetEmbeddedKey = targetKey =>
+      function setTargetEmbeddedKey(targetKey) {
         window.localStorage.setItem(TURNKEY_TARGET_EMBEDDED_KEY, JSON.stringify(targetKey));
+      }
 
       /**
        * Resets the current target embedded private key JWK.
        */
-       const resetTargetEmbeddedKey = () =>
+      function resetTargetEmbeddedKey() {
         window.localStorage.removeItem(TURNKEY_TARGET_EMBEDDED_KEY);
+      }
 
       /**
        * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
        * @param {string} hexString
        * @returns {Uint8Array}
        */
-       const uint8arrayFromHexString = hexString => {
+      function uint8arrayFromHexString(hexString) {
         var hexRegex = /^[0-9A-Fa-f]+$/;
         if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
           throw new Error('cannot create uint8array from invalid hex string: "' + hexString + '"');
@@ -166,11 +166,11 @@
       }
 
       /**
-        * Takes a Uint8Array and returns a hex string
-        * @param {Uint8Array} buffer
-        * @return {string}
-        */
-      const uint8arrayToHexString = buffer => {
+       * Takes a Uint8Array and returns a hex string
+       * @param {Uint8Array} buffer
+       * @return {string}
+       */
+      function uint8arrayToHexString(buffer) {
         return [...buffer]
           .map(x => x.toString(16).padStart(2, '0'))
           .join('');
@@ -182,7 +182,7 @@
        * @param {string} s The base58-encoded string.
        * @return {Uint8Array} The decoded buffer.
        */
-       function base58Decode(s) {
+      function base58Decode(s) {
         // See https://en.bitcoin.it/wiki/Base58Check_encoding
         var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
         var decoded = BigInt(0);
@@ -232,7 +232,7 @@
        * @param {string} privateKey
        * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
        */
-       const decodeKey = (privateKey, keyFormat) => {
+      function decodeKey(privateKey, keyFormat) {
         switch (keyFormat) {
           case "SOLANA":
             const decodedKeyBytes = base58Decode(privateKey);
@@ -255,40 +255,51 @@
       }
 
       /**
+       * Function to normalize padding of byte array with 0's to a target length
+       */
+      function normalizePadding(byteArray, targetLength) {
+        const paddingLength = targetLength - byteArray.length;
+
+        // Add leading 0's to array
+        if (paddingLength > 0) {
+          const padding = new Uint8Array(paddingLength).fill(0);
+          return new Uint8Array([...padding, ...byteArray]);
+        }
+
+        // Remove leading 0's from array
+        if (paddingLength < 0) {
+          const expectedZeroCount = paddingLength * -1;
+          let zeroCount = 0;
+          for (let i = 0; i < expectedZeroCount && i < byteArray.length; i++) {
+            if (byteArray[i] === 0) {
+              zeroCount++;
+            }
+          }
+          // Check if the number of zeros found equals the number of zeroes expected
+          if (zeroCount !== expectedZeroCount) {
+            throw new Error(`invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`);
+          }
+          return byteArray.slice(expectedZeroCount, expectedZeroCount + targetLength);
+        }
+        return byteArray;
+      }
+
+      /**
        * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
        */
-      const additionalAssociatedData = (senderPubBuf, receiverPubBuf) => {
+      function additionalAssociatedData(senderPubBuf, receiverPubBuf) {
         const s = Array.from(new Uint8Array(senderPubBuf));
         const r = Array.from(new Uint8Array(receiverPubBuf));
         return new Uint8Array([...s, ...r]);
       }
 
       /**
-       * Function to verify enclave signature on import bundle received from the server. 
-       */
-       const verifyEnclaveSignature = async (enclaveQuorumPublic, publicSignature, publicKey) => {
-        // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
-        if (enclaveQuorumPublic) {
-          if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
-            throw new Error(`enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`);
-          }
-        }
-  
-        // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
-        const publicSignatureBuf = fromDerSignature(publicSignature);
-        const publicKeyBuf = uint8arrayFromHexString(publicKey);
-        const encryptionQuorumPublicBuf = uint8arrayFromHexString(TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY);
-        const quorumKey = await loadQuorumKey(new Uint8Array(encryptionQuorumPublicBuf));
-        return await crypto.subtle.verify( { name: "ECDSA", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, publicKeyBuf);
-      }
-
-      /**
        * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
        */ 
-      const fromDerSignature = (derSignature) => {
+      function fromDerSignature(derSignature) {
         const derSignatureBuf = uint8arrayFromHexString(derSignature);
         
-        // Skip the sequence tag (0x30)
+        // Check and skip the sequence tag (0x30)
         let index = 2;
 
         // Parse 'r' and check for integer tag (0x02)
@@ -311,23 +322,37 @@
         const s = derSignatureBuf.slice(index, index + sLength);
 
         // Normalize 'r' and 's' to 32 bytes each
-        const rPadded = padStartWithZeroes(r, 32);
-        const sPadded = padStartWithZeroes(s, 32);
+        const rPadded = normalizePadding(r, 32);
+        const sPadded = normalizePadding(s, 32);
 
         // Concatenate and return the raw signature
         return new Uint8Array([...rPadded, ...sPadded]);
       }
 
       /**
-       * Function to pad byte array with 0's 
+       * Function to verify enclave signature on import bundle received from the server. 
        */
-      const padStartWithZeroes = (byteArray, targetLength) => {
-        const paddingLength = targetLength - byteArray.length;
-        if (paddingLength > 0) {
-          const padding = new Uint8Array(paddingLength).fill(0);
-          return new Uint8Array([...padding, ...byteArray]);
+      async function verifyEnclaveSignature(enclaveQuorumPublic, publicSignature, publicKey) {
+        /** Turnkey Signer enclave's public key */
+        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569";
+
+        // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
+        if (enclaveQuorumPublic) {
+          if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
+            throw new Error(`enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`);
+          }
         }
-        return byteArray;
+
+        const encryptionQuorumPublicBuf = new Uint8Array(uint8arrayFromHexString(TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY));
+        const quorumKey = await loadQuorumKey(encryptionQuorumPublicBuf);
+        if (!quorumKey) {
+          throw new Error("failed to load quorum key");
+        }
+
+        // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
+        const publicSignatureBuf = fromDerSignature(publicSignature);
+        const publicKeyBuf = uint8arrayFromHexString(publicKey);
+        return await crypto.subtle.verify({ name: "ECDSA", namedCurve: "P-256", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, publicKeyBuf);
       }
 
       /**
@@ -335,7 +360,7 @@
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
        * @param value message value
        */
-      const sendMessageUp = (type, value) => {
+      function sendMessageUp(type, value) {
         if (window.top !== null) {
           window.top.postMessage({
               "type": type,
@@ -348,7 +373,7 @@
       /**
        * Function to log a message and persist it in the page's DOM.
        */
-      const logMessage = content => {
+      function logMessage(content) {
         const messageLog = document.getElementById("message-log");
         const message = document.createElement("p")
         message.innerText = content;
@@ -366,6 +391,8 @@
         uint8arrayToHexString,
         base58Decode,
         decodeKey,
+        normalizePadding,
+        fromDerSignature,
         additionalAssociatedData,
         verifyEnclaveSignature
       }
@@ -454,7 +481,7 @@
      * @param {string} bundle
      * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
      */
-    const onInjectImportBundle = async bundle => {
+    async function onInjectImportBundle(bundle) {
       // Parse the import bundle
       const bundleObj = JSON.parse(bundle);
 
@@ -482,7 +509,7 @@
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    const onExtractWalletEncryptedBundle = async bundle => {
+    async function onExtractWalletEncryptedBundle(bundle) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -519,7 +546,7 @@
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-     const onExtractKeyEncryptedBundle = async (bundle, keyFormat) => {
+    async function onExtractKeyEncryptedBundle(bundle, keyFormat) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -547,7 +574,7 @@
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
     }
 
-    const HpkeEncrypt = async ({ plaintextBuf, receiverPubJwk }) => {
+    async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
       const kemContext = new hpke.DhkemP256HkdfSha256();
       const receiverPub = await kemContext.importKey("jwk", {...receiverPubJwk}, true);
 

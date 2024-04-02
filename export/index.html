@@ -280,6 +280,7 @@
         const r = Array.from(new Uint8Array(receiverPubBuf));
         return new Uint8Array([...s, ...r]);
       }
+
       /**
        * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
        */ 
@@ -335,7 +336,7 @@
         if (!quorumKey) {
           throw new Error("failed to load quorum key");
         }
-  
+
         // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
         const publicSignatureBuf = fromDerSignature(publicSignature);
         const publicKeyBuf = uint8arrayFromHexString(publicKey);
@@ -710,7 +711,7 @@
         } else {
           key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
         }
-        
+
         // Display only the key
         displayKey(key);
 

@@ -200,7 +200,6 @@ describe("TKHQ", () => {
 
     // Invalid signature. Wrong integer tag for s
     expect(() => TKHQ.fromDerSignature("304502210088f4f3b59e277f30cb16c05541551eca702ce925002dbc3de3a7c0a7f76b23f903202a0f272c3e5724848dc5232c3409918277d65fd7e8c6eb1630bf6eb2eeb472e3")).toThrow("failed to convert DER-encoded signature: invalid tag for s");
-  
   })
 
   it("verifies enclave signature", async () => {
