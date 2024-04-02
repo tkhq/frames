@@ -44,7 +44,7 @@ describe("TKHQ", () => {
   it("imports P256 keys", async () => {
     const targetPubHex = "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f";
     const targetPublicBuf = TKHQ.uint8arrayFromHexString(targetPubHex);
-    const key = await TKHQ.importTargetKey(new Uint8Array(targetPublicBuf));
+    const key = await TKHQ.loadTargetKey(new Uint8Array(targetPublicBuf));
     expect(key.kty).toEqual("EC");
     expect(key.ext).toBe(true);
     expect(key.crv).toBe("P-256");
