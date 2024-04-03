@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        directory: ["auth", "export"]
+        directory: ["auth", "export", "import"]
 
     steps:
       - name: Checkout
