@@ -72,6 +72,12 @@
     <label>Import Bundle</label>
     <input type="text" name="import-bundle" id="import-bundle"/>
     <button id="inject-import-bundle">Inject Bundle</button>
+    <br>
+    <label>Organization Id</label>
+    <input type="text" name="organization-id" id="organization-id"/>
+    <br>
+    <label>User Id</label>
+    <input type="text" name="user-id" id="user-id"/>
   </form>
   <br>
   <h2>Import Wallet</h2>
@@ -419,9 +425,9 @@
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
         if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}, ${event.data["userId"]}`);
           try {
-            await onInjectImportBundle(event.data["value"])
+            await onInjectImportBundle(event.data["value"], event.data["organizationId"], event.data["userId"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -455,6 +461,8 @@
         window.postMessage({
           "type": "INJECT_IMPORT_BUNDLE",
           "value": document.getElementById("import-bundle").value,
+          "organizationId": document.getElementById("organization-id").value,
+          "userId": document.getElementById("user-id").value,
         })
       }, false);
       document.getElementById("encrypt-wallet-bundle").addEventListener("click", async e => {
@@ -480,19 +488,80 @@
      * in local storage. Sends true upon success.
      * @param {string} bundle
      * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
+     * @param {string} organizationId
+     * @param {string} userId
      */
-    async function onInjectImportBundle(bundle) {
+     async function onInjectImportBundle(bundle, organizationId, userId) {
+      let targetPublicBuf;
+      let verified;
+
       // Parse the import bundle
       const bundleObj = JSON.parse(bundle);
 
-      // Verify enclave signature
-      const verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.targetPublicSignature, bundleObj.targetPublic);
-      if (!verified) {
-        throw new Error("failed to verify enclave signature");
+      switch (bundleObj.version) {
+        case undefined:
+          // Validate fields exist
+          if (!bundleObj.targetPublic) {
+            throw new Error('missing "targetPublic" in bundle');
+          }
+
+          if (!bundleObj.targetPublicSignature) {
+            throw new Error('missing "targetPublicSignature" in bundle');
+          }
+
+          // Verify enclave signature
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.targetPublicSignature, bundleObj.targetPublic);
+          if (!verified) {
+            throw new Error("failed to verify enclave signature");
+          }
+
+          // Load target public key generated from enclave and set in local storage
+          targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
+          break;
+        case 'v1.0.0':
+          // Validate fields exist
+          if (!bundleObj.data) {
+            throw new Error('missing "data" in bundle');
+          }
+
+          if (!bundleObj.data.targetPublic) {
+            throw new Error('missing "data.targetPublic" in bundle');
+          }
+
+          if (!bundleObj.dataSignature) {
+            throw new Error('missing "dataSignature" in bundle');
+          }
+
+          // Verify enclave signature
+          if (!TKHQ.verifyEnclaveSignature) {
+            throw new Error("method not loaded");
+          }
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data);
+          if (!verified) {
+            throw new Error(`failed to verify enclave signature: ${bundle}`);
+          }
+
+          // Validate fields match
+          if (!organizationId) {
+            // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+            console.warn('we highly recommend using v2.0.0 iframe stamper to pass the "organizationId" for security purposes.');
+          } else if (!bundleObj.data.organizationId || bundleObj.data.organizationId !== organizationId) {
+            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${bundleObj.data.organizationId}.`);
+          }
+          if (!userId) {
+            // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+            console.warn('we highly recommend using v2.0.0 iframe stamper to pass the "userId" for security purposes.');
+          } else if (!bundleObj.data.userId || bundleObj.data.userId !== userId) {
+            throw new Error(`user id does not match expected value. Expected: ${userId}. Found: ${bundleObj.data.userId}.`);
+          }
+
+          // Load target public key generated from enclave and set in local storage
+          targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.data.targetPublic);
+          break;
+        default:
+          throw new Error(`unsupported version: ${bundleObj.version}`);
       }
 
-      // Load target public key generated from enclave and set in local storage
-      const targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.targetPublic);
       const targetPublicKeyJwk = await TKHQ.loadTargetKey(new Uint8Array(targetPublicBuf));
       TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
 
