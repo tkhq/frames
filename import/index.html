@@ -608,7 +608,7 @@
 
       // Validate, sanitize, and apply the styles to the "plaintext" textarea.
       const validStyles = TKHQ.validateStyles(settingsObj.styles);
-      validStyles.forEach((value, key) => {
+      Object.entries(validStyles).forEach(([key, value]) => {
         plaintextTextarea.style[key] = value;
       })
 
