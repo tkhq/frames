@@ -174,4 +174,41 @@ describe("TKHQ", () => {
       TKHQ.verifyEnclaveSignature(null, "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5", "")
     ).rejects.toThrow('cannot create uint8array from invalid hex string: ""');
   })
+
+  it("validates styles", async () => {
+    let simpleValid = {"padding": "10px"};
+    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+
+    simpleValid = {"padding": "10px", "margin": "10px","fontSize": "16px"};
+    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+
+    let simpleValidPadding = {"padding  ": "10px", "margin": "10px", "fontSize": "16px"};
+    expect(TKHQ.validateStyles(simpleValidPadding)).toEqual(simpleValid);
+
+    let simpleInvalidCase = {"padding": "10px", "margin": "10px", "font-size": "16px"};
+    expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(`invalid or unsupported css style key: "font-size"`);
+
+    let allStylesValid = {
+      "padding": "10px",
+      "margin": "10px",
+      "borderWidth": "1px",
+      "borderStyle": "solid",
+      "borderColor": "transparent",
+      "borderRadius": "5px",
+      "fontSize": "16px",
+      "fontWeight": "bold",
+      "fontFamily": "SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      "color": "#000000",
+      "backgroundColor": "rgb(128, 0, 128)",
+      "width": "100%",
+      "height": "auto",
+      "maxWidth": "100%",
+      "maxHeight": "100%",
+      "lineHeight": "1.25rem",
+      "boxShadow": "0px 0px 10px #aaa",
+      "textAlign": "center",
+      "overflowWrap": "break-word"
+    };
+    expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
+  })
 })

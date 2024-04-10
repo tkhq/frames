@@ -293,6 +293,60 @@
       }
 
       /**
+       * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
+       * Any invalid style throws an error. Returns an object of valid styles.
+       * @param {Object} styles
+       */
+      function validateStyles(styles, element) {
+        const validStyles = {};
+
+        const cssValidationRegex = {
+          "padding": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "margin": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "borderWidth": "^(\\d+(px|em|rem) ?){1,4}$",
+          "borderStyle": "^(none|solid|dashed|dotted|double|groove|ridge|inset|outset)$",
+          "borderColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "borderRadius": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "fontSize": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
+          "fontWeight": "^(normal|bold|bolder|lighter|\\d{3})$",
+          "fontFamily": "^[^\";<>]*$", // checks for the absence of some characters that could lead to CSS/HTML injection
+          "color": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "backgroundColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "width": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+          "height": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+          "maxWidth": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+          "maxHeight": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+          "lineHeight": "^(\\d+(\\.\\d+)?(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|normal)$",
+          "boxShadow": "^(none|(\\d+(px|em|rem) ?){2,4} (#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)) ?(inset)?)$",
+          "textAlign": "^(left|right|center|justify|initial|inherit)$",
+          "overflowWrap": "^(normal|break-word|anywhere)$"
+        };
+
+        Object.entries(styles).forEach(([key, value]) => {
+          const styleKey = key.trim();
+          if (styleKey.length === 0) {
+            throw new Error("css style key cannot be empty");
+          }
+          const styleRegexStr = cssValidationRegex[styleKey];
+          if (!styleRegexStr) {
+            throw new Error(`invalid or unsupported css style key: "${styleKey}"`);
+          }
+          const styleRegex = new RegExp(styleRegexStr);
+          const styleValue = value.trim();
+          if (styleValue.length == 0) {
+            throw new Error(`css style for "${styleKey}" is empty`);
+          }
+          const isValidStyle = styleRegex.test(styleValue);
+          if (!isValidStyle) {
+            throw new Error(`invalid css style value for key "${styleKey}"`);
+          }
+          validStyles[styleKey] = styleValue;
+        })
+
+        return validStyles;
+      }
+
+      /**
        * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
        * @param value message value
@@ -319,7 +373,8 @@
         normalizePadding,
         fromDerSignature,
         additionalAssociatedData,
-        verifyEnclaveSignature
+        verifyEnclaveSignature,
+        validateStyles,
       }
     }();
   </script>
@@ -350,7 +405,6 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-        // TODO: deprecate EXTRACT_WALLET_ENCRYPTED_BUNDLE in favor of EXTRACT_ENCRYPTED_BUNDLE
         if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
           try {
             await onExtractWalletEncryptedBundle()
@@ -361,6 +415,13 @@
         if (event.data && event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE") {
           try {
             await onExtractKeyEncryptedBundle(event.data["keyFormat"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+          try {
+            await onApplySettings(event.data["value"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -527,6 +588,32 @@
 
       // Send up ENCRYPTED_BUNDLE_EXTRACTED message
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
+    }
+
+    /**
+     * Function triggered when APPLY_SETTINGS event is received.
+     * For now, the only settings that can be applied are for "styles".
+     */
+    async function onApplySettings(settings) {
+      const plaintextTextarea = document.getElementById("plaintext");
+      if (!plaintextTextarea) {
+        throw new Error("no plaintext textarea HTML element found to apply settings to.");
+      }
+
+      const settingsObj = JSON.parse(settings);
+
+      if (!settingsObj.styles) {
+        throw new Error(`settings JSON is missing "styles" parameter`)
+      }
+
+      // Validate, sanitize, and apply the styles to the "plaintext" textarea.
+      const validStyles = TKHQ.validateStyles(settingsObj.styles);
+      validStyles.forEach((value, key) => {
+        plaintextTextarea.style[key] = value;
+      })
+
+      // Send up SETTINGS_APPLIED message
+      TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
     }
 
     async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
