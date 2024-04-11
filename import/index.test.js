@@ -207,7 +207,9 @@ describe("TKHQ", () => {
       "lineHeight": "1.25rem",
       "boxShadow": "0px 0px 10px #aaa",
       "textAlign": "center",
-      "overflowWrap": "break-word"
+      "overflowWrap": "break-word",
+      "wordWrap": "break-word",
+      "resize": "none",
     };
     expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
   })
