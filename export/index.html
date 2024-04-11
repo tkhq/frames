@@ -681,8 +681,6 @@
 
       // Parse the import bundle
       const bundleObj = JSON.parse(bundle);
-
-      console.log(bundleObj.version);
       switch (bundleObj.version) {
         case undefined:
           // Validate fields exist
@@ -709,7 +707,7 @@
         case 'v1.0.0':
           // Validate fields exist
           if (!bundleObj.data) {
-            throw new Error('missing "data" in bundlexxxx');
+            throw new Error('missing "data" in bundle');
           }
 
           if (!bundleObj.data.encappedPublic) {
