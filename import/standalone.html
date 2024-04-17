@@ -573,12 +573,11 @@
      * Function triggered when EXTRACT_WALLET_ENCRYPTED_BUNDLE event is received.
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
-     * Uses the target public key in local storage to encrypt the text entered in the
-     * `plaintext` textarea element. Upon successful encryption, sends
+     * Uses the target public key in local storage to encrypt the plaintextValue. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    async function onExtractWalletEncryptedBundle(bundle) {
+    async function onExtractWalletEncryptedBundle(plaintextValue) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -586,7 +585,7 @@
       }
 
       // Get plaintext wallet mnemonic
-      const plaintext = bundle.trim();
+      const plaintext = plaintextValue.trim();
       if (!plaintext) {
         throw new Error("no wallet mnemonic entered");
       }
@@ -610,12 +609,11 @@
      * Function triggered when EXTRACT_KEY_ENCRYPTED_BUNDLE event is received.
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
-     * Uses the target public key in local storage to encrypt the text entered in the
-     * `plaintext` textarea element. Upon successful encryption, sends
+     * Uses the target public key in local storage to encrypt the plaintextValue. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    async function onExtractKeyEncryptedBundle(bundle, keyFormat) {
+    async function onExtractKeyEncryptedBundle(plaintextValue, keyFormat) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -623,7 +621,7 @@
       }
 
       // Get plaintext private key
-      const plaintext = bundle.trim();
+      const plaintext = plaintextValue.trim();
       if (!plaintext) {
         throw new Error("no private key entered");
       }

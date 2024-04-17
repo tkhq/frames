@@ -23,7 +23,7 @@
       overflow-wrap: break-word;
       font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
     }
-    textarea:focus {
+    #plaintext:focus {
       outline: none;
       border: none;
     }
@@ -42,7 +42,8 @@
   <script>
     window.TKHQ = function() {
       /** constants for LocalStorage */
-      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
+      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
+      const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 
       /*
       * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
@@ -69,7 +70,7 @@
       /**
        * Gets the current target embedded private key JWK. Returns `null` if not found.
        */
-       function getTargetEmbeddedKey() {
+      function getTargetEmbeddedKey() {
         const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
         return jwtKey ?  JSON.parse(jwtKey) : null;
       }
@@ -87,6 +88,22 @@
        */
       function resetTargetEmbeddedKey() {
         window.localStorage.removeItem(TURNKEY_TARGET_EMBEDDED_KEY);
+      }
+
+      /**
+       * Gets the current settings.
+       */
+      function getSettings() {
+        const settings = window.localStorage.getItem(TURNKEY_SETTINGS);
+        return settings ?  JSON.parse(settings) : null;
+      }
+
+      /**
+       * Sets the settings object.
+       * @param {Object} settings
+       */
+      function setSettings(settings) {
+        window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settings));
       }
 
       /**
@@ -293,6 +310,91 @@
       }
 
       /**
+       * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
+       * Any invalid style throws an error. Returns an object of valid styles.
+       * @param {Object} styles
+       * @return {Object}
+       */
+       function validateStyles(styles, element) {
+        const validStyles = {};
+
+        const cssValidationRegex = {
+          "padding": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "margin": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "borderWidth": "^(\\d+(px|em|rem) ?){1,4}$",
+          "borderStyle": "^(none|solid|dashed|dotted|double|groove|ridge|inset|outset)$",
+          "borderColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "borderRadius": "^(\\d+(px|em|%|rem) ?){1,4}$",
+          "fontSize": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
+          "fontWeight": "^(normal|bold|bolder|lighter|\\d{3})$",
+          "fontFamily": "^[^\";<>]*$", // checks for the absence of some characters that could lead to CSS/HTML injection
+          "color": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "backgroundColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+          "width": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+          "height": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+          "maxWidth": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+          "maxHeight": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+          "lineHeight": "^(\\d+(\\.\\d+)?(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|normal)$",
+          "boxShadow": "^(none|(\\d+(px|em|rem) ?){2,4} (#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)) ?(inset)?)$",
+          "textAlign": "^(left|right|center|justify|initial|inherit)$",
+          "overflowWrap": "^(normal|break-word|anywhere)$",
+          "wordWrap": "^(normal|break-word)$",
+          "resize": "^(none|both|horizontal|vertical|block|inline)$",
+        };
+
+        Object.entries(styles).forEach(([property, value]) => {
+          const styleProperty = property.trim();
+          if (styleProperty.length === 0) {
+            throw new Error("css style property cannot be empty");
+          }
+          const styleRegexStr = cssValidationRegex[styleProperty];
+          if (!styleRegexStr) {
+            throw new Error(`invalid or unsupported css style property: "${styleProperty}"`);
+          }
+          const styleRegex = new RegExp(styleRegexStr);
+          const styleValue = value.trim();
+          if (styleValue.length == 0) {
+            throw new Error(`css style for "${styleProperty}" is empty`);
+          }
+          const isValidStyle = styleRegex.test(styleValue);
+          if (!isValidStyle) {
+            throw new Error(`invalid css style value for property "${styleProperty}"`);
+          }
+          validStyles[styleProperty] = styleValue;
+        })
+
+        return validStyles;
+      }
+
+      /**
+       * Function to apply settings on this page. For now, the only settings that can be applied
+       * are for "styles". Upon successful application, return the valid, sanitized settings JSON string.
+       * @param {string} settings
+       * @return {string}
+       */
+      function applySettings(settings) {
+        const validSettings = {};
+        const settingsObj = JSON.parse(settings);
+        if (settingsObj.styles) {
+          // Valid styles will be applied the "plaintext" textarea HTML element.
+          const plaintextTextarea = document.getElementById("plaintext");
+          if (!plaintextTextarea) {
+            throw new Error("no plaintext textarea HTML element found to apply settings to.");
+          }
+
+          // Validate, sanitize, and apply the styles to the "plaintext" textarea.
+          const validStyles = TKHQ.validateStyles(settingsObj.styles);
+          Object.entries(validStyles).forEach(([key, value]) => {
+            plaintextTextarea.style[key] = value;
+          });
+
+          validSettings["styles"] = validStyles;
+        }
+
+        return JSON.stringify(validSettings);
+      }
+
+      /**
        * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
        * @param value message value
@@ -311,6 +413,8 @@
         getTargetEmbeddedKey,
         setTargetEmbeddedKey,
         resetTargetEmbeddedKey,
+        getSettings,
+        setSettings,
         sendMessageUp,
         uint8arrayFromHexString,
         uint8arrayToHexString,
@@ -319,7 +423,9 @@
         normalizePadding,
         fromDerSignature,
         additionalAssociatedData,
-        verifyEnclaveSignature
+        verifyEnclaveSignature,
+        validateStyles,
+        applySettings,
       }
     }();
   </script>
@@ -334,6 +440,11 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
+      // If styles are saved in local storage, sanitize and apply them.
+      const styleSettings = TKHQ.getSettings();
+      if (styleSettings) {
+        TKHQ.applySettings(styleSettings);
+      }
       // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
       // init() waits for a public key to be initialized that can be used to send to the server
       // which will encrypt messages to this public key.
@@ -350,7 +461,6 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-        // TODO: deprecate EXTRACT_WALLET_ENCRYPTED_BUNDLE in favor of EXTRACT_ENCRYPTED_BUNDLE
         if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
           try {
             await onExtractWalletEncryptedBundle()
@@ -361,6 +471,13 @@
         if (event.data && event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE") {
           try {
             await onExtractKeyEncryptedBundle(event.data["keyFormat"])
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+          try {
+            await onApplySettings(event.data["value"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -527,6 +644,23 @@
 
       // Send up ENCRYPTED_BUNDLE_EXTRACTED message
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
+    }
+
+    /**
+     * Function triggered when APPLY_SETTINGS event is received.
+     * For now, the only settings that can be applied are for "styles".
+     * Persist them in local storage so they can be applied on every
+     * page load.
+     */
+    async function onApplySettings(settings) {
+      // Apply settings
+      const validSettings = TKHQ.applySettings(settings);
+
+      // Persist in local storage
+      TKHQ.setSettings(validSettings);
+
+      // Send up SETTINGS_APPLIED message
+      TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
     }
 
     async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
