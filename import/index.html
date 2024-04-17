@@ -342,25 +342,25 @@
           "resize": "^(none|both|horizontal|vertical|block|inline)$",
         };
 
-        Object.entries(styles).forEach(([key, value]) => {
-          const styleKey = key.trim();
-          if (styleKey.length === 0) {
-            throw new Error("css style key cannot be empty");
+        Object.entries(styles).forEach(([property, value]) => {
+          const styleProperty = property.trim();
+          if (styleProperty.length === 0) {
+            throw new Error("css style property cannot be empty");
           }
-          const styleRegexStr = cssValidationRegex[styleKey];
+          const styleRegexStr = cssValidationRegex[styleProperty];
           if (!styleRegexStr) {
-            throw new Error(`invalid or unsupported css style key: "${styleKey}"`);
+            throw new Error(`invalid or unsupported css style property: "${styleProperty}"`);
           }
           const styleRegex = new RegExp(styleRegexStr);
           const styleValue = value.trim();
           if (styleValue.length == 0) {
-            throw new Error(`css style for "${styleKey}" is empty`);
+            throw new Error(`css style for "${styleProperty}" is empty`);
           }
           const isValidStyle = styleRegex.test(styleValue);
           if (!isValidStyle) {
-            throw new Error(`invalid css style value for key "${styleKey}"`);
+            throw new Error(`invalid css style value for property "${styleProperty}"`);
           }
-          validStyles[styleKey] = styleValue;
+          validStyles[styleProperty] = styleValue;
         })
 
         return validStyles;

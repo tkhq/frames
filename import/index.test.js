@@ -186,7 +186,16 @@ describe("TKHQ", () => {
     expect(TKHQ.validateStyles(simpleValidPadding)).toEqual(simpleValid);
 
     let simpleInvalidCase = {"padding": "10px", "margin": "10px", "font-size": "16px"};
-    expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(`invalid or unsupported css style key: "font-size"`);
+    expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(`invalid or unsupported css style property: "font-size"`);
+
+    let fontFamilyInvalid = {"fontFamily": "<script>malicious</script>"};
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(`invalid css style value for property "fontFamily"`);
+
+    fontFamilyInvalid = {"fontFamily": "\"Courier\""};
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(`invalid css style value for property "fontFamily"`);
+
+    fontFamilyInvalid = {"fontFamily": "San Serif;"};
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(`invalid css style value for property "fontFamily"`);
 
     let allStylesValid = {
       "padding": "10px",
