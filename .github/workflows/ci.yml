@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - main-preprod
   pull_request:
   workflow_dispatch: # Allows manual invocation
 

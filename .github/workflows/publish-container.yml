@@ -4,9 +4,11 @@ on:
   pull_request:
     branches:
       - main
+      - main-preprod
   push:
     branches:
       - main
+      - main-preprod
     tags:
       - "v*.*.*"
   workflow_dispatch: # Allows manual invocation
