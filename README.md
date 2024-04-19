@@ -83,7 +83,7 @@ To build:
 docker build . -t frames
 ```
 
-To run (mapping `[8080, 8081]` to `[18080, 18081]` because they're often busy):
+To run (mapping `[8080, 8081, ...]` to `[18080, 18081, ...]` because they're often busy):
 ```
 docker run -p18080:8080 -p18081:8081 -t frames
 ```
@@ -97,6 +97,9 @@ k3d cluster create frames
 
 # Deploy to it
 kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
+
+# Be able to access locally (8080 as an example)
+kubectl port-forward svc/frames 8080:8080
 ```
 
 To clean things up:
