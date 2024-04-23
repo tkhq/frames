@@ -3,7 +3,6 @@ import { JSDOM } from "jsdom"
 import fs from "fs"
 import path from "path"
 import * as crypto from "crypto";
-import { rejects } from "assert";
 
 const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
 
@@ -235,4 +234,4 @@ describe("TKHQ", () => {
       TKHQ.verifyEnclaveSignature(null, "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5", "")
     ).rejects.toThrow('cannot create uint8array from invalid hex string: ""');
   })
-})
+});
