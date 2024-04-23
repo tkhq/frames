@@ -117,6 +117,9 @@
   <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
   <div id="message-log"></div>
 
+  <!-- Script containing ED25519 library -->
+  <script src="noble-hashes.js"></script>
+  <script src="noble-ed25519.js"></script>
   <!--
     Script defining important helpers.
     These helpers are unit-testable, so most of the logic should be written here.
@@ -532,6 +535,15 @@
         };
       }
 
+      /**
+       * Returns the public key bytes for a hex-encoded Ed25519 private key.
+       * @param {string} privateKeyHex
+       */
+      function getEd25519PublicKey(privateKeyHex) {
+        nobleEd25519.etc.sha512Sync = (...m) => nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
+        return nobleEd25519.getPublicKey(privateKeyHex);
+      }
+
       return {
         initEmbeddedKey,
         generateTargetKey,
@@ -552,7 +564,8 @@
         normalizePadding,
         fromDerSignature,
         additionalAssociatedData,
-        verifyEnclaveSignature
+        verifyEnclaveSignature,
+        getEd25519PublicKey
       }
     }();
   </script>
