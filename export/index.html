@@ -783,9 +783,7 @@
         const privateKeyBytes = new Uint8Array(keyBytes);
         if (keyFormat === "SOLANA") {
           const privateKeyHex = TKHQ.uint8arrayToHexString(privateKeyBytes.subarray(0,32));
-          console.log(privateKeyHex);
           const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
-          console.log(TKHQ.uint8arrayToHexString(publicKeyBytes.subarray(0,32)));
           key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
         } else {
           key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
