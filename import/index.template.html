@@ -546,7 +546,16 @@
           if (!TKHQ.verifyEnclaveSignature) {
             throw new Error("method not loaded");
           }
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data);
+
+          // Temporary solution to get the bytes signed by the enclave
+          var signedData = /"data":({[^}]+)/.exec(bundle);
+          if (signedData === null || signedData.length !== 2) {
+            throw new Error(`unable to find signed data in bundle: ${bundle}`);
+          }
+          const signedDataBytes = new TextEncoder().encode(signedData[1] + "}");
+          const signedDataHexString = TKHQ.uint8arrayToHexString(signedDataBytes);
+
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, signedDataHexString);
           if (!verified) {
             throw new Error(`failed to verify enclave signature: ${bundle}`);
           }
