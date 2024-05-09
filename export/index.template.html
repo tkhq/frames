@@ -336,9 +336,10 @@
         /** Turnkey Signer enclave's public keys */
         const TURNKEY_SIGNERS_ENCLAVES = {
           "prod": "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
-          "preprod": "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212"
+          "preprod": "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
+          "local": "04bce6666ca6c12e0e00a503a52c301319687dca588165b551d369496bd1189235bd8302ae5e001fde51d1e22baa1d44249f2de9705c63797316fc8b7e3969a665"
         }
-        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
+        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = TURNKEY_SIGNERS_ENCLAVES["local"];
         if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
           throw new Error("Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined")
         }
@@ -692,7 +693,7 @@
      * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
      * @param {string} bundle
      * @param {string} organizationId
-     */ 
+     */
     async function decryptBundle(bundle, organizationId) {
       let encappedKeyBuf;
       let ciphertextBuf;
@@ -728,50 +729,41 @@
           if (!bundleObj.data) {
             throw new Error('missing "data" in bundle');
           }
-
-          if (!bundleObj.data.encappedPublic) {
-            throw new Error('missing "data.encappedPublic" in bundle');
-          }
-
-          if (!bundleObj.data.ciphertext) {
-            throw new Error('missing "data.ciphertext" in bundle');
-          }
-
           if (!bundleObj.dataSignature) {
             throw new Error('missing "dataSignature" in bundle');
+          }
+          if (!bundleObj.enclaveQuorumPublic) {
+            throw new Error('missing "enclaveQuorumPublic" in bundle');
           }
 
           // Verify enclave signature
           if (!TKHQ.verifyEnclaveSignature) {
             throw new Error("method not loaded");
           }
-
-          // Temporary solution to get the bytes signed by the enclave
-          var signedData = /"data":({[^}]+)/.exec(bundle);
-          if (signedData === null || signedData.length !== 2) {
-            throw new Error(`unable to find signed data in bundle: ${bundle}`);
-          }
-
-          // We add the closing brace back: it was our marker for the end of the group in the regex above, hence not captured.
-          const signedDataBytes = new TextEncoder().encode(signedData[1] + "}");
-          // Encode these bytes to hex since verifyEnclaveSignature expects hex-encoded bytes
-          const signedDataHexString = TKHQ.uint8arrayToHexString(signedDataBytes);
-
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, signedDataHexString);
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data);
           if (!verified) {
             throw new Error(`failed to verify enclave signature: ${bundle}`);
           }
 
+          // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
+          const signedData = JSON.parse(new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data)));
+
           // Validate fields match
           if (!organizationId) {
             // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-            console.warn('we highly recommend using v2.0.0 iframe stamper to pass the "organizationId" for security purposes.');
-          } else if (!bundleObj.data.organizationId || bundleObj.data.organizationId !== organizationId) {
-            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${bundleObj.data.organizationId}.`);
+            console.warn('we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.');
+          } else if (!signedData.organizationId || signedData.organizationId !== organizationId) {
+            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`);
           }
 
-          encappedKeyBuf = TKHQ.uint8arrayFromHexString(bundleObj.data.encappedPublic);
-          ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.data.ciphertext);
+          if (!signedData.encappedPublic) {
+            throw new Error('missing "encappedPublic" in bundle signed data');
+          }
+          if (!signedData.ciphertext) {
+            throw new Error('missing "ciphertext" in bundle signed data');
+          }
+          encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
+          ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
           break;
         default:
           throw new Error(`unsupported version: ${bundleObj.version}`);
