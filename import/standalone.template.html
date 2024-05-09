@@ -1,5 +1,5 @@
 <!--
-  This page is intended to be embedded in an iframe. When updating any functions in
+  Standalone Mode is for testing purposes only. When updating any functions in
   index.html, please make the same updates in standalone.html.
 -->
 <!doctype html>
@@ -8,32 +8,101 @@
 <head>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
   <meta charset="utf-8">
-  <title>Turnkey Import</title>
+  <title>Turnkey Import (Standalone Mode)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
-    #plaintext {
-      width: 300px;
-      font-size: .875rem;
-      line-height: 1.25rem;
-      height: 110px;
-      color: #555b64;
-      border: none;
-      resize: none;
-      word-wrap: break-word;
-      overflow-wrap: break-word;
+    body {
+      text-align: center;
       font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+      max-width: 1024px;
+      margin: auto;
     }
-    #plaintext:focus {
-      outline: none;
-      border: none;
+    form {
+      text-align: left;
     }
+    label {
+      display:inline-block;
+      width: 8em;
+    }
+    input[type=text], select {
+      width: 40em;
+      margin: 0.5em;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 1em;
+      height: 1.8em;
+      color: rgb(18, 87, 18);
+      border: 1px rgb(217, 240, 221) solid;
+      border-radius: 4px;
+    }
+    input:disabled {
+      background-color: rgb(239, 243, 240);
+    }
+    #inject-import-bundle, #encrypt-wallet-bundle, #encrypt-key-bundle {
+      color: white;
+      width: 10em;
+      font-size: 1em;
+      padding: 0.38em;
+      border-radius: 4px;
+      background-color: rgb(50, 44, 44);
+      border: 1px rgb(33, 33, 33) solid;
+      cursor: pointer;
+      display: inline;
+    }
+    #message-log {
+      border: 1px #2a2828 solid;
+      padding: 0 0.7em;
+      border-radius: 4px;
+      margin-top: 2em;
+      max-width: 800px;
+      margin: auto;
+      display: block;
+    }
+    #message-log p {
+      font-size: 0.9em;
+      text-align: left;
+      word-break: break-all;
+    }
+    .hidden { display: none; }
   </style>
 </head>
 
 <body>
+  <h2>Initialize Import</h2>
   <form>
-    <textarea name="plaintext" id="plaintext"></textarea>
+    <label>Import Bundle</label>
+    <input type="text" name="import-bundle" id="import-bundle"/>
+    <button id="inject-import-bundle">Inject Bundle</button>
+    <br>
+    <label>Organization Id</label>
+    <input type="text" name="organization-id" id="organization-id"/>
+    <br>
+    <label>User Id</label>
+    <input type="text" name="user-id" id="user-id"/>
   </form>
+  <br>
+  <h2>Import Wallet</h2>
+  <form>
+    <label>Mnemonic</label>
+    <input type="text" name="wallet-plaintext" id="wallet-plaintext"/>
+    <button id="encrypt-wallet-bundle">Encrypt Bundle</button>
+  </form>
+  <br>
+  <h2>Import Private Key</h2>
+  <form>
+    <label>Private Key</label>
+    <input type="text" name="key-plaintext" id="key-plaintext"/>
+    <button id="encrypt-key-bundle">Encrypt Bundle</button>
+    <label>Key Format</label>
+    <select id="key-import-format" name="key-import-format">
+      <option value="HEXADECIMAL">Hexadecimal (Default)</option>
+      <option value="SOLANA">Solana</option>
+    </select>
+  </form>
+  <br>
+  <br>
+  <h2>Message log</h2>
+  <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
+  <div id="message-log"></div>
 
   <!--
     Script defining important helpers.
@@ -42,8 +111,7 @@
   <script>
     window.TKHQ = function() {
       /** constants for LocalStorage */
-      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
-      const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
+      const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY"
 
       /*
       * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
@@ -70,7 +138,7 @@
       /**
        * Gets the current target embedded private key JWK. Returns `null` if not found.
        */
-      function getTargetEmbeddedKey() {
+       function getTargetEmbeddedKey() {
         const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
         return jwtKey ?  JSON.parse(jwtKey) : null;
       }
@@ -88,22 +156,6 @@
        */
       function resetTargetEmbeddedKey() {
         window.localStorage.removeItem(TURNKEY_TARGET_EMBEDDED_KEY);
-      }
-
-      /**
-       * Gets the current settings.
-       */
-      function getSettings() {
-        const settings = window.localStorage.getItem(TURNKEY_SETTINGS);
-        return settings ?  JSON.parse(settings) : null;
-      }
-
-      /**
-       * Sets the settings object.
-       * @param {Object} settings
-       */
-      function setSettings(settings) {
-        window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settings));
       }
 
       /**
@@ -287,8 +339,15 @@
        * Function to verify enclave signature on import bundle received from the server. 
        */
       async function verifyEnclaveSignature(enclaveQuorumPublic, publicSignature, publicKey) {
-        /** Turnkey Signer enclave's public key */
-        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569";
+        /** Turnkey Signer enclave's public keys */
+        const TURNKEY_SIGNERS_ENCLAVES = {
+          "prod": "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
+          "preprod": "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212"
+        }
+        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
+        if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
+          throw new Error("Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined")
+        }
 
         // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
         if (enclaveQuorumPublic) {
@@ -310,91 +369,6 @@
       }
 
       /**
-       * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
-       * Any invalid style throws an error. Returns an object of valid styles.
-       * @param {Object} styles
-       * @return {Object}
-       */
-       function validateStyles(styles, element) {
-        const validStyles = {};
-
-        const cssValidationRegex = {
-          "padding": "^(\\d+(px|em|%|rem) ?){1,4}$",
-          "margin": "^(\\d+(px|em|%|rem) ?){1,4}$",
-          "borderWidth": "^(\\d+(px|em|rem) ?){1,4}$",
-          "borderStyle": "^(none|solid|dashed|dotted|double|groove|ridge|inset|outset)$",
-          "borderColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
-          "borderRadius": "^(\\d+(px|em|%|rem) ?){1,4}$",
-          "fontSize": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
-          "fontWeight": "^(normal|bold|bolder|lighter|\\d{3})$",
-          "fontFamily": "^[^\";<>]*$", // checks for the absence of some characters that could lead to CSS/HTML injection
-          "color": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
-          "backgroundColor": "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
-          "width": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
-          "height": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
-          "maxWidth": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
-          "maxHeight": "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
-          "lineHeight": "^(\\d+(\\.\\d+)?(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|normal)$",
-          "boxShadow": "^(none|(\\d+(px|em|rem) ?){2,4} (#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)) ?(inset)?)$",
-          "textAlign": "^(left|right|center|justify|initial|inherit)$",
-          "overflowWrap": "^(normal|break-word|anywhere)$",
-          "wordWrap": "^(normal|break-word)$",
-          "resize": "^(none|both|horizontal|vertical|block|inline)$",
-        };
-
-        Object.entries(styles).forEach(([property, value]) => {
-          const styleProperty = property.trim();
-          if (styleProperty.length === 0) {
-            throw new Error("css style property cannot be empty");
-          }
-          const styleRegexStr = cssValidationRegex[styleProperty];
-          if (!styleRegexStr) {
-            throw new Error(`invalid or unsupported css style property: "${styleProperty}"`);
-          }
-          const styleRegex = new RegExp(styleRegexStr);
-          const styleValue = value.trim();
-          if (styleValue.length == 0) {
-            throw new Error(`css style for "${styleProperty}" is empty`);
-          }
-          const isValidStyle = styleRegex.test(styleValue);
-          if (!isValidStyle) {
-            throw new Error(`invalid css style value for property "${styleProperty}"`);
-          }
-          validStyles[styleProperty] = styleValue;
-        })
-
-        return validStyles;
-      }
-
-      /**
-       * Function to apply settings on this page. For now, the only settings that can be applied
-       * are for "styles". Upon successful application, return the valid, sanitized settings JSON string.
-       * @param {string} settings
-       * @return {string}
-       */
-      function applySettings(settings) {
-        const validSettings = {};
-        const settingsObj = JSON.parse(settings);
-        if (settingsObj.styles) {
-          // Valid styles will be applied the "plaintext" textarea HTML element.
-          const plaintextTextarea = document.getElementById("plaintext");
-          if (!plaintextTextarea) {
-            throw new Error("no plaintext textarea HTML element found to apply settings to.");
-          }
-
-          // Validate, sanitize, and apply the styles to the "plaintext" textarea.
-          const validStyles = TKHQ.validateStyles(settingsObj.styles);
-          Object.entries(validStyles).forEach(([key, value]) => {
-            plaintextTextarea.style[key] = value;
-          });
-
-          validSettings["styles"] = validStyles;
-        }
-
-        return JSON.stringify(validSettings);
-      }
-
-      /**
        * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
        * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
        * @param value message value
@@ -406,6 +380,17 @@
               "value": value,
           }, '*')
         }
+        logMessage(`⬆️ Sent message ${type}: ${value}`)
+      }
+
+      /**
+       * Function to log a message and persist it in the page's DOM.
+       */
+      function logMessage(content) {
+        const messageLog = document.getElementById("message-log");
+        const message = document.createElement("p")
+        message.innerText = content;
+        messageLog.appendChild(message);
       }
 
       return {
@@ -413,9 +398,8 @@
         getTargetEmbeddedKey,
         setTargetEmbeddedKey,
         resetTargetEmbeddedKey,
-        getSettings,
-        setSettings,
         sendMessageUp,
+        logMessage,
         uint8arrayFromHexString,
         uint8arrayToHexString,
         base58Decode,
@@ -423,9 +407,7 @@
         normalizePadding,
         fromDerSignature,
         additionalAssociatedData,
-        verifyEnclaveSignature,
-        validateStyles,
-        applySettings,
+        verifyEnclaveSignature
       }
     }();
   </script>
@@ -440,11 +422,6 @@
     import * as hpke from "https://esm.sh/@hpke/core";
 
     document.addEventListener("DOMContentLoaded", async () => {
-      // If styles are saved in local storage, sanitize and apply them.
-      const styleSettings = TKHQ.getSettings();
-      if (styleSettings) {
-        TKHQ.applySettings(styleSettings);
-      }
       // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
       // init() waits for a public key to be initialized that can be used to send to the server
       // which will encrypt messages to this public key.
@@ -455,33 +432,60 @@
       // We do not want to arbitrarily receive messages from all origins.
       window.addEventListener("message", async function(event) {
         if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}, ${event.data["userId"]}`);
           try {
             await onInjectImportBundle(event.data["value"], event.data["organizationId"], event.data["userId"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
+        // TODO: deprecate EXTRACT_WALLET_ENCRYPTED_BUNDLE in favor of EXTRACT_ENCRYPTED_BUNDLE
         if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`);
           try {
-            await onExtractWalletEncryptedBundle()
+            await onExtractWalletEncryptedBundle(event.data["value"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
         if (event.data && event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}`);
           try {
-            await onExtractKeyEncryptedBundle(event.data["keyFormat"])
+            await onExtractKeyEncryptedBundle(event.data["value"], event.data["keyFormat"])
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
-          try {
-            await onApplySettings(event.data["value"])
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
+      }, false);
+
+      /**
+       * Event handlers to power the import flow in standalone mode
+       * Instead of receiving events from the parent page, forms trigger them.
+       * This is useful for debugging as well.
+       */
+      document.getElementById("inject-import-bundle").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "INJECT_IMPORT_BUNDLE",
+          "value": document.getElementById("import-bundle").value,
+          "organizationId": document.getElementById("organization-id").value,
+          "userId": document.getElementById("user-id").value,
+        })
+      }, false);
+      document.getElementById("encrypt-wallet-bundle").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "EXTRACT_WALLET_ENCRYPTED_BUNDLE",
+          "value": document.getElementById("wallet-plaintext").value,
+        })
+      }, false);
+      document.getElementById("encrypt-key-bundle").addEventListener("click", async e => {
+        e.preventDefault();
+        window.postMessage({
+          "type": "EXTRACT_KEY_ENCRYPTED_BUNDLE",
+          "value": document.getElementById("key-plaintext").value,
+          "keyFormat": document.getElementById("key-import-format").value,
+        })
       }, false);
     }, false);
 
@@ -494,7 +498,7 @@
      * @param {string} organizationId
      * @param {string} userId
      */
-    async function onInjectImportBundle(bundle, organizationId, userId) {
+     async function onInjectImportBundle(bundle, organizationId, userId) {
       let targetPublicBuf;
       let verified;
 
@@ -576,12 +580,11 @@
      * Function triggered when EXTRACT_WALLET_ENCRYPTED_BUNDLE event is received.
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
-     * Uses the target public key in local storage to encrypt the text entered in the
-     * `plaintext` textarea element. Upon successful encryption, sends
+     * Uses the target public key in local storage to encrypt the plaintextValue. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    async function onExtractWalletEncryptedBundle() {
+    async function onExtractWalletEncryptedBundle(plaintextValue) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -589,7 +592,7 @@
       }
 
       // Get plaintext wallet mnemonic
-      const plaintext = document.getElementById("plaintext").value.trim();
+      const plaintext = plaintextValue.trim();
       if (!plaintext) {
         throw new Error("no wallet mnemonic entered");
       }
@@ -613,12 +616,11 @@
      * Function triggered when EXTRACT_KEY_ENCRYPTED_BUNDLE event is received.
      * Prerequisite: This function uses the target public key in local storage that is imported
      * from the INJECT_IMPORT_BUNDLE event.
-     * Uses the target public key in local storage to encrypt the text entered in the
-     * `plaintext` textarea element. Upon successful encryption, sends
+     * Uses the target public key in local storage to encrypt the plaintextValue. Upon successful encryption, sends
      * an `encrypted_bundle` containing the ciphertext and encapped public key.
      * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
      */
-    async function onExtractKeyEncryptedBundle(keyFormat) {
+    async function onExtractKeyEncryptedBundle(plaintextValue, keyFormat) {
       // Get target embedded key from previous step (onInjectImportBundle)
       const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
       if (targetPublicKeyJwk == null) {
@@ -626,7 +628,7 @@
       }
 
       // Get plaintext private key
-      const plaintext = document.getElementById("plaintext").value.trim();
+      const plaintext = plaintextValue.trim();
       if (!plaintext) {
         throw new Error("no private key entered");
       }
@@ -644,23 +646,6 @@
 
       // Send up ENCRYPTED_BUNDLE_EXTRACTED message
       TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle)
-    }
-
-    /**
-     * Function triggered when APPLY_SETTINGS event is received.
-     * For now, the only settings that can be applied are for "styles".
-     * Persist them in local storage so they can be applied on every
-     * page load.
-     */
-    async function onApplySettings(settings) {
-      // Apply settings
-      const validSettings = TKHQ.applySettings(settings);
-
-      // Persist in local storage
-      TKHQ.setSettings(validSettings);
-
-      // Send up SETTINGS_APPLIED message
-      TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
     }
 
     async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {

@@ -13,16 +13,11 @@ COPY auth /usr/share/nginx/recovery
 COPY export /usr/share/nginx/export
 COPY import /usr/share/nginx/import
 
-# prod
 EXPOSE 8080/tcp
 EXPOSE 8081/tcp
 EXPOSE 8082/tcp
 EXPOSE 8083/tcp
 
-# preprod
-EXPOSE 7070/tcp
-EXPOSE 7071/tcp
-EXPOSE 7072/tcp
-EXPOSE 7073/tcp
+WORKDIR /usr/share/nginx
 
 CMD ["nginx"]

@@ -4,7 +4,7 @@ import fs from "fs"
 import path from "path"
 import * as crypto from "crypto";
 
-const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
+const html = fs.readFileSync(path.resolve(__dirname, "./index.template.html"), "utf8").replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
 
 let dom;
 let TKHQ;
