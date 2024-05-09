@@ -20,9 +20,10 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/import && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
-                mkdir -p templated/import && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
-                mkdir -p templated/export && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+                mkdir -p templated/export templated/import;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
