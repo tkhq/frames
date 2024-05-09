@@ -10,6 +10,29 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        - name: template-quorum-key
+          image: ghcr.io/tkhq/frames
+          envs:
+            - name: TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY
+              value: 123456
+          command:
+            - sh
+            - -c
+            - |
+                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/index.template.html > templated/import/index.html;
+                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/standalone.template.html > templated/import/standalone.html;
+                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < export/index.template.html > templated/export/index.html;
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            runAsNonRoot: true
+            runAsUser: 1000
+          volumeMounts:
+            - name: templated
+              mountPath: /usr/share/nginx/templated
       containers:
         - name: frames
           image: ghcr.io/tkhq/frames
@@ -36,7 +59,14 @@ spec:
                 - ALL
             runAsNonRoot: true
             runAsUser: 1000
+          volumeMounts:
+            - name: templated
+              mountPath: /usr/share/nginx/templated
+              readOnly: true
       serviceAccountName: frames
+      volumes:
+        - name: templated
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
