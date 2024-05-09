@@ -742,7 +742,7 @@
           if (!TKHQ.verifyEnclaveSignature) {
             throw new Error("method not loaded");
           }
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data);
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data.encappedPublic);
           if (!verified) {
             throw new Error(`failed to verify enclave signature: ${bundle}`);
           }
