@@ -749,7 +749,12 @@
             throw new Error(`unable to find signed data in bundle: ${bundle}`);
           }
 
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, signedData + "}");
+          // We add the closing brace back: it was our marker for the end of the group in the regex above, hence not captured.
+          const signedDataBytes = new TextEncoder().encode(signedData[1] + "}");
+          // Encode these bytes to hex since verifyEnclaveSignature expects hex-encoded bytes
+          const signedDataHexString = TKHQ.uint8arrayToHexString(signedDataBytes);
+
+          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, signedDataHexString);
           if (!verified) {
             throw new Error(`failed to verify enclave signature: ${bundle}`);
           }
