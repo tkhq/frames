@@ -14,15 +14,15 @@ spec:
         - name: template-quorum-key
           image: ghcr.io/tkhq/frames:sha-c072a515be4b9b28ebf7a51766f1b9e8fe9174d7
           env:
-            - name: TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY
-              value: "123456"
+            - name: TURNKEY_SIGNER_ENVIRONMENT
+              value: "prod"
           command:
             - sh
             - -c
             - |
-                mkdir -p templated/import && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < import/index.template.html > templated/import/index.html;
-                mkdir -p templated/import && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < import/standalone.template.html > templated/import/standalone.html;
-                mkdir -p templated/export && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < export/index.template.html > templated/export/index.html;
+                mkdir -p templated/import && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
+                mkdir -p templated/import && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
+                mkdir -p templated/export && envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
