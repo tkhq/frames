@@ -12,7 +12,7 @@ spec:
     spec:
       initContainers:
         - name: template-quorum-key
-          image: ghcr.io/tkhq/frames
+          image: ghcr.io/tkhq/frames:sha-c072a515be4b9b28ebf7a51766f1b9e8fe9174d7
           env:
             - name: TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY
               value: "123456"
@@ -20,9 +20,9 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/import && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/index.template.html > templated/import/index.html;
-                mkdir -p templated/import && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/standalone.template.html > templated/import/standalone.html;
-                mkdir -p templated/export && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < export/index.template.html > templated/export/index.html;
+                mkdir -p templated/import && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < import/index.template.html > templated/import/index.html;
+                mkdir -p templated/import && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < import/standalone.template.html > templated/import/standalone.html;
+                mkdir -p templated/export && envsubst '${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY}' < export/index.template.html > templated/export/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -35,7 +35,7 @@ spec:
               mountPath: /usr/share/nginx/templated
       containers:
         - name: frames
-          image: ghcr.io/tkhq/frames
+          image: ghcr.io/tkhq/frames:sha-c072a515be4b9b28ebf7a51766f1b9e8fe9174d7
           ports:
             - name: auth
               containerPort: 8080
