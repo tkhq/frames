@@ -20,9 +20,9 @@ spec:
             - sh
             - -c
             - |
-                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/index.template.html > templated/import/index.html;
-                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/standalone.template.html > templated/import/standalone.html;
-                envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < export/index.template.html > templated/export/index.html;
+                mkdir -p templated/import && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/index.template.html > templated/import/index.html;
+                mkdir -p templated/import && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < import/standalone.template.html > templated/import/standalone.html;
+                mkdir -p templated/export && envsubst ${TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY} < export/index.template.html > templated/export/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
