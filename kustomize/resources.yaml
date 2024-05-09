@@ -13,9 +13,9 @@ spec:
       initContainers:
         - name: template-quorum-key
           image: ghcr.io/tkhq/frames
-          envs:
+          env:
             - name: TURNKEY_ENVIRONMENT_SIGNER_QUORUM_PUBLIC_KEY
-              value: 123456
+              value: "123456"
           command:
             - sh
             - -c
