@@ -550,7 +550,7 @@
           }
 
           // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-          const signedData = JSON.parse(new TextDecoder().decode(TKHQ.uint8arrayFromHexString(signedData)));
+          const signedData = JSON.parse(new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data)));
 
           // Validate fields match
           if (!organizationId) {
@@ -571,7 +571,7 @@
           }
 
           // Load target public key generated from enclave and set in local storage
-          targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.data.targetPublic);
+          targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
           break;
         default:
           throw new Error(`unsupported version: ${bundleObj.version}`);
