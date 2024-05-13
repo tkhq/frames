@@ -285,8 +285,11 @@
 
       /**
        * Function to verify enclave signature on import bundle received from the server. 
+       * @param {string} enclaveQuorumPublic uncompressed public key for the quorum key which produced the signature
+       * @param {string} publicSignature signature bytes encoded as a hexadecimal string
+       * @param {string} signedData signed bytes encoded as a hexadecimal string. This could be public key bytes directly, or JSON-encoded bytes
        */
-      async function verifyEnclaveSignature(enclaveQuorumPublic, publicSignature, publicKey) {
+       async function verifyEnclaveSignature(enclaveQuorumPublic, publicSignature, signedData) {
         /** Turnkey Signer enclave's public keys */
         const TURNKEY_SIGNERS_ENCLAVES = {
           "prod": "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
@@ -312,8 +315,8 @@
 
         // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
         const publicSignatureBuf = fromDerSignature(publicSignature);
-        const publicKeyBuf = uint8arrayFromHexString(publicKey);
-        return await crypto.subtle.verify({ name: "ECDSA", namedCurve: "P-256", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, publicKeyBuf);
+        const signedDataBuf = uint8arrayFromHexString(signedData);
+        return await crypto.subtle.verify({ name: "ECDSA", namedCurve: "P-256", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, signedDataBuf);
       }
 
       /**
@@ -533,13 +536,11 @@
           if (!bundleObj.data) {
             throw new Error('missing "data" in bundle');
           }
-
-          if (!bundleObj.data.targetPublic) {
-            throw new Error('missing "data.targetPublic" in bundle');
-          }
-
           if (!bundleObj.dataSignature) {
             throw new Error('missing "dataSignature" in bundle');
+          }
+          if (!bundleObj.enclaveQuorumPublic) {
+            throw new Error('missing "enclaveQuorumPublic" in bundle');
           }
 
           // Verify enclave signature
@@ -551,22 +552,29 @@
             throw new Error(`failed to verify enclave signature: ${bundle}`);
           }
 
+          // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
+          const signedData = JSON.parse(new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data)));
+
           // Validate fields match
           if (!organizationId) {
-            // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-            console.warn('we highly recommend using v2.0.0 iframe stamper to pass the "organizationId" for security purposes.');
-          } else if (!bundleObj.data.organizationId || bundleObj.data.organizationId !== organizationId) {
-            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${bundleObj.data.organizationId}.`);
+            // TODO: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+            console.warn('we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.');
+          } else if (!signedData.organizationId || signedData.organizationId !== organizationId) {
+            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`);
           }
           if (!userId) {
-            // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-            console.warn('we highly recommend using v2.0.0 iframe stamper to pass the "userId" for security purposes.');
-          } else if (!bundleObj.data.userId || bundleObj.data.userId !== userId) {
-            throw new Error(`user id does not match expected value. Expected: ${userId}. Found: ${bundleObj.data.userId}.`);
+            // TODO: throw error if user id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+            console.warn('we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "userId" for security purposes.');
+          } else if (!signedData.userId || signedData.userId !== userId) {
+            throw new Error(`user id does not match expected value. Expected: ${userId}. Found: ${signedData.userId}.`);
+          }
+
+          if (!signedData.targetPublic) {
+            throw new Error('missing "targetPublic" in bundle signed data');
           }
 
           // Load target public key generated from enclave and set in local storage
-          targetPublicBuf = TKHQ.uint8arrayFromHexString(bundleObj.data.targetPublic);
+          targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
           break;
         default:
           throw new Error(`unsupported version: ${bundleObj.version}`);
