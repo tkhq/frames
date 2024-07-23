@@ -65,6 +65,21 @@ spec:
               mountPath: /usr/share/nginx/templated
               readOnly: true
       serviceAccountName: frames
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels: {}
+          matchLabelKeys:
+            - pod-template-hash
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels: {}
+          matchLabelKeys:
+            - pod-template-hash
       volumes:
         - name: templated
           emptyDir: {}
