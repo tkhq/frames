@@ -208,16 +208,23 @@
       };
 
       /**
-       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+       * Takes a hex string (e.g. "e4567abc") and returns an array buffer (Uint8Array)
        * @param {string} hexString
+       * @param {number} length: optional expected length of the resulting buffer
        * @returns {Uint8Array}
        */
-      var uint8arrayFromHexString = function(hexString) {
+      var uint8arrayFromHexString = function(hexString, length) {
         var hexRegex = /^[0-9A-Fa-f]+$/;
         if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
           throw new Error('cannot create uint8array from invalid hex string: "' + hexString + '"');
         }
-        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+        var buffer = new Uint8Array(hexString.match(/../g).map((h) => parseInt(h, 16)));
+        if (!length) {
+            return buffer;
+        }
+        var paddedBuffer = new Uint8Array(length);
+        paddedBuffer.set(buffer, length - buffer.length);
+        return paddedBuffer;
       }
 
       /**
@@ -479,9 +486,9 @@
           {
             kty: "EC",
             crv: "P-256",
-            d: bigIntToBase64Url(privateKey),
-            x: bigIntToBase64Url(publicKeyPoint.x.num),
-            y: bigIntToBase64Url(publicKeyPoint.y.num),
+            d: bigIntToBase64Url(privateKey, 32),
+            x: bigIntToBase64Url(publicKeyPoint.x.num, 32),
+            y: bigIntToBase64Url(publicKeyPoint.y.num, 32),
             ext: true,
           },
           {
@@ -496,21 +503,22 @@
       /**
        * Converts a `BigInt` into a base64url encoded string
        * @param {BigInt} num
+       * @param {number} length: optional number of bytes contained in the resulting string
        * @return {string}
        */
-      var bigIntToBase64Url = function(num) {
+      var bigIntToBase64Url = function(num, length) {
           var hexString = num.toString(16);
           // Add an extra 0 to the start of the string to get a valid hex string (even length)
           // (e.g. 0x0123 instead of 0x123)
           var hexString = hexString.padStart(Math.ceil(hexString.length/2)*2, 0)
-          var buffer = uint8arrayFromHexString(hexString);
+          var buffer = uint8arrayFromHexString(hexString, length);
           return base64urlEncode(buffer)
       }
 
       /**
        * Converts a `BigInt` into a hex encoded string
        * @param {BigInt} num
-       * @param {number} length expected length of the resulting hex string
+       * @param {number} length: expected length of the resulting hex string
        * @return {string}
        */
        var bigIntToHex = function(num, length) {

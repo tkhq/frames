@@ -95,16 +95,16 @@ describe("TKHQ", () => {
 
   it("compresses raw P-256 public keys", async () => {
     let compressed02 = TKHQ.compressRawPublicKey(TKHQ.uint8arrayFromHexString("04c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4f510c344715f84cf0ba0cc71bd04136c0fb2633a3f459e68ffb8620be16900f0"));
-    expect(compressed02).toEqual(TKHQ.uint8arrayFromHexString("02c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4", "hex"));
+    expect(compressed02).toEqual(TKHQ.uint8arrayFromHexString("02c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4"));
     let compressed03 = TKHQ.compressRawPublicKey(TKHQ.uint8arrayFromHexString("04be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734dab002b3cced5db9d9cd343b7d2197c757f42dea13f6689b3553ab1c667a8c67"));
-    expect(compressed03).toEqual(TKHQ.uint8arrayFromHexString("03be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734", "hex"));
+    expect(compressed03).toEqual(TKHQ.uint8arrayFromHexString("03be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734"));
   })
 
   it("uncompresses raw P-256 public keys", async () => {
     let uncompressedFrom02 = TKHQ.uncompressRawPublicKey(TKHQ.uint8arrayFromHexString("02c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4"));
-    expect(uncompressedFrom02).toEqual(TKHQ.uint8arrayFromHexString("04c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4f510c344715f84cf0ba0cc71bd04136c0fb2633a3f459e68ffb8620be16900f0", "hex"));
+    expect(uncompressedFrom02).toEqual(TKHQ.uint8arrayFromHexString("04c6de3e1d08270d39076651a2b14fd38031dae89892dc124d2f9557816e7e5da4f510c344715f84cf0ba0cc71bd04136c0fb2633a3f459e68ffb8620be16900f0"));
     let uncompressedFrom03 = TKHQ.uncompressRawPublicKey(TKHQ.uint8arrayFromHexString("03be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734"));
-    expect(uncompressedFrom03).toEqual(TKHQ.uint8arrayFromHexString("04be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734dab002b3cced5db9d9cd343b7d2197c757f42dea13f6689b3553ab1c667a8c67", "hex"));
+    expect(uncompressedFrom03).toEqual(TKHQ.uint8arrayFromHexString("04be3c8147b75405c94e24280a1759374688bf689549cc1c0afd8e8af20621d734dab002b3cced5db9d9cd343b7d2197c757f42dea13f6689b3553ab1c667a8c67"));
   })
 
   it("contains p256JWKPrivateToPublic", async () => {
@@ -178,6 +178,10 @@ describe("TKHQ", () => {
     expect(() => {
       TKHQ.uint8arrayFromHexString("oops");
     }).toThrow('cannot create uint8array from invalid hex string: "oops"');
+    // Happy path: if length parameter is included, pad the resulting buffer
+    expect(TKHQ.uint8arrayFromHexString("01", 2).toString()).toEqual("0,1");
+    // Happy path: if length parameter is omitted, do not pad the resulting buffer
+    expect(TKHQ.uint8arrayFromHexString("01").toString()).toEqual("1");
   })
 
   it("contains bigIntToHex", () => {
