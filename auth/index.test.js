@@ -178,6 +178,10 @@ describe("TKHQ", () => {
     expect(() => {
       TKHQ.uint8arrayFromHexString("oops");
     }).toThrow('cannot create uint8array from invalid hex string: "oops"');
+    // Happy path: if length parameter is included, pad the resulting buffer
+    expect(TKHQ.uint8arrayFromHexString("01", 2).toString()).toEqual("0,1");
+    // Happy path: if length parameter is omitted, do not pad the resulting buffer
+    expect(TKHQ.uint8arrayFromHexString("01").toString()).toEqual("1");
   })
 
   it("contains bigIntToHex", () => {
