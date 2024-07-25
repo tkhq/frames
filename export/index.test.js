@@ -141,19 +141,19 @@ describe("TKHQ", () => {
     // Error case: bad value
     expect(() => {
       TKHQ.uint8arrayFromHexString({});
-    }).toThrow('cannot create uint8array from invalid hex string: "[object Object]"');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: empty string
     expect(() => {
       TKHQ.uint8arrayFromHexString("");
-    }).toThrow('cannot create uint8array from invalid hex string: ""');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: odd number of characters
     expect(() => {
       TKHQ.uint8arrayFromHexString("123");
-    }).toThrow('cannot create uint8array from invalid hex string: "123"');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: bad characters outside of hex range
     expect(() => {
       TKHQ.uint8arrayFromHexString("oops");
-    }).toThrow('cannot create uint8array from invalid hex string: "oops"');
+    }).toThrow('cannot create uint8array from invalid hex string');
   })
 
   it("logs messages and sends messages up", async () => {
@@ -227,11 +227,11 @@ describe("TKHQ", () => {
     // Invalid hex-encoding for signature
     await expect(
       TKHQ.verifyEnclaveSignature(null, "", "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4")
-    ).rejects.toThrow('cannot create uint8array from invalid hex string: ""');
+    ).rejects.toThrow('cannot create uint8array from invalid hex string');
 
     // Invalid hex-encoding for public key
     await expect(
       TKHQ.verifyEnclaveSignature(null, "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5", "")
-    ).rejects.toThrow('cannot create uint8array from invalid hex string: ""');
+    ).rejects.toThrow('cannot create uint8array from invalid hex string');
   })
 });
