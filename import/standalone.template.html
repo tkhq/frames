@@ -166,7 +166,7 @@
       function uint8arrayFromHexString(hexString) {
         var hexRegex = /^[0-9A-Fa-f]+$/;
         if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
-          throw new Error('cannot create uint8array from invalid hex string: "' + hexString + '"');
+          throw new Error('cannot create uint8array from invalid hex string');
         }
         return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
       }

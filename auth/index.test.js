@@ -165,19 +165,19 @@ describe("TKHQ", () => {
     // Error case: bad value
     expect(() => {
       TKHQ.uint8arrayFromHexString({});
-    }).toThrow('cannot create uint8array from invalid hex string: "[object Object]"');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: empty string
     expect(() => {
       TKHQ.uint8arrayFromHexString("");
-    }).toThrow('cannot create uint8array from invalid hex string: ""');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: odd number of characters
     expect(() => {
       TKHQ.uint8arrayFromHexString("123");
-    }).toThrow('cannot create uint8array from invalid hex string: "123"');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Error case: bad characters outside of hex range
     expect(() => {
       TKHQ.uint8arrayFromHexString("oops");
-    }).toThrow('cannot create uint8array from invalid hex string: "oops"');
+    }).toThrow('cannot create uint8array from invalid hex string');
     // Happy path: if length parameter is included, pad the resulting buffer
     expect(TKHQ.uint8arrayFromHexString("01", 2).toString()).toEqual("0,1");
     // Happy path: if length parameter is omitted, do not pad the resulting buffer
