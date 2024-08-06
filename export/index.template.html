@@ -399,10 +399,65 @@
         delete jwkPrivateCopy.d;
         jwkPrivateCopy.key_ops = ["verify"];
 
-        const publicKey =  await window.crypto.subtle
-          .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
+        const publicKey =  await window.crypto.subtle.importKey(
+          "jwk", 
+          {
+              kty: jwkPrivateCopy.kty,
+              crv: jwkPrivateCopy.crv,
+              d: padBase64Url(jwkPrivateCopy.d, 32),
+              x: padBase64Url(jwkPrivateCopy.x, 32),
+              y: padBase64Url(jwkPrivateCopy.y, 32),
+              ext: jwkPrivateCopy.ext,
+          }, 
+          { 
+              name: "ECDSA", 
+              namedCurve: "P-256" }, 
+          true, 
+          ["verify"]
+        );
+
         const buffer = await crypto.subtle.exportKey("raw", publicKey);
         return new Uint8Array(buffer)
+      }
+
+    /**
+     * Converts a `BigInt` into a base64url encoded string
+     * @param {string} base64UrlString
+     * @param {number} length: optional number of bytes contained in the resulting string
+     * @return {string}
+     */
+    var padBase64Url = function(base64UrlString, length) {
+      var stringBuffer = base64urlDecode(base64UrlString);
+      var hexString = uint8arrayToHexString(stringBuffer)
+      // Add an extra 0 to the start of the string to get a valid hex string (even length)
+      // (e.g. 0x0123 instead of 0x123)
+      var hexString = hexString.padStart(Math.ceil(hexString.length/2)*2, 0)
+      var buffer = uint8arrayFromHexString(hexString, length);
+      return base64urlEncode(buffer)
+    }
+
+      /**
+       * Encodes a buffer into base64url
+       * @param {Uint8Array} byteArray
+       */
+      function base64urlEncode(byteArray) {
+        return btoa(Array.from(byteArray).map(val => {
+          return String.fromCharCode(val);
+        }).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/\=/g, '');
+      }
+
+      /**
+       * Decodes a base64-encoded string into a buffer
+       * @param {string} s
+       * @return {Uint8Array}
+       */
+      function base64urlDecode(s) {
+        var binaryString = atob(s.replace(/\-/g, '+').replace(/\_/g, '/'));
+        var bytes = new Uint8Array(binaryString.length);
+        for (var i = 0; i < binaryString.length; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes;
       }
 
       /**
@@ -565,6 +620,8 @@
         p256JWKPrivateToPublic,
         base58Encode,
         base58Decode,
+        base64urlEncode,
+        base64urlDecode,
         encodeKey,
         encodeWallet,
         sendMessageUp,
