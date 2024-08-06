@@ -228,16 +228,23 @@
       };
 
       /**
-       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+       * Takes a hex string (e.g. "e4567abc") and returns an array buffer (Uint8Array)
        * @param {string} hexString
+       * @param {number} length: optional expected length of the resulting buffer
        * @returns {Uint8Array}
        */
-       function uint8arrayFromHexString(hexString) {
+       var uint8arrayFromHexString = function(hexString, length) {
         var hexRegex = /^[0-9A-Fa-f]+$/;
         if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
           throw new Error('cannot create uint8array from invalid hex string');
         }
-        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
+        var buffer = new Uint8Array(hexString.match(/../g).map((h) => parseInt(h, 16)));
+        if (!length) {
+            return buffer;
+        }
+        var paddedBuffer = new Uint8Array(length);
+        paddedBuffer.set(buffer, length - buffer.length);
+        return paddedBuffer;
       }
 
       /**
@@ -404,7 +411,6 @@
           {
               kty: jwkPrivateCopy.kty,
               crv: jwkPrivateCopy.crv,
-              d: padBase64Url(jwkPrivateCopy.d, 32),
               x: padBase64Url(jwkPrivateCopy.x, 32),
               y: padBase64Url(jwkPrivateCopy.y, 32),
               ext: jwkPrivateCopy.ext,
@@ -421,7 +427,7 @@
       }
 
     /**
-     * Converts a `BigInt` into a base64url encoded string
+     * Decodes a base64url encoded string and pads the hex string correctly, encoding the result into a base64url encoded string
      * @param {string} base64UrlString
      * @param {number} length: optional number of bytes contained in the resulting string
      * @return {string}
@@ -632,7 +638,8 @@
         fromDerSignature,
         additionalAssociatedData,
         verifyEnclaveSignature,
-        getEd25519PublicKey
+        getEd25519PublicKey,
+        padBase64Url,
       }
     }();
   </script>

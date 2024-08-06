@@ -235,3 +235,8 @@ describe("TKHQ", () => {
     ).rejects.toThrow('cannot create uint8array from invalid hex string');
   })
 });
+
+it("pads jwk keys to correct length", async () => {
+  expect(TKHQ.padBase64Url("wqVkltEnJAh2mJ5k9rAxEifyKv2BrAWscZ6QZDCS2Os", 32)).toBe("wqVkltEnJAh2mJ5k9rAxEifyKv2BrAWscZ6QZDCS2Os")
+  expect(TKHQ.padBase64Url("AQ", 32)).toBe("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE")
+})
