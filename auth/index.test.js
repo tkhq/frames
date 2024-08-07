@@ -275,6 +275,15 @@ describe("TKHQ", () => {
     }).toThrow("number cannot fit in a hex string of 2 characters");
   });
 
+  it("contains bigIntToBase64Url", () => {
+    expect(TKHQ.bigIntToBase64Url(BigInt(1))).toEqual("AQ");
+    expect(TKHQ.bigIntToBase64Url(BigInt(1), 2)).toEqual("AAE");
+
+    // extrapolate to larger numbers
+    expect(TKHQ.bigIntToBase64Url(BigInt(255))).toEqual("_w"); // max 1 byte
+    expect(TKHQ.bigIntToBase64Url(BigInt(255), 2)).toEqual("AP8"); // max 1 byte expressed in 2 bytes
+  });
+
   it("logs messages and sends messages up", async () => {
     // TODO: test logMessage / sendMessageUp
     expect(true).toBe(true);
