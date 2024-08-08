@@ -1,668 +1,827 @@
-<!doctype html>
+<!DOCTYPE html>
 <html class="no-js" lang="">
+  <head>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta charset="utf-8" />
+    <title>Turnkey Export</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      body {
+        text-align: center;
+        font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+          "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+        max-width: 1024px;
+        margin: auto;
+      }
+      label {
+        display: inline-block;
+        width: 8em;
+      }
+      form {
+        text-align: left;
+      }
+      input[type="text"],
+      select {
+        width: 40em;
+        margin: 0.5em;
+        font-family: "Courier New", Courier, monospace;
+        font-size: 1em;
+        height: 1.8em;
+        color: rgb(18, 87, 18);
+        border: 1px rgb(217, 240, 221) solid;
+        border-radius: 4px;
+      }
+      input:disabled {
+        background-color: rgb(239, 243, 240);
+      }
+      #reset {
+        color: white;
+        width: 7em;
+        font-size: 1em;
+        padding: 0.38em;
+        border-radius: 4px;
+        background-color: rgb(187, 100, 100);
+        border: 1px rgb(112, 42, 42) solid;
+        cursor: pointer;
+        display: inline;
+      }
+      #inject-key,
+      #inject-wallet {
+        color: white;
+        width: 7em;
+        font-size: 1em;
+        padding: 0.38em;
+        border-radius: 4px;
+        background-color: rgb(50, 44, 44);
+        border: 1px rgb(33, 33, 33) solid;
+        cursor: pointer;
+        display: inline;
+      }
+      #message-log {
+        border: 1px #2a2828 solid;
+        padding: 0 0.7em;
+        border-radius: 4px;
+        margin-top: 2em;
+        max-width: 800px;
+        margin: auto;
+        display: block;
+      }
+      #message-log p {
+        font-size: 0.9em;
+        text-align: left;
+        word-break: break-all;
+      }
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
 
-<head>
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
-  <meta charset="utf-8">
-  <title>Turnkey Export</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body {
-      text-align: center;
-      font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-      max-width: 1024px;
-      margin: auto;
-    }
-    label {
-      display:inline-block;
-      width: 8em;
-    }
-    form {
-      text-align: left;
-    }
-    input[type=text], select {
-      width: 40em;
-      margin: 0.5em;
-      font-family: 'Courier New', Courier, monospace;
-      font-size: 1em;
-      height: 1.8em;
-      color: rgb(18, 87, 18);
-      border: 1px rgb(217, 240, 221) solid;
-      border-radius: 4px;
-    }
-    input:disabled {
-      background-color: rgb(239, 243, 240);
-    }
-    #reset {
-      color: white;
-      width: 7em;
-      font-size: 1em;
-      padding: 0.38em;
-      border-radius: 4px;
-      background-color: rgb(187, 100, 100);
-      border: 1px rgb(112, 42, 42) solid;
-      cursor: pointer;
-      display: inline;
-    }
-    #inject-key, #inject-wallet {
-      color: white;
-      width: 7em;
-      font-size: 1em;
-      padding: 0.38em;
-      border-radius: 4px;
-      background-color: rgb(50, 44, 44);
-      border: 1px rgb(33, 33, 33) solid;
-      cursor: pointer;
-      display: inline;
-    }
-    #message-log {
-      border: 1px #2a2828 solid;
-      padding: 0 0.7em;
-      border-radius: 4px;
-      margin-top: 2em;
-      max-width: 800px;
-      margin: auto;
-      display: block;
-    }
-    #message-log p {
-      font-size: 0.9em;
-      text-align: left;
-      word-break: break-all;
-    }
-    .hidden { display: none; }
-  </style>
-</head>
+  <body>
+    <h2>Export Key Material</h2>
+    <p>
+      <em
+        >This public key will be sent along with a private key ID or wallet ID
+        inside of a new <code>EXPORT_PRIVATE_KEY</code> or
+        <code>EXPORT_WALLET</code> activity</em
+      >
+    </p>
+    <form>
+      <label>Embedded key</label>
+      <input type="text" name="embedded-key" id="embedded-key" disabled />
+      <button id="reset">Reset Key</button>
+    </form>
+    <br />
+    <br />
+    <br />
+    <h2>Inject Key Export Bundle</h2>
+    <p>
+      <em
+        >The export bundle comes from the parent page and is composed of a
+        public key and an encrypted payload. The payload is encrypted to this
+        document's embedded key (stored in local storage and displayed above).
+        The scheme relies on
+        <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/"
+          >HPKE (RFC 9180)</a
+        ></em
+      >.
+    </p>
+    <form>
+      <label>Bundle</label>
+      <input type="text" name="key-export-bundle" id="key-export-bundle" />
+      <button id="inject-key">Inject Bundle</button>
+      <br />
+      <label>Key Format</label>
+      <select id="key-export-format" name="key-export-format">
+        <option value="HEXADECIMAL">Hexadecimal (Default)</option>
+        <option value="SOLANA">Solana</option>
+      </select>
+      <br />
+      <label>Organization Id</label>
+      <input type="text" name="key-organization-id" id="key-organization-id" />
+    </form>
+    <br />
+    <h2>Inject Wallet Export Bundle</h2>
+    <p>
+      <em
+        >The export bundle comes from the parent page and is composed of a
+        public key and an encrypted payload. The payload is encrypted to this
+        document's embedded key (stored in local storage and displayed above).
+        The scheme relies on
+        <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/"
+          >HPKE (RFC 9180)</a
+        ></em
+      >.
+    </p>
+    <form>
+      <label>Bundle</label>
+      <input
+        type="text"
+        name="wallet-export-bundle"
+        id="wallet-export-bundle"
+      />
+      <button id="inject-wallet">Inject Bundle</button>
+      <br />
+      <label>Organization Id</label>
+      <input
+        type="text"
+        name="wallet-organization-id"
+        id="wallet-organization-id"
+      />
+    </form>
+    <br />
+    <br />
+    <h2>Message log</h2>
+    <p>
+      <em
+        >Below we display a log of the messages sent / received. The forms above
+        send messages, and the code communicates results by sending events via
+        the <code>postMessage</code> API.</em
+      >
+    </p>
+    <div id="message-log"></div>
 
-<body>
-  <h2>Export Key Material</h2>
-  <p><em>This public key will be sent along with a private key ID or wallet ID inside of a new <code>EXPORT_PRIVATE_KEY</code> or <code>EXPORT_WALLET</code> activity</em></p>
-  <form>
-    <label>Embedded key</label>
-    <input type="text" name="embedded-key" id="embedded-key" disabled/>
-    <button id="reset">Reset Key</button>
-  </form>
-  <br>
-  <br>
-  <br>
-  <h2>Inject Key Export Bundle</h2>
-  <p><em>The export bundle comes from the parent page and is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
-  <form>
-    <label>Bundle</label>
-    <input type="text" name="key-export-bundle" id="key-export-bundle"/>
-    <button id="inject-key">Inject Bundle</button>
-    <br>
-    <label>Key Format</label>
-    <select id="key-export-format" name="key-export-format">
-      <option value="HEXADECIMAL">Hexadecimal (Default)</option>
-      <option value="SOLANA">Solana</option>
-    </select>
-    <br>
-    <label>Organization Id</label>
-    <input type="text" name="key-organization-id" id="key-organization-id"/>
-  </form>
-  <br>
-  <h2>Inject Wallet Export Bundle</h2>
-  <p><em>The export bundle comes from the parent page and is composed of a public key and an encrypted payload. The payload is encrypted to this document's embedded key (stored in local storage and displayed above). The scheme relies on <a target="_blank" href="https://datatracker.ietf.org/doc/rfc9180/">HPKE (RFC 9180)</a></em>.</p>
-  <form>
-    <label>Bundle</label>
-    <input type="text" name="wallet-export-bundle" id="wallet-export-bundle"/>
-    <button id="inject-wallet">Inject Bundle</button>
-    <br>
-    <label>Organization Id</label>
-    <input type="text" name="wallet-organization-id" id="wallet-organization-id"/>
-  </form>
-  <br>
-  <br>
-  <h2>Message log</h2>
-  <p><em>Below we display a log of the messages sent / received. The forms above send messages, and the code communicates results by sending events via the <code>postMessage</code> API.</em></p>
-  <div id="message-log"></div>
-
-  <!-- Script containing ED25519 library -->
-  <script src="noble-hashes.js"></script>
-  <script src="noble-ed25519.js"></script>
-  <!--
+    <!-- Script containing ED25519 library -->
+    <script src="noble-hashes.js"></script>
+    <script src="noble-ed25519.js"></script>
+    <!--
     Script defining important helpers.
     These helpers are unit-testable, so most of the logic should be written here.
   -->
-  <script>
-    window.TKHQ = function() {
-      /** constant for LocalStorage */
-      const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY"
-      /** 48 hours in milliseconds */
-      const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
+    <script>
+      window.TKHQ = (function () {
+        /** constant for LocalStorage */
+        const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+        /** 48 hours in milliseconds */
+        const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 
-      /*
-      * Loads the quorum public key as a CryptoKey.
-      */
-      async function loadQuorumKey(quorumPublic) {
-        return await crypto.subtle.importKey("raw", quorumPublic, {
-          name: "ECDSA",
-          namedCurve: "P-256"
-        }, true, ["verify"]);
-      }
-
-      /**
-       * Creates a new public/private key pair and persists it in localStorage
-       */
-      async function initEmbeddedKey() {
-        const retrievedKey = await getEmbeddedKey();
-        if (retrievedKey === null) {
-          const targetKey = await generateTargetKey();
-          setEmbeddedKey(targetKey);
-        }
-        // Nothing to do, key is correctly initialized!
-      }
-
-      /*
-      * Generate a key to encrypt to and export it as a JSON Web Key.
-      */
-      async function generateTargetKey() {
-        const p256key = await crypto.subtle.generateKey({
-          name: 'ECDH',
-          namedCurve: 'P-256',
-        }, true, ['deriveBits',]);
-
-        return await crypto.subtle.exportKey("jwk", p256key.privateKey);
-      }
-
-      /**
-       * Gets the current embedded private key JWK. Returns `null` if not found.
-       */
-      function getEmbeddedKey() {
-        const jwtKey = TKHQ.getItemWithExpiry(TURNKEY_EMBEDDED_KEY)
-        return jwtKey ?  JSON.parse(jwtKey) : null;
-      }
-
-      /**
-       * Sets the embedded private key JWK with the default expiration time. 
-       * @param {JsonWebKey} targetKey
-       */
-      function setEmbeddedKey(targetKey) {
-        setItemWithExpiry(TURNKEY_EMBEDDED_KEY, JSON.stringify(targetKey), TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS);
-      }
-
-      /**
-       * Resets the current embedded private key JWK.
-       */
-      function onResetEmbeddedKey() {
-        window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
-      }
-
-       /**
-       * Set an item in localStorage with an expiration time
-       * @param {string} key
-       * @param {string} value
-       * @param {number} ttl expiration time in milliseconds
-       */
-       function setItemWithExpiry(key, value, ttl) {
-        const now = new Date();
-        const item = {
-          value: value,
-          expiry: now.getTime() + ttl,
-        };
-        window.localStorage.setItem(key, JSON.stringify(item));
-      };
-
-      /**
-       * Get an item from localStorage. Returns `null` and
-       * removes the item from localStorage if expired or
-       * expiry time is missing.
-       * @param {string} key
-       */
-      function getItemWithExpiry(key) {
-        const itemStr = window.localStorage.getItem(key);
-        if (!itemStr) {
-          return null;
-        }
-        const item = JSON.parse(itemStr);
-        if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-        const now = new Date();
-        if (now.getTime() > item.expiry) {
-          window.localStorage.removeItem(key);
-          return null;
-        }
-        return item.value;
-      };
-
-      /**
-       * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
-       * @param {string} hexString
-       * @returns {Uint8Array}
-       */
-       function uint8arrayFromHexString(hexString) {
-        var hexRegex = /^[0-9A-Fa-f]+$/;
-        if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
-          throw new Error('cannot create uint8array from invalid hex string');
-        }
-        return new Uint8Array(hexString.match(/../g).map(h=>parseInt(h,16)));
-      }
-
-      /**
-        * Takes a Uint8Array and returns a hex string
-        * @param {Uint8Array} buffer
-        * @return {string}
-        */
-      function uint8arrayToHexString(buffer) {
-        return [...buffer]
-          .map(x => x.toString(16).padStart(2, '0'))
-          .join('');
-      }
-
-      /**
-       * Function to normalize padding of byte array with 0's to a target length
-       */
-      function normalizePadding(byteArray, targetLength) {
-        const paddingLength = targetLength - byteArray.length;
-
-        // Add leading 0's to array
-        if (paddingLength > 0) {
-          const padding = new Uint8Array(paddingLength).fill(0);
-          return new Uint8Array([...padding, ...byteArray]);
+        /*
+         * Loads the quorum public key as a CryptoKey.
+         */
+        async function loadQuorumKey(quorumPublic) {
+          return await crypto.subtle.importKey(
+            "raw",
+            quorumPublic,
+            {
+              name: "ECDSA",
+              namedCurve: "P-256",
+            },
+            true,
+            ["verify"]
+          );
         }
 
-        // Remove leading 0's from array
-        if (paddingLength < 0) {
-          const expectedZeroCount = paddingLength * -1;
-          let zeroCount = 0;
-          for (let i = 0; i < expectedZeroCount && i < byteArray.length; i++) {
-            if (byteArray[i] === 0) {
-              zeroCount++;
+        /**
+         * Creates a new public/private key pair and persists it in localStorage
+         */
+        async function initEmbeddedKey() {
+          const retrievedKey = await getEmbeddedKey();
+          if (retrievedKey === null) {
+            const targetKey = await generateTargetKey();
+            setEmbeddedKey(targetKey);
+          }
+          // Nothing to do, key is correctly initialized!
+        }
+
+        /*
+         * Generate a key to encrypt to and export it as a JSON Web Key.
+         */
+        async function generateTargetKey() {
+          const p256key = await crypto.subtle.generateKey(
+            {
+              name: "ECDH",
+              namedCurve: "P-256",
+            },
+            true,
+            ["deriveBits"]
+          );
+
+          return await crypto.subtle.exportKey("jwk", p256key.privateKey);
+        }
+
+        /**
+         * Gets the current embedded private key JWK. Returns `null` if not found.
+         */
+        function getEmbeddedKey() {
+          const jwtKey = TKHQ.getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
+          return jwtKey ? JSON.parse(jwtKey) : null;
+        }
+
+        /**
+         * Sets the embedded private key JWK with the default expiration time.
+         * @param {JsonWebKey} targetKey
+         */
+        function setEmbeddedKey(targetKey) {
+          setItemWithExpiry(
+            TURNKEY_EMBEDDED_KEY,
+            JSON.stringify(targetKey),
+            TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+          );
+        }
+
+        /**
+         * Resets the current embedded private key JWK.
+         */
+        function onResetEmbeddedKey() {
+          window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+        }
+
+        /**
+         * Set an item in localStorage with an expiration time
+         * @param {string} key
+         * @param {string} value
+         * @param {number} ttl expiration time in milliseconds
+         */
+        function setItemWithExpiry(key, value, ttl) {
+          const now = new Date();
+          const item = {
+            value: value,
+            expiry: now.getTime() + ttl,
+          };
+          window.localStorage.setItem(key, JSON.stringify(item));
+        }
+
+        /**
+         * Get an item from localStorage. Returns `null` and
+         * removes the item from localStorage if expired or
+         * expiry time is missing.
+         * @param {string} key
+         */
+        function getItemWithExpiry(key) {
+          const itemStr = window.localStorage.getItem(key);
+          if (!itemStr) {
+            return null;
+          }
+          const item = JSON.parse(itemStr);
+          if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+            window.localStorage.removeItem(key);
+            return null;
+          }
+          const now = new Date();
+          if (now.getTime() > item.expiry) {
+            window.localStorage.removeItem(key);
+            return null;
+          }
+          return item.value;
+        }
+
+        /**
+         * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
+         * @param {string} hexString
+         * @returns {Uint8Array}
+         */
+        function uint8arrayFromHexString(hexString) {
+          var hexRegex = /^[0-9A-Fa-f]+$/;
+          if (
+            !hexString ||
+            hexString.length % 2 != 0 ||
+            !hexRegex.test(hexString)
+          ) {
+            throw new Error("cannot create uint8array from invalid hex string");
+          }
+          return new Uint8Array(
+            hexString.match(/../g).map((h) => parseInt(h, 16))
+          );
+        }
+
+        /**
+         * Takes a Uint8Array and returns a hex string
+         * @param {Uint8Array} buffer
+         * @return {string}
+         */
+        function uint8arrayToHexString(buffer) {
+          return [...buffer]
+            .map((x) => x.toString(16).padStart(2, "0"))
+            .join("");
+        }
+
+        /**
+         * Function to normalize padding of byte array with 0's to a target length
+         */
+        function normalizePadding(byteArray, targetLength) {
+          const paddingLength = targetLength - byteArray.length;
+
+          // Add leading 0's to array
+          if (paddingLength > 0) {
+            const padding = new Uint8Array(paddingLength).fill(0);
+            return new Uint8Array([...padding, ...byteArray]);
+          }
+
+          // Remove leading 0's from array
+          if (paddingLength < 0) {
+            const expectedZeroCount = paddingLength * -1;
+            let zeroCount = 0;
+            for (
+              let i = 0;
+              i < expectedZeroCount && i < byteArray.length;
+              i++
+            ) {
+              if (byteArray[i] === 0) {
+                zeroCount++;
+              }
+            }
+            // Check if the number of zeros found equals the number of zeroes expected
+            if (zeroCount !== expectedZeroCount) {
+              throw new Error(
+                `invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`
+              );
+            }
+            return byteArray.slice(
+              expectedZeroCount,
+              expectedZeroCount + targetLength
+            );
+          }
+          return byteArray;
+        }
+
+        /**
+         * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
+         */
+        function additionalAssociatedData(senderPubBuf, receiverPubBuf) {
+          const s = Array.from(new Uint8Array(senderPubBuf));
+          const r = Array.from(new Uint8Array(receiverPubBuf));
+          return new Uint8Array([...s, ...r]);
+        }
+
+        /**
+         * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
+         */
+        function fromDerSignature(derSignature) {
+          const derSignatureBuf = uint8arrayFromHexString(derSignature);
+
+          // Check and skip the sequence tag (0x30)
+          let index = 2;
+
+          // Parse 'r' and check for integer tag (0x02)
+          if (derSignatureBuf[index] !== 0x02) {
+            throw new Error(
+              "failed to convert DER-encoded signature: invalid tag for r"
+            );
+          }
+          index++; // Move past the INTEGER tag
+          const rLength = derSignatureBuf[index];
+          index++; // Move past the length byte
+          const r = derSignatureBuf.slice(index, index + rLength);
+          index += rLength; // Move to the start of s
+
+          // Parse 's' and check for integer tag (0x02)
+          if (derSignatureBuf[index] !== 0x02) {
+            throw new Error(
+              "failed to convert DER-encoded signature: invalid tag for s"
+            );
+          }
+          index++; // Move past the INTEGER tag
+          const sLength = derSignatureBuf[index];
+          index++; // Move past the length byte
+          const s = derSignatureBuf.slice(index, index + sLength);
+
+          // Normalize 'r' and 's' to 32 bytes each
+          const rPadded = normalizePadding(r, 32);
+          const sPadded = normalizePadding(s, 32);
+
+          // Concatenate and return the raw signature
+          return new Uint8Array([...rPadded, ...sPadded]);
+        }
+
+        /**
+         * Function to verify enclave signature on import bundle received from the server.
+         * @param {string} enclaveQuorumPublic uncompressed public key for the quorum key which produced the signature
+         * @param {string} publicSignature signature bytes encoded as a hexadecimal string
+         * @param {string} signedData signed bytes encoded as a hexadecimal string. This could be public key bytes directly, or JSON-encoded bytes
+         */
+        async function verifyEnclaveSignature(
+          enclaveQuorumPublic,
+          publicSignature,
+          signedData
+        ) {
+          /** Turnkey Signer enclave's public keys */
+          const TURNKEY_SIGNERS_ENCLAVES = {
+            prod: "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
+            preprod:
+              "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
+          };
+          const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
+            TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
+          if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
+            throw new Error(
+              "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
+            );
+          }
+
+          // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
+          if (enclaveQuorumPublic) {
+            if (
+              enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY
+            ) {
+              throw new Error(
+                `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
+              );
             }
           }
-          // Check if the number of zeros found equals the number of zeroes expected
-          if (zeroCount !== expectedZeroCount) {
-            throw new Error(`invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`);
+
+          const encryptionQuorumPublicBuf = new Uint8Array(
+            uint8arrayFromHexString(TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY)
+          );
+          const quorumKey = await loadQuorumKey(encryptionQuorumPublicBuf);
+          if (!quorumKey) {
+            throw new Error("failed to load quorum key");
           }
-          return byteArray.slice(expectedZeroCount, expectedZeroCount + targetLength);
-        }
-        return byteArray;
-      }
 
-      /**
-       * Additional Associated Data (AAD) in the format dictated by the enclave_encrypt crate.
-       */
-      function additionalAssociatedData(senderPubBuf, receiverPubBuf) {
-        const s = Array.from(new Uint8Array(senderPubBuf));
-        const r = Array.from(new Uint8Array(receiverPubBuf));
-        return new Uint8Array([...s, ...r]);
-      }
-
-      /**
-       * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
-       */ 
-      function fromDerSignature(derSignature) {
-        const derSignatureBuf = uint8arrayFromHexString(derSignature);
-        
-        // Check and skip the sequence tag (0x30)
-        let index = 2;
-
-        // Parse 'r' and check for integer tag (0x02)
-        if (derSignatureBuf[index] !== 0x02) {
-          throw new Error("failed to convert DER-encoded signature: invalid tag for r");
-        }
-        index++; // Move past the INTEGER tag
-        const rLength = derSignatureBuf[index];
-        index++; // Move past the length byte
-        const r = derSignatureBuf.slice(index, index + rLength);
-        index += rLength; // Move to the start of s
-
-        // Parse 's' and check for integer tag (0x02)
-        if (derSignatureBuf[index] !== 0x02) {
-          throw new Error("failed to convert DER-encoded signature: invalid tag for s");
-        }
-        index++; // Move past the INTEGER tag
-        const sLength = derSignatureBuf[index];
-        index++; // Move past the length byte
-        const s = derSignatureBuf.slice(index, index + sLength);
-
-        // Normalize 'r' and 's' to 32 bytes each
-        const rPadded = normalizePadding(r, 32);
-        const sPadded = normalizePadding(s, 32);
-
-        // Concatenate and return the raw signature
-        return new Uint8Array([...rPadded, ...sPadded]);
-      }
-
-      /**
-       * Function to verify enclave signature on import bundle received from the server. 
-       * @param {string} enclaveQuorumPublic uncompressed public key for the quorum key which produced the signature
-       * @param {string} publicSignature signature bytes encoded as a hexadecimal string
-       * @param {string} signedData signed bytes encoded as a hexadecimal string. This could be public key bytes directly, or JSON-encoded bytes
-       */
-       async function verifyEnclaveSignature(enclaveQuorumPublic, publicSignature, signedData) {
-        /** Turnkey Signer enclave's public keys */
-        const TURNKEY_SIGNERS_ENCLAVES = {
-          "prod": "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
-          "preprod": "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212"
-        }
-        const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY = TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
-        if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
-          throw new Error("Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined")
+          // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format
+          const publicSignatureBuf = fromDerSignature(publicSignature);
+          const signedDataBuf = uint8arrayFromHexString(signedData);
+          return await crypto.subtle.verify(
+            { name: "ECDSA", namedCurve: "P-256", hash: { name: "SHA-256" } },
+            quorumKey,
+            publicSignatureBuf,
+            signedDataBuf
+          );
         }
 
-        // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
-        if (enclaveQuorumPublic) {
-          if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
-            throw new Error(`enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`);
+        /**
+         * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+         * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
+         * @param value message value
+         */
+        function sendMessageUp(type, value) {
+          if (window.top !== null) {
+            window.top.postMessage(
+              {
+                type: type,
+                value: value,
+              },
+              "*"
+            );
           }
+          logMessage(`⬆️ Sent message ${type}: ${value}`);
         }
 
-        const encryptionQuorumPublicBuf = new Uint8Array(uint8arrayFromHexString(TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY));
-        const quorumKey = await loadQuorumKey(encryptionQuorumPublicBuf);
-        if (!quorumKey) {
-          throw new Error("failed to load quorum key");
+        /**
+         * Function to log a message and persist it in the page's DOM.
+         */
+        function logMessage(content) {
+          const messageLog = document.getElementById("message-log");
+          const message = document.createElement("p");
+          message.innerText = content;
+          messageLog.appendChild(message);
         }
 
-        // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format 
-        const publicSignatureBuf = fromDerSignature(publicSignature);
-        const signedDataBuf = uint8arrayFromHexString(signedData);
-        return await crypto.subtle.verify({ name: "ECDSA", namedCurve: "P-256", hash: {name: "SHA-256" }}, quorumKey, publicSignatureBuf, signedDataBuf);
-      }
+        /**
+         * Convert a JSON Web Key private key to a public key and export the public
+         * key in raw format.
+         * @return {Uint8array}
+         */
+        async function p256JWKPrivateToPublic(jwkPrivate) {
+          // make a copy so we don't modify the underlying object
+          const jwkPrivateCopy = { ...jwkPrivate };
+          // change jwk so it will be imported as a public key
+          delete jwkPrivateCopy.d;
+          jwkPrivateCopy.key_ops = ["verify"];
 
-      /**
-       * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
-       * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
-       * @param value message value
-       */
-      function sendMessageUp(type, value) {
-        if (window.top !== null) {
-          window.top.postMessage({
-              "type": type,
-              "value": value,
-          }, '*')
+          const publicKey = await window.crypto.subtle.importKey(
+            "jwk",
+            jwkPrivateCopy,
+            { name: "ECDSA", namedCurve: "P-256" },
+            true,
+            ["verify"]
+          );
+          const buffer = await crypto.subtle.exportKey("raw", publicKey);
+          return new Uint8Array(buffer);
         }
-        logMessage(`⬆️ Sent message ${type}: ${value}`)
-      }
 
-      /**
-       * Function to log a message and persist it in the page's DOM.
-       */
-      function logMessage(content) {
-        const messageLog = document.getElementById("message-log");
-        const message = document.createElement("p")
-        message.innerText = content;
-        messageLog.appendChild(message);
-      }
-
-      /**
-      * Convert a JSON Web Key private key to a public key and export the public
-      * key in raw format.
-      * @return {Uint8array}
-      */
-      async function p256JWKPrivateToPublic(jwkPrivate) {
-        // make a copy so we don't modify the underlying object
-        const jwkPrivateCopy = { ... jwkPrivate }
-        // change jwk so it will be imported as a public key
-        delete jwkPrivateCopy.d;
-        jwkPrivateCopy.key_ops = ["verify"];
-
-        const publicKey =  await window.crypto.subtle
-          .importKey("jwk", jwkPrivateCopy, { name: "ECDSA", namedCurve: "P-256" }, true, ["verify"]);
-        const buffer = await crypto.subtle.exportKey("raw", publicKey);
-        return new Uint8Array(buffer)
-      }
-
-      /**
-       * Encodes a buffer into a base58-encoded string.
-       * @param {Uint8Array} bytes The buffer to encode.
-       * @return {string} The base58-encoded string.
-       */
-      function base58Encode(bytes) {
-        // See https://en.bitcoin.it/wiki/Base58Check_encoding
-        const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-        let result = '';
-        let digits = [0];
-        for (let i = 0; i < bytes.length; i++) {
+        /**
+         * Encodes a buffer into a base58-encoded string.
+         * @param {Uint8Array} bytes The buffer to encode.
+         * @return {string} The base58-encoded string.
+         */
+        function base58Encode(bytes) {
+          // See https://en.bitcoin.it/wiki/Base58Check_encoding
+          const alphabet =
+            "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+          let result = "";
+          let digits = [0];
+          for (let i = 0; i < bytes.length; i++) {
             let carry = bytes[i];
             for (let j = 0; j < digits.length; ++j) {
-                carry += digits[j] << 8;
-                digits[j] = carry % 58;
-                carry = (carry / 58) | 0;
+              carry += digits[j] << 8;
+              digits[j] = carry % 58;
+              carry = (carry / 58) | 0;
             }
-            
+
             while (carry > 0) {
-                digits.push(carry % 58);
-                carry = (carry / 58) | 0;
+              digits.push(carry % 58);
+              carry = (carry / 58) | 0;
             }
-        }
-        // Convert digits to a base58 string
-        for (let k = 0; k < digits.length; k++) {
+          }
+          // Convert digits to a base58 string
+          for (let k = 0; k < digits.length; k++) {
             result = alphabet[digits[k]] + result;
-        }
-
-        // Add '1' for each leading 0 byte
-        for (let i = 0; bytes[i] === 0 && i < bytes.length - 1; i++) {
-            result = '1' + result;
-        }
-        return result;
-      }
-
-      /**
-       * Decodes a base58-encoded string into a buffer
-       * This function throws an error when the string contains invalid characters.
-       * @param {string} s The base58-encoded string.
-       * @return {Uint8Array} The decoded buffer.
-       */
-       function base58Decode(s) {
-        // See https://en.bitcoin.it/wiki/Base58Check_encoding
-        var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-        var decoded = BigInt(0);
-        var decodedBytes = [];
-        var leadingZeros = [];
-        for (var i = 0; i < s.length; i++) {
-          if (alphabet.indexOf(s[i]) === -1) {
-            throw new Error(`cannot base58-decode: ${s[i]} isn't a valid character`)
-          }
-          var carry = alphabet.indexOf(s[i]);
-
-          // If the current base58 digit is 0, append a 0 byte.
-          // "i == leadingZeros.length" can only be true if we have not seen non-zero bytes so far.
-          // If we had seen a non-zero byte, carry wouldn't be 0, and i would be strictly more than `leadingZeros.length`
-          if (carry == 0 && i === leadingZeros.length) {
-            leadingZeros.push(0);
           }
 
-          var j = 0;
-          while (j < decodedBytes.length || carry > 0) {
-            var currentByte = decodedBytes[j];
+          // Add '1' for each leading 0 byte
+          for (let i = 0; bytes[i] === 0 && i < bytes.length - 1; i++) {
+            result = "1" + result;
+          }
+          return result;
+        }
 
-            // shift the current byte 58 units and add the carry amount
-            // (or just add the carry amount if this is a new byte -- undefined case)
-            if (currentByte === undefined) {
-              currentByte = carry
-            } else {
-              currentByte = currentByte * 58 + carry
+        /**
+         * Decodes a base58-encoded string into a buffer
+         * This function throws an error when the string contains invalid characters.
+         * @param {string} s The base58-encoded string.
+         * @return {Uint8Array} The decoded buffer.
+         */
+        function base58Decode(s) {
+          // See https://en.bitcoin.it/wiki/Base58Check_encoding
+          var alphabet =
+            "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+          var decoded = BigInt(0);
+          var decodedBytes = [];
+          var leadingZeros = [];
+          for (var i = 0; i < s.length; i++) {
+            if (alphabet.indexOf(s[i]) === -1) {
+              throw new Error(
+                `cannot base58-decode: ${s[i]} isn't a valid character`
+              );
+            }
+            var carry = alphabet.indexOf(s[i]);
+
+            // If the current base58 digit is 0, append a 0 byte.
+            // "i == leadingZeros.length" can only be true if we have not seen non-zero bytes so far.
+            // If we had seen a non-zero byte, carry wouldn't be 0, and i would be strictly more than `leadingZeros.length`
+            if (carry == 0 && i === leadingZeros.length) {
+              leadingZeros.push(0);
             }
 
-            // find the new carry amount (1-byte shift of current byte value)
-            carry = currentByte >> 8;
-            // reset the current byte to the remainder (the carry amount will pass on the overflow)
-            decodedBytes[j] = currentByte % 256;
-            j++
+            var j = 0;
+            while (j < decodedBytes.length || carry > 0) {
+              var currentByte = decodedBytes[j];
+
+              // shift the current byte 58 units and add the carry amount
+              // (or just add the carry amount if this is a new byte -- undefined case)
+              if (currentByte === undefined) {
+                currentByte = carry;
+              } else {
+                currentByte = currentByte * 58 + carry;
+              }
+
+              // find the new carry amount (1-byte shift of current byte value)
+              carry = currentByte >> 8;
+              // reset the current byte to the remainder (the carry amount will pass on the overflow)
+              decodedBytes[j] = currentByte % 256;
+              j++;
+            }
+          }
+
+          var result = leadingZeros.concat(decodedBytes.reverse());
+          return new Uint8Array(result);
+        }
+
+        /**
+         * Returns a private key from private key bytes, represented in
+         * the encoding and format specified by `keyFormat`. Defaults to
+         * hex-encoding if `keyFormat` isn't passed.
+         * @param {Uint8Array} privateKeyBytes
+         * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
+         */
+        async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
+          switch (keyFormat) {
+            case "SOLANA":
+              if (!publicKeyBytes) {
+                throw new Error(
+                  "public key must be specified for SOLANA key format"
+                );
+              }
+              if (privateKeyBytes.length !== 32) {
+                throw new Error(
+                  `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
+                );
+              }
+              if (publicKeyBytes.length !== 32) {
+                throw new Error(
+                  `invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`
+                );
+              }
+              const concatenatedBytes = new Uint8Array(64);
+              concatenatedBytes.set(privateKeyBytes, 0);
+              concatenatedBytes.set(publicKeyBytes, 32);
+              return base58Encode(concatenatedBytes);
+            case "HEXADECIMAL":
+              return "0x" + uint8arrayToHexString(privateKeyBytes);
+            default:
+              console.warn(
+                `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
+              );
+              return "0x" + uint8arrayToHexString(privateKeyBytes);
           }
         }
 
-        var result = leadingZeros.concat(decodedBytes.reverse());
-        return new Uint8Array(result);
-      }
+        /**
+         * Returns a UTF-8 encoded wallet mnemonic + newline optional passphrase
+         * from wallet bytes.
+         * @param {Uint8Array} walletBytes
+         */
+        function encodeWallet(walletBytes) {
+          const decoder = new TextDecoder("utf-8");
+          const wallet = decoder.decode(walletBytes);
+          let mnemonic;
+          let passphrase = null;
 
-      /**
-       * Returns a private key from private key bytes, represented in
-       * the encoding and format specified by `keyFormat`. Defaults to
-       * hex-encoding if `keyFormat` isn't passed.
-       * @param {Uint8Array} privateKeyBytes
-       * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
-       */
-      async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
-        switch (keyFormat) {
-          case "SOLANA":
-            if (!publicKeyBytes) {
-              throw new Error("public key must be specified for SOLANA key format");
-            }
-            if (privateKeyBytes.length !== 32) {
-              throw new Error(`invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`);
-            }
-            if (publicKeyBytes.length !== 32) {
-              throw new Error(`invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`);
-            }
-            const concatenatedBytes = new Uint8Array(64);
-            concatenatedBytes.set(privateKeyBytes, 0);
-            concatenatedBytes.set(publicKeyBytes, 32);
-            return base58Encode(concatenatedBytes);
-          case "HEXADECIMAL":
-            return "0x" + uint8arrayToHexString(privateKeyBytes);
-          default:
-            console.warn(`invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`);
-            return "0x" + uint8arrayToHexString(privateKeyBytes);
-        }
-      }
-
-      /**
-       * Returns a UTF-8 encoded wallet mnemonic + newline optional passphrase
-       * from wallet bytes.
-       * @param {Uint8Array} walletBytes
-       */
-       function encodeWallet(walletBytes) {
-        const decoder = new TextDecoder("utf-8");
-        const wallet = decoder.decode(walletBytes);
-        let mnemonic;
-        let passphrase = null;
-
-        if (wallet.includes("\n")) {
+          if (wallet.includes("\n")) {
             const parts = wallet.split("\n");
             mnemonic = parts[0];
             passphrase = parts[1];
-        } else {
+          } else {
             mnemonic = wallet;
+          }
+
+          return {
+            mnemonic: mnemonic,
+            passphrase: passphrase,
+          };
+        }
+
+        /**
+         * Returns the public key bytes for a hex-encoded Ed25519 private key.
+         * @param {string} privateKeyHex
+         */
+        function getEd25519PublicKey(privateKeyHex) {
+          nobleEd25519.etc.sha512Sync = (...m) =>
+            nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
+          return nobleEd25519.getPublicKey(privateKeyHex);
         }
 
         return {
-            mnemonic: mnemonic,
-            passphrase: passphrase
+          initEmbeddedKey,
+          generateTargetKey,
+          setItemWithExpiry,
+          getItemWithExpiry,
+          getEmbeddedKey,
+          setEmbeddedKey,
+          onResetEmbeddedKey,
+          p256JWKPrivateToPublic,
+          base58Encode,
+          base58Decode,
+          encodeKey,
+          encodeWallet,
+          sendMessageUp,
+          logMessage,
+          uint8arrayFromHexString,
+          uint8arrayToHexString,
+          normalizePadding,
+          fromDerSignature,
+          additionalAssociatedData,
+          verifyEnclaveSignature,
+          getEd25519PublicKey,
         };
-      }
+      })();
+    </script>
 
-      /**
-       * Returns the public key bytes for a hex-encoded Ed25519 private key.
-       * @param {string} privateKeyHex
-       */
-      function getEd25519PublicKey(privateKeyHex) {
-        nobleEd25519.etc.sha512Sync = (...m) => nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
-        return nobleEd25519.getPublicKey(privateKeyHex);
-      }
-
-      return {
-        initEmbeddedKey,
-        generateTargetKey,
-        setItemWithExpiry,
-        getItemWithExpiry,
-        getEmbeddedKey,
-        setEmbeddedKey,
-        onResetEmbeddedKey,
-        p256JWKPrivateToPublic,
-        base58Encode,
-        base58Decode,
-        encodeKey,
-        encodeWallet,
-        sendMessageUp,
-        logMessage,
-        uint8arrayFromHexString,
-        uint8arrayToHexString,
-        normalizePadding,
-        fromDerSignature,
-        additionalAssociatedData,
-        verifyEnclaveSignature,
-        getEd25519PublicKey
-      }
-    }();
-  </script>
-
-  <!--
+    <!--
     Script importing HPKE lib until we can replace it
     Because this is loaded as a module JSDOM can't load it properly
     Code in here isn't tested, so let's keep this to a minimum!
   -->
-  <script type="module">
-    // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
-    import * as hpke from "https://esm.sh/@hpke/core@1.2.7";
+    <script type="module">
+      // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
+      import * as hpke from "https://esm.sh/@hpke/core@1.2.7";
 
-    document.addEventListener("DOMContentLoaded", async () => {
-      await TKHQ.initEmbeddedKey();
-      const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-      const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-      const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
-      document.getElementById("embedded-key").value = targetPubHex;
-      TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex)
+      document.addEventListener(
+        "DOMContentLoaded",
+        async () => {
+          await TKHQ.initEmbeddedKey();
+          const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+          const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
+            embeddedKeyJwk
+          );
+          const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+          document.getElementById("embedded-key").value = targetPubHex;
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
-      // TODO: find a way to filter messages and ensure they're coming from the parent window?
-      // We do not want to arbitrarily receive messages from all origins.
-      window.addEventListener("message", async function(event) {
-        if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`);
-          try {
-            await onInjectKeyBundle(event.data["value"], event.data["keyFormat"], event.data["organizationId"])
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
-        if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`);
-          try {
-            await onInjectWalletBundle(event.data["value"], event.data["organizationId"])
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
-        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          try {
-            TKHQ.onResetEmbeddedKey();
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
-      }, false);
+          // TODO: find a way to filter messages and ensure they're coming from the parent window?
+          // We do not want to arbitrarily receive messages from all origins.
+          window.addEventListener(
+            "message",
+            async function (event) {
+              if (
+                event.data &&
+                event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE"
+              ) {
+                TKHQ.logMessage(
+                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
+                );
+                try {
+                  await onInjectKeyBundle(
+                    event.data["value"],
+                    event.data["keyFormat"],
+                    event.data["organizationId"]
+                  );
+                } catch (e) {
+                  TKHQ.sendMessageUp("ERROR", e.toString());
+                }
+              }
+              if (
+                event.data &&
+                event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE"
+              ) {
+                TKHQ.logMessage(
+                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
+                );
+                try {
+                  await onInjectWalletBundle(
+                    event.data["value"],
+                    event.data["organizationId"]
+                  );
+                } catch (e) {
+                  TKHQ.sendMessageUp("ERROR", e.toString());
+                }
+              }
+              if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+                TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+                try {
+                  TKHQ.onResetEmbeddedKey();
+                } catch (e) {
+                  TKHQ.sendMessageUp("ERROR", e.toString());
+                }
+              }
+            },
+            false
+          );
+
+          /**
+           * Event handlers to power the export flow in standalone mode
+           * Instead of receiving events from the parent page, forms trigger them.
+           * This is useful for debugging as well.
+           */
+          document.getElementById("inject-key").addEventListener(
+            "click",
+            async (e) => {
+              e.preventDefault();
+              window.postMessage({
+                type: "INJECT_KEY_EXPORT_BUNDLE",
+                value: document.getElementById("key-export-bundle").value,
+                keyFormat: document.getElementById("key-export-format").value,
+                organizationId: document.getElementById("key-organization-id")
+                  .value,
+              });
+            },
+            false
+          );
+          document.getElementById("inject-wallet").addEventListener(
+            "click",
+            async (e) => {
+              e.preventDefault();
+              window.postMessage({
+                type: "INJECT_WALLET_EXPORT_BUNDLE",
+                value: document.getElementById("wallet-export-bundle").value,
+                organizationId: document.getElementById(
+                  "wallet-organization-id"
+                ).value,
+              });
+            },
+            false
+          );
+          document.getElementById("reset").addEventListener(
+            "click",
+            async (e) => {
+              e.preventDefault();
+              window.postMessage({ type: "RESET_EMBEDDED_KEY" });
+            },
+            false
+          );
+        },
+        false
+      );
 
       /**
-       * Event handlers to power the export flow in standalone mode
-       * Instead of receiving events from the parent page, forms trigger them.
-       * This is useful for debugging as well.
+       * Hide every HTML element in <body> except any <script> elements.
+       * Then append an element containing the hex-encoded raw private key.
+       * @param {string} key
        */
-      document.getElementById("inject-key").addEventListener("click", async e => {
-        e.preventDefault();
-        window.postMessage({
-          "type": "INJECT_KEY_EXPORT_BUNDLE",
-          "value": document.getElementById("key-export-bundle").value,
-          "keyFormat": document.getElementById("key-export-format").value,
-          "organizationId": document.getElementById("key-organization-id").value,
-        })
-      }, false);
-      document.getElementById("inject-wallet").addEventListener("click", async e => {
-        e.preventDefault();
-        window.postMessage({
-          "type": "INJECT_WALLET_EXPORT_BUNDLE",
-          "value": document.getElementById("wallet-export-bundle").value,
-          "organizationId": document.getElementById("wallet-organization-id").value,
-        })
-      }, false);
-      document.getElementById("reset").addEventListener("click", async e => {
-        e.preventDefault();
-        window.postMessage({ "type": "RESET_EMBEDDED_KEY" })
-      }, false);
-    }, false);
-
-    /**
-     * Hide every HTML element in <body> except any <script> elements.
-     * Then append an element containing the hex-encoded raw private key.
-     * @param {string} key
-     */ 
-    function displayKey(key) {
-      Array.from(document.body.children).forEach(child => {
+      function displayKey(key) {
+        Array.from(document.body.children).forEach((child) => {
           if (child.tagName !== "SCRIPT") {
-            child.style.display = 'none';
+            child.style.display = "none";
           }
         });
 
@@ -680,114 +839,136 @@
         keyDiv.id = "key-div";
         keyDiv.innerText = key;
         for (let styleKey in style) {
-            keyDiv.style[styleKey] = style[styleKey];
+          keyDiv.style[styleKey] = style[styleKey];
         }
         document.body.appendChild(keyDiv);
-    }
-
-    /**
-     * Parse and decrypt the export bundle.
-     * The `bundle` param is a JSON string of the encapsulated public
-     * key, encapsulated public key signature, and the ciphertext.
-     * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
-     * @param {string} bundle
-     * @param {string} organizationId
-     */
-    async function decryptBundle(bundle, organizationId) {
-      let encappedKeyBuf;
-      let ciphertextBuf;
-      let verified;
-
-      // Parse the import bundle
-      const bundleObj = JSON.parse(bundle);
-      switch (bundleObj.version) {
-        case undefined:
-          // Validate fields exist
-          if (!bundleObj.encappedPublic) {
-            throw new Error('missing "encappedPublic" in bundle');
-          }
-
-          if (!bundleObj.encappedPublicSignature) {
-            throw new Error('missing "encappedPublicSignature" in bundle');
-          }
-
-          // Verify enclave signature
-          if (!TKHQ.verifyEnclaveSignature) {
-            throw new Error("method not loaded");
-          }
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.encappedPublicSignature, bundleObj.encappedPublic);
-          if (!verified) {
-            throw new Error(`failed to verify enclave signature: ${bundle}`);
-          }
-
-          encappedKeyBuf = TKHQ.uint8arrayFromHexString(bundleObj.encappedPublic);
-          ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.ciphertext);
-          break;
-        case 'v1.0.0':
-          // Validate fields exist
-          if (!bundleObj.data) {
-            throw new Error('missing "data" in bundle');
-          }
-          if (!bundleObj.dataSignature) {
-            throw new Error('missing "dataSignature" in bundle');
-          }
-          if (!bundleObj.enclaveQuorumPublic) {
-            throw new Error('missing "enclaveQuorumPublic" in bundle');
-          }
-
-          // Verify enclave signature
-          if (!TKHQ.verifyEnclaveSignature) {
-            throw new Error("method not loaded");
-          }
-          verified = await TKHQ.verifyEnclaveSignature(bundleObj.enclaveQuorumPublic, bundleObj.dataSignature, bundleObj.data);
-          if (!verified) {
-            throw new Error(`failed to verify enclave signature: ${bundle}`);
-          }
-
-          // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-          const signedData = JSON.parse(new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data)));
-
-          // Validate fields match
-          if (!organizationId) {
-            // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-            console.warn('we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.');
-          } else if (!signedData.organizationId || signedData.organizationId !== organizationId) {
-            throw new Error(`organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`);
-          }
-
-          if (!signedData.encappedPublic) {
-            throw new Error('missing "encappedPublic" in bundle signed data');
-          }
-          if (!signedData.ciphertext) {
-            throw new Error('missing "ciphertext" in bundle signed data');
-          }
-          encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
-          ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
-          break;
-        default:
-          throw new Error(`unsupported version: ${bundleObj.version}`);
       }
 
-      // Decrypt the ciphertext
-      const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-      return await HpkeDecrypt(
-        {
+      /**
+       * Parse and decrypt the export bundle.
+       * The `bundle` param is a JSON string of the encapsulated public
+       * key, encapsulated public key signature, and the ciphertext.
+       * Example: {"encappedPublic":"04912cb4200c40f04ae4a162f4c870c78cb4498a8efda0b94f4a9cb848d611bd40e9acccab2bf73cee1e269d8350a02f4df71864921097838f05c288d944fa2f8b","encappedPublicSignature":"304502200cd19a3c5892f1eeab88fe0cdd7cca63736a7d15fc364186fb3c913e1e01568b022100dea49557c176f6ca052b27ad164f077cf64d2aa55fbdc4757a14767f8b8c6b48","ciphertext":"0e5d5503f43721135818051e4c5b77b3365b66ec4020b0051d59ea9fc773c67bd4b61ed34a97b07a3074a85546721ae4","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
+       * @param {string} bundle
+       * @param {string} organizationId
+       */
+      async function decryptBundle(bundle, organizationId) {
+        let encappedKeyBuf;
+        let ciphertextBuf;
+        let verified;
+
+        // Parse the import bundle
+        const bundleObj = JSON.parse(bundle);
+        switch (bundleObj.version) {
+          case undefined:
+            // Validate fields exist
+            if (!bundleObj.encappedPublic) {
+              throw new Error('missing "encappedPublic" in bundle');
+            }
+
+            if (!bundleObj.encappedPublicSignature) {
+              throw new Error('missing "encappedPublicSignature" in bundle');
+            }
+
+            // Verify enclave signature
+            if (!TKHQ.verifyEnclaveSignature) {
+              throw new Error("method not loaded");
+            }
+            verified = await TKHQ.verifyEnclaveSignature(
+              bundleObj.enclaveQuorumPublic,
+              bundleObj.encappedPublicSignature,
+              bundleObj.encappedPublic
+            );
+            if (!verified) {
+              throw new Error(`failed to verify enclave signature: ${bundle}`);
+            }
+
+            encappedKeyBuf = TKHQ.uint8arrayFromHexString(
+              bundleObj.encappedPublic
+            );
+            ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.ciphertext);
+            break;
+          case "v1.0.0":
+            // Validate fields exist
+            if (!bundleObj.data) {
+              throw new Error('missing "data" in bundle');
+            }
+            if (!bundleObj.dataSignature) {
+              throw new Error('missing "dataSignature" in bundle');
+            }
+            if (!bundleObj.enclaveQuorumPublic) {
+              throw new Error('missing "enclaveQuorumPublic" in bundle');
+            }
+
+            // Verify enclave signature
+            if (!TKHQ.verifyEnclaveSignature) {
+              throw new Error("method not loaded");
+            }
+            verified = await TKHQ.verifyEnclaveSignature(
+              bundleObj.enclaveQuorumPublic,
+              bundleObj.dataSignature,
+              bundleObj.data
+            );
+            if (!verified) {
+              throw new Error(`failed to verify enclave signature: ${bundle}`);
+            }
+
+            // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
+            const signedData = JSON.parse(
+              new TextDecoder().decode(
+                TKHQ.uint8arrayFromHexString(bundleObj.data)
+              )
+            );
+
+            // Validate fields match
+            if (!organizationId) {
+              // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+              console.warn(
+                'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+              );
+            } else if (
+              !signedData.organizationId ||
+              signedData.organizationId !== organizationId
+            ) {
+              throw new Error(
+                `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
+              );
+            }
+
+            if (!signedData.encappedPublic) {
+              throw new Error('missing "encappedPublic" in bundle signed data');
+            }
+            if (!signedData.ciphertext) {
+              throw new Error('missing "ciphertext" in bundle signed data');
+            }
+            encappedKeyBuf = TKHQ.uint8arrayFromHexString(
+              signedData.encappedPublic
+            );
+            ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
+            break;
+          default:
+            throw new Error(`unsupported version: ${bundleObj.version}`);
+        }
+
+        // Decrypt the ciphertext
+        const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+        return await HpkeDecrypt({
           ciphertextBuf,
           encappedKeyBuf,
           receiverPrivJwk: embeddedKeyJwk,
         });
-    }
+      }
 
-    /**
-     * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
-     * @param {string} bundle
-     * @param {string} keyFormat
-     * @param {string} organizationId
-     */
-     async function onInjectKeyBundle(bundle, keyFormat, organizationId) {
+      /**
+       * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+       * @param {string} bundle
+       * @param {string} keyFormat
+       * @param {string} organizationId
+       */
+      async function onInjectKeyBundle(bundle, keyFormat, organizationId) {
         // Decrypt the export bundle
         const keyBytes = await decryptBundle(bundle, organizationId);
-        
+
         // Reset embedded key after using for decryption
         TKHQ.onResetEmbeddedKey();
 
@@ -795,9 +976,15 @@
         var key;
         const privateKeyBytes = new Uint8Array(keyBytes);
         if (keyFormat === "SOLANA") {
-          const privateKeyHex = TKHQ.uint8arrayToHexString(privateKeyBytes.subarray(0,32));
+          const privateKeyHex = TKHQ.uint8arrayToHexString(
+            privateKeyBytes.subarray(0, 32)
+          );
           const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
-          key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
+          key = await TKHQ.encodeKey(
+            privateKeyBytes,
+            keyFormat,
+            publicKeyBytes
+          );
         } else {
           key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
         }
@@ -806,15 +993,15 @@
         displayKey(key);
 
         // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
-    }
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+      }
 
-    /**
-     * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
-     * @param {string} bundle
-     * @param {string} organizationId
-     */
-     async function onInjectWalletBundle(bundle, organizationId) {
+      /**
+       * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
+       * @param {string} bundle
+       * @param {string} organizationId
+       */
+      async function onInjectWalletBundle(bundle, organizationId) {
         // Decrypt the export bundle
         const walletBytes = await decryptBundle(bundle, organizationId);
 
@@ -828,40 +1015,47 @@
         displayKey(wallet.mnemonic);
 
         // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true)
-    }
-
-    /**
-     * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
-     * and the receivers private key (JSON Web Key).
-     */
-    async function HpkeDecrypt({ ciphertextBuf, encappedKeyBuf, receiverPrivJwk }) {
-      const kemContext = new hpke.DhkemP256HkdfSha256();
-      var receiverPriv = await kemContext.importKey("jwk", {...receiverPrivJwk}, false);
-
-
-      var suite = new hpke.CipherSuite({
-        kem: kemContext,
-        kdf: new hpke.HkdfSha256(),
-        aead: new hpke.Aes256Gcm(),
-      });
-
-      var recipientCtx = await suite.createRecipientContext({
-        recipientKey: receiverPriv,
-        enc: encappedKeyBuf,
-        info: new TextEncoder().encode("turnkey_hpke"),
-      });
-
-      var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
-      var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
-      var res;
-      try {
-        res = await recipientCtx.open(ciphertextBuf, aad);
-      } catch (e) {
-        throw new Error("decryption failed: " + e);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
       }
-      return res
-    }
-  </script>
-</body>
+
+      /**
+       * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
+       * and the receivers private key (JSON Web Key).
+       */
+      async function HpkeDecrypt({
+        ciphertextBuf,
+        encappedKeyBuf,
+        receiverPrivJwk,
+      }) {
+        const kemContext = new hpke.DhkemP256HkdfSha256();
+        var receiverPriv = await kemContext.importKey(
+          "jwk",
+          { ...receiverPrivJwk },
+          false
+        );
+
+        var suite = new hpke.CipherSuite({
+          kem: kemContext,
+          kdf: new hpke.HkdfSha256(),
+          aead: new hpke.Aes256Gcm(),
+        });
+
+        var recipientCtx = await suite.createRecipientContext({
+          recipientKey: receiverPriv,
+          enc: encappedKeyBuf,
+          info: new TextEncoder().encode("turnkey_hpke"),
+        });
+
+        var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
+        var aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
+        var res;
+        try {
+          res = await recipientCtx.open(ciphertextBuf, aad);
+        } catch (e) {
+          throw new Error("decryption failed: " + e);
+        }
+        return res;
+      }
+    </script>
+  </body>
 </html>
