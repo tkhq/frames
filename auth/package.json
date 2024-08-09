@@ -5,8 +5,8 @@
   "scripts": {
     "start": "serve",
     "test": "jest",
-    "prettier:check": "prettier --check \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ./.prettierignore",
-    "prettier:write": "prettier --write \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ./.prettierignore"
+    "prettier:check": "prettier --check \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore",
+    "prettier:write": "prettier --write \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore"
   },
   "repository": "git@github.com:tkhq/frames.git",
   "author": "Turnkey <hello@turnkey.com>",
