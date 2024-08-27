@@ -45,7 +45,7 @@ cd import && npm test
 ```
 
 # Running Local Wallet Import/Export
-Start the server. This command will run a simple static server on port 8080.
+Start the server. This command will run a simple static server on port 3000.
 ```sh
 npm start
 ```
@@ -55,7 +55,7 @@ Clone the `sdk` repo.
 git clone git@github.com:tkhq/sdk.git
 ```
 
-Follow the README.md for the `wallet-export` [example](https://github.com/tkhq/sdk/tree/main/examples/wallet-export). Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/"` in the example's environment variables configuration. The `wallet-export` example embeds this page as an iframe.
+Follow the README.md for the `wallet-export` [example](https://github.com/tkhq/sdk/tree/main/examples/wallet-export). Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/index.template"` in the example's environment variables configuration. The `wallet-export` example embeds this page as an iframe.
 ```sh
 cd sdk/examples/wallet-export
 ```
