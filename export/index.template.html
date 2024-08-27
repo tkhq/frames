@@ -160,6 +160,7 @@
       >
     </p>
     <div id="message-log"></div>
+    <div id="key-div"></div>
 
     <!-- Script containing ED25519 library -->
     <script src="noble-hashes.js"></script>
@@ -768,6 +769,9 @@
          */
          function applySettings(settings) {
           const validSettings = {};
+          if (!settings) {
+            return JSON.stringify(validSettings);
+          }          
           const settingsObj = JSON.parse(settings);
           if (settingsObj.styles) {
             // Valid styles will be applied the "key-div" textarea HTML element.
@@ -778,10 +782,10 @@
               );
             }
 
-            // Validate, sanitize, and apply the styles to the "plaintext" textarea.
+            // Validate, sanitize, and apply the styles to the "key-div" textarea.
             const validStyles = TKHQ.validateStyles(settingsObj.styles);
             Object.entries(validStyles).forEach(([key, value]) => {
-              plaintextTextarea.style[key] = value;
+              keyDivTextarea.style[key] = value;
             });
 
             validSettings["styles"] = validStyles;
@@ -833,10 +837,10 @@
         "DOMContentLoaded",
         async () => {
           // If styles are saved in local storage, sanitize and apply them.
-          // const styleSettings = TKHQ.getSettings();
-          // if (styleSettings) {
-          //   TKHQ.applySettings(styleSettings);
-          // }
+          const styleSettings = TKHQ.getSettings();
+          if (styleSettings) {
+            TKHQ.applySettings(styleSettings);
+          }
           await TKHQ.initEmbeddedKey();
           const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
@@ -955,7 +959,7 @@
        */
       function displayKey(key) {
         Array.from(document.body.children).forEach((child) => {
-          if (child.tagName !== "SCRIPT") {
+          if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
             child.style.display = "none";
           }
         });
@@ -970,13 +974,13 @@
         };
 
         // Create a new div with the key material and append the new div to the body
-        const keyDiv = document.createElement("div");
-        keyDiv.id = "key-div";
+        const keyDiv = document.getElementById("key-div");
         keyDiv.innerText = key;
         for (let styleKey in style) {
           keyDiv.style[styleKey] = style[styleKey];
         }
         document.body.appendChild(keyDiv);
+        TKHQ.applySettings(TKHQ.getSettings());
       }
 
       /**
