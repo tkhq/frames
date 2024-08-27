@@ -321,4 +321,68 @@ describe("TKHQ", () => {
       )
     ).rejects.toThrow("cannot create uint8array from invalid hex string");
   });
+
+  it("validates styles", async () => {
+    let simpleValid = { padding: "10px" };
+    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+
+    simpleValid = { padding: "10px", margin: "10px", fontSize: "16px" };
+    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+
+    let simpleValidPadding = {
+      "padding  ": "10px",
+      margin: "10px",
+      fontSize: "16px",
+    };
+    expect(TKHQ.validateStyles(simpleValidPadding)).toEqual(simpleValid);
+
+    let simpleInvalidCase = {
+      padding: "10px",
+      margin: "10px",
+      "font-size": "16px",
+    };
+    expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(
+      `invalid or unsupported css style property: "font-size"`
+    );
+
+    let fontFamilyInvalid = { fontFamily: "<script>malicious</script>" };
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+      `invalid css style value for property "fontFamily"`
+    );
+
+    fontFamilyInvalid = { fontFamily: '"Courier"' };
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+      `invalid css style value for property "fontFamily"`
+    );
+
+    fontFamilyInvalid = { fontFamily: "San Serif;" };
+    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+      `invalid css style value for property "fontFamily"`
+    );
+
+    let allStylesValid = {
+      padding: "10px",
+      margin: "10px",
+      borderWidth: "1px",
+      borderStyle: "solid",
+      borderColor: "transparent",
+      borderRadius: "5px",
+      fontSize: "16px",
+      fontWeight: "bold",
+      fontFamily: "SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      color: "#000000",
+      backgroundColor: "rgb(128, 0, 128)",
+      width: "100%",
+      height: "auto",
+      maxWidth: "100%",
+      maxHeight: "100%",
+      lineHeight: "1.25rem",
+      boxShadow: "0px 0px 10px #aaa",
+      textAlign: "center",
+      overflowWrap: "break-word",
+      wordWrap: "break-word",
+      resize: "none",
+    };
+    expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
+  });
 });
