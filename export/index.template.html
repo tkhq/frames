@@ -253,7 +253,7 @@
          */
         function getSettings() {
           const settings = window.localStorage.getItem(TURNKEY_SETTINGS);
-          return settings ?  JSON.parse(settings) : null;
+          return settings ? JSON.parse(settings) : null;
         }
 
         /**
@@ -261,7 +261,10 @@
          * @param {Object} settings
          */
         function setSettings(settings) {
-          window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settings));
+          window.localStorage.setItem(
+            TURNKEY_SETTINGS,
+            JSON.stringify(settings)
+          );
         }
 
         /**
@@ -695,7 +698,7 @@
          * @param {Object} styles
          * @return {Object}
          */
-         function validateStyles(styles, element) {
+        function validateStyles(styles, element) {
           const validStyles = {};
 
           const cssValidationRegex = {
@@ -767,14 +770,14 @@
          * @param {string} settings
          * @return {string}
          */
-         function applySettings(settings) {
+        function applySettings(settings) {
           const validSettings = {};
           if (!settings) {
             return JSON.stringify(validSettings);
-          }          
+          }
           const settingsObj = JSON.parse(settings);
           if (settingsObj.styles) {
-            // Valid styles will be applied the "key-div" textarea HTML element.
+            // Valid styles will be applied the "key-div" div HTML element.
             const keyDivTextarea = document.getElementById("key-div");
             if (!keyDivTextarea) {
               throw new Error(
@@ -782,7 +785,7 @@
               );
             }
 
-            // Validate, sanitize, and apply the styles to the "key-div" textarea.
+            // Validate, sanitize, and apply the styles to the "key-div" div element.
             const validStyles = TKHQ.validateStyles(settingsObj.styles);
             Object.entries(validStyles).forEach(([key, value]) => {
               keyDivTextarea.style[key] = value;
@@ -898,7 +901,7 @@
               }
               if (event.data && event.data["type"] == "APPLY_SETTINGS") {
                 try {
-                  await onApplySettings(event.data["value"])
+                  await onApplySettings(event.data["value"]);
                 } catch (e) {
                   TKHQ.sendMessageUp("ERROR", e.toString());
                 }
