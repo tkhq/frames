@@ -160,6 +160,7 @@
       >
     </p>
     <div id="message-log"></div>
+    <div id="key-div"></div>
 
     <!-- Script containing ED25519 library -->
     <script src="noble-hashes.js"></script>
@@ -172,6 +173,7 @@
       window.TKHQ = (function () {
         /** constant for LocalStorage */
         const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+        const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
         /** 48 hours in milliseconds */
         const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 
@@ -244,6 +246,25 @@
          */
         function onResetEmbeddedKey() {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+        }
+
+        /**
+         * Gets the current settings.
+         */
+        function getSettings() {
+          const settings = window.localStorage.getItem(TURNKEY_SETTINGS);
+          return settings ? JSON.parse(settings) : null;
+        }
+
+        /**
+         * Sets the settings object.
+         * @param {Object} settings
+         */
+        function setSettings(settings) {
+          window.localStorage.setItem(
+            TURNKEY_SETTINGS,
+            JSON.stringify(settings)
+          );
         }
 
         /**
@@ -671,6 +692,111 @@
           return nobleEd25519.getPublicKey(privateKeyHex);
         }
 
+        /**
+         * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
+         * Any invalid style throws an error. Returns an object of valid styles.
+         * @param {Object} styles
+         * @return {Object}
+         */
+        function validateStyles(styles, element) {
+          const validStyles = {};
+
+          const cssValidationRegex = {
+            padding: "^(\\d+(px|em|%|rem) ?){1,4}$",
+            margin: "^(\\d+(px|em|%|rem) ?){1,4}$",
+            borderWidth: "^(\\d+(px|em|rem) ?){1,4}$",
+            borderStyle:
+              "^(none|solid|dashed|dotted|double|groove|ridge|inset|outset)$",
+            borderColor:
+              "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+            borderRadius: "^(\\d+(px|em|%|rem) ?){1,4}$",
+            fontSize:
+              "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
+            fontWeight: "^(normal|bold|bolder|lighter|\\d{3})$",
+            fontFamily: '^[^";<>]*$', // checks for the absence of some characters that could lead to CSS/HTML injection
+            color:
+              "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+            backgroundColor:
+              "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+            width:
+              "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+            height:
+              "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+            maxWidth:
+              "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+            maxHeight:
+              "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+            lineHeight:
+              "^(\\d+(\\.\\d+)?(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|normal)$",
+            boxShadow:
+              "^(none|(\\d+(px|em|rem) ?){2,4} (#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)) ?(inset)?)$",
+            textAlign: "^(left|right|center|justify|initial|inherit)$",
+            overflowWrap: "^(normal|break-word|anywhere)$",
+            wordWrap: "^(normal|break-word)$",
+            resize: "^(none|both|horizontal|vertical|block|inline)$",
+          };
+
+          Object.entries(styles).forEach(([property, value]) => {
+            const styleProperty = property.trim();
+            if (styleProperty.length === 0) {
+              throw new Error("css style property cannot be empty");
+            }
+            const styleRegexStr = cssValidationRegex[styleProperty];
+            if (!styleRegexStr) {
+              throw new Error(
+                `invalid or unsupported css style property: "${styleProperty}"`
+              );
+            }
+            const styleRegex = new RegExp(styleRegexStr);
+            const styleValue = value.trim();
+            if (styleValue.length == 0) {
+              throw new Error(`css style for "${styleProperty}" is empty`);
+            }
+            const isValidStyle = styleRegex.test(styleValue);
+            if (!isValidStyle) {
+              throw new Error(
+                `invalid css style value for property "${styleProperty}"`
+              );
+            }
+            validStyles[styleProperty] = styleValue;
+          });
+
+          return validStyles;
+        }
+
+        /**
+         * Function to apply settings on this page. For now, the only settings that can be applied
+         * are for "styles". Upon successful application, return the valid, sanitized settings JSON string.
+         * @param {string} settings
+         * @return {string}
+         */
+        function applySettings(settings) {
+          const validSettings = {};
+          if (!settings) {
+            return JSON.stringify(validSettings);
+          }
+          const settingsObj = JSON.parse(settings);
+          if (settingsObj.styles) {
+            // Valid styles will be applied the "key-div" div HTML element.
+            const keyDivTextarea = document.getElementById("key-div");
+            if (!keyDivTextarea) {
+              throw new Error(
+                "no key-div HTML element found to apply settings to."
+              );
+            }
+
+            // Validate, sanitize, and apply the styles to the "key-div" div element.
+            const validStyles = TKHQ.validateStyles(settingsObj.styles);
+            Object.entries(validStyles).forEach(([key, value]) => {
+              keyDivTextarea.style[key] = value;
+            });
+
+            validSettings["styles"] = validStyles;
+          }
+
+          return JSON.stringify(validSettings);
+        }
+
         return {
           initEmbeddedKey,
           generateTargetKey,
@@ -693,6 +819,10 @@
           additionalAssociatedData,
           verifyEnclaveSignature,
           getEd25519PublicKey,
+          applySettings,
+          validateStyles,
+          getSettings,
+          setSettings,
         };
       })();
     </script>
@@ -709,6 +839,11 @@
       document.addEventListener(
         "DOMContentLoaded",
         async () => {
+          // If styles are saved in local storage, sanitize and apply them.
+          const styleSettings = TKHQ.getSettings();
+          if (styleSettings) {
+            TKHQ.applySettings(styleSettings);
+          }
           await TKHQ.initEmbeddedKey();
           const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
@@ -760,6 +895,13 @@
                 TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
                 try {
                   TKHQ.onResetEmbeddedKey();
+                } catch (e) {
+                  TKHQ.sendMessageUp("ERROR", e.toString());
+                }
+              }
+              if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+                try {
+                  await onApplySettings(event.data["value"]);
                 } catch (e) {
                   TKHQ.sendMessageUp("ERROR", e.toString());
                 }
@@ -820,7 +962,7 @@
        */
       function displayKey(key) {
         Array.from(document.body.children).forEach((child) => {
-          if (child.tagName !== "SCRIPT") {
+          if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
             child.style.display = "none";
           }
         });
@@ -835,13 +977,13 @@
         };
 
         // Create a new div with the key material and append the new div to the body
-        const keyDiv = document.createElement("div");
-        keyDiv.id = "key-div";
+        const keyDiv = document.getElementById("key-div");
         keyDiv.innerText = key;
         for (let styleKey in style) {
           keyDiv.style[styleKey] = style[styleKey];
         }
         document.body.appendChild(keyDiv);
+        TKHQ.applySettings(TKHQ.getSettings());
       }
 
       /**
@@ -1016,6 +1158,23 @@
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+      }
+
+      /**
+       * Function triggered when APPLY_SETTINGS event is received.
+       * For now, the only settings that can be applied are for "styles".
+       * Persist them in local storage so they can be applied on every
+       * page load.
+       */
+      async function onApplySettings(settings) {
+        // Apply settings
+        const validSettings = TKHQ.applySettings(settings);
+
+        // Persist in local storage
+        TKHQ.setSettings(validSettings);
+
+        // Send up SETTINGS_APPLIED message
+        TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
       }
 
       /**
