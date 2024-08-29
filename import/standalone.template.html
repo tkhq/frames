@@ -491,14 +491,9 @@
       })();
     </script>
 
-    <!--
-    Script importing HPKE lib until we can replace it
-    Because this is loaded as a module JSDOM can't load it properly
-    Code in here isn't tested, so let's keep this to a minimum!
-  -->
     <script type="module">
-      // TODO: this should be bundled at build time or replaced with code written by Turnkey entirely.
-      import * as hpke from "https://esm.sh/@hpke/core@1.2.7";
+      // Vendor @hpke/core from https://esm.sh/@hpke/core@1.2.7
+      import * as hpke from "./hpke-core.js";
 
       document.addEventListener(
         "DOMContentLoaded",
