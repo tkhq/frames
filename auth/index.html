@@ -126,7 +126,7 @@
       <em
         >Once you've injected the credential bundle, the credential is ready to
         sign. A new <code>RECOVER</code> activity for example. This iframe
-        doesn't know anything about Turnkey activity however, it's a simple
+        doesn't know anything about Turnkey activities however, it's a simple
         stamper!</em
       >
     </p>
@@ -149,23 +149,42 @@
     <div id="message-log"></div>
 
     <!--
-    Script defining important helpers.
-    These helpers are unit-testable, so most of the logic should be written here.
-  -->
+      Script defining important helpers.
+      These helpers are unit-testable, so most of the logic should be written here.
+    -->
     <script>
       window.TKHQ = (function () {
-        /** constant for LocalStorage */
+        /** constants for IndexedDB */
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
+        var DB_NAME = "TurnkeyStorage";
+        var DB_VERSION = 1;
+        var STORE_NAME = "keyStore";
+
+        var openDB = function () {
+          return new Promise((resolve, reject) => {
+            const request = window.indexedDB.open(DB_NAME, DB_VERSION);
+
+            request.onerror = (event) =>
+              reject("IndexedDB error: " + event.target.error);
+
+            request.onsuccess = (event) => resolve(event.target.result);
+
+            request.onupgradeneeded = (event) => {
+              const db = event.target.result;
+              db.createObjectStore(STORE_NAME, { keyPath: "key" });
+            };
+          });
+        };
 
         /**
-         * Creates a new public/private key pair and persists it in localStorage
+         * Creates a new public/private key pair and persists it in IndexedDB
          */
         var initEmbeddedKey = async function () {
           var retrievedKey = await getEmbeddedKey();
           if (retrievedKey === null) {
             var targetKey = await generateTargetKey();
-            setEmbeddedKey(targetKey);
+            await setEmbeddedKey(targetKey);
           } else {
             // Nothing to do, key is correctly initialized!
           }
@@ -190,8 +209,8 @@
         /**
          * Gets the current embedded private key JWK. Returns `null` if not found.
          */
-        var getEmbeddedKey = function () {
-          var jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
+        var getEmbeddedKey = async function () {
+          var jwtKey = await getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
           if (!jwtKey) {
             return null;
           } else {
@@ -199,6 +218,9 @@
           }
         };
 
+        /**
+         * Sets a private key JWK in IndexedDB.
+         */
         var setEmbeddedKey = function (targetKey) {
           return setItemWithExpiry(
             TURNKEY_EMBEDDED_KEY,
@@ -207,51 +229,89 @@
           );
         };
 
+        /**
+         * Resets the embedded key.
+         */
         var onResetEmbeddedKey = function () {
-          window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+          return removeItem(TURNKEY_EMBEDDED_KEY);
         };
 
         /**
-         * Set an item in localStorage with an expiration time
+         * Set an item in IndexedDB with an expiration time
          * @param {string} key
          * @param {string} value
          * @param {number} ttl expiration time in milliseconds
          */
-        var setItemWithExpiry = function (key, value, ttl) {
+        async function setItemWithExpiry(key, value, ttl) {
+          const db = await openDB();
+          const transaction = db.transaction(STORE_NAME, "readwrite");
+          const store = transaction.objectStore(STORE_NAME);
+
           const now = new Date();
           const item = {
+            key: key,
             value: value,
             expiry: now.getTime() + ttl,
           };
-          window.localStorage.setItem(key, JSON.stringify(item));
-        };
+
+          return new Promise((resolve, reject) => {
+            const request = store.put(item);
+            request.onerror = (event) =>
+              reject("Error in setItemWithExpiry: " + event.target.error);
+            request.onsuccess = () => resolve();
+          });
+        }
 
         /**
-         * Get an item from localStorage. If it has expired, remove
-         * the item from localStorage and return null.
+         * Get an item from IndexedDB. If it has expired, remove
+         * the item from IndexedDB and return null.
          * @param {string} key
          */
-        const getItemWithExpiry = (key) => {
-          const itemStr = window.localStorage.getItem(key);
+        async function getItemWithExpiry(key) {
+          const db = await openDB();
+          const transaction = db.transaction(STORE_NAME, "readonly");
+          const store = transaction.objectStore(STORE_NAME);
 
-          if (!itemStr) {
-            return null;
-          }
+          return new Promise((resolve, reject) => {
+            const request = store.get(key);
 
-          const item = JSON.parse(itemStr);
+            request.onerror = (event) =>
+              reject("Error in getItemWithExpiry: " + event.target.error);
 
-          if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
-            window.localStorage.removeItem(key);
-            return null;
-          }
+            request.onsuccess = (event) => {
+              const item = event.target.result;
+              if (!item) {
+                resolve(null);
+              } else {
+                const now = new Date();
+                if (now.getTime() > item.expiry) {
+                  // If the item has expired, delete it and return null
+                  store.delete(key);
+                  resolve(null);
+                } else {
+                  resolve(item.value);
+                }
+              }
+            };
+          });
+        }
 
-          const now = new Date();
-          if (now.getTime() > item.expiry) {
-            window.localStorage.removeItem(key);
-            return null;
-          }
-          return item.value;
-        };
+        /**
+         * Removes an item from IndexedDB.
+         * @param {string} key
+         */
+        async function removeItem(key) {
+          const db = await openDB();
+          const transaction = db.transaction(STORE_NAME, "readwrite");
+          const store = transaction.objectStore(STORE_NAME);
+
+          return new Promise((resolve, reject) => {
+            const request = store.delete(key);
+            request.onerror = (event) =>
+              reject("Error in removeItem: " + event.target.error);
+            request.onsuccess = () => resolve();
+          });
+        }
 
         /**
          * Takes a hex string (e.g. "e4567abc") and returns an array buffer (Uint8Array)
@@ -973,6 +1033,7 @@
          *********************************************************************************************/
 
         return {
+          openDB,
           initEmbeddedKey,
           generateTargetKey,
           setItemWithExpiry,
@@ -1048,7 +1109,7 @@
               if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
                 TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
                 try {
-                  TKHQ.onResetEmbeddedKey();
+                  await TKHQ.onResetEmbeddedKey();
                 } catch (e) {
                   TKHQ.sendMessageUp("ERROR", e.toString());
                 }
