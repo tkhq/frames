@@ -1067,6 +1067,8 @@
       // In memory spot for the credential to live. We do NOT persist it to localStorage.
       var CREDENTIAL_BYTES = null;
 
+      await TKHQ.initEmbeddedKey();
+
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
@@ -1095,8 +1097,7 @@
               console.log("no perms", arg);
             }
           );
-          
-          await TKHQ.initEmbeddedKey();
+
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
