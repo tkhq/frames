@@ -1045,6 +1045,16 @@
                   TKHQ.sendMessageUp("ERROR", e.toString());
                 }
               }
+              if (event.data && event.data["type"] == "BATCH_STAMP_REQUEST") {
+                TKHQ.logMessage(
+                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
+                );
+                try {
+                  await onBatchStampRequest(event.data["value"]);
+                } catch (e) {
+                  TKHQ.sendMessageUp("ERROR", e.toString());
+                }
+              }
               if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
                 TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
                 try {
@@ -1197,6 +1207,57 @@
           JSON.stringify(stamp)
         );
         TKHQ.sendMessageUp("STAMP", stampHeaderValue);
+      };
+      /**
+       * Function triggered when BATCH_STAMP_REQUEST event is received.
+       * @param {string} payloads to sign
+       */
+      var onBatchStampRequest = async function (payloads) {
+        if (CREDENTIAL_BYTES === null) {
+          throw new Error(
+            "cannot sign payload without credential. Credential bytes are null"
+          );
+        }
+        var key = await TKHQ.importCredential(CREDENTIAL_BYTES);
+
+        // This is a bit of a pain, but we need to go through this:
+        // - Key needs to be exported to JWK first
+        // - Then imported without the private "d" component, and exported to get the public key
+        //   ^^ (that's what `p256JWKPrivateToPublic` does)
+        // - Finally, compress the public key.
+        var jwkKey = await crypto.subtle.exportKey("jwk", key);
+        var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
+        var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
+
+        var stamps = payloads.map(async (p) => {
+          var signatureIeee1363 = await window.crypto.subtle.sign(
+            {
+              name: "ECDSA",
+              hash: { name: "SHA-256" },
+            },
+            key,
+            new TextEncoder().encode(p)
+          );
+
+          var derSignature = TKHQ.convertEcdsaIeee1363ToDer(
+            new Uint8Array(signatureIeee1363)
+          );
+          var derSignatureHexString = TKHQ.uint8arrayToHexString(derSignature);
+
+          var stamp = {
+            publicKey: TKHQ.uint8arrayToHexString(compressedPublicKey),
+            scheme: "SIGNATURE_SCHEME_TK_API_P256",
+            signature: derSignatureHexString,
+          };
+
+          var stampHeaderValue = TKHQ.stringToBase64urlString(
+            JSON.stringify(stamp)
+          );
+
+          return stampHeaderValue;
+        });
+
+        TKHQ.sendMessageUp("BATCH_STAMP", stamps);
       };
 
       /**
