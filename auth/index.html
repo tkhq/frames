@@ -157,6 +157,7 @@
         /** constant for LocalStorage */
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
+        var parentFrameMessageChannelPort = null;
 
         /**
          * Creates a new public/private key pair and persists it in localStorage
@@ -169,6 +170,10 @@
           } else {
             // Nothing to do, key is correctly initialized!
           }
+        };
+
+        var setParentFrameMessageChannelPort = function (port) {
+          parentFrameMessageChannelPort = port;
         };
 
         /*
@@ -503,19 +508,16 @@
         };
 
         /**
-         * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+         * Function to send a message. If this page is embedded as an iframe we'll use the MessageChannel port from the parent frame. Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
          * @param value message value
          */
         var sendMessageUp = function (type, value) {
-          if (window.top !== null) {
-            window.top.postMessage(
-              {
-                type: type,
-                value: value,
-              },
-              "*"
-            );
+          if (parentFrameMessageChannelPort) {
+            parentFrameMessageChannelPort.postMessage({
+              type: type,
+              value: value,
+            })
           }
           logMessage(`⬆️ Sent message ${type}: ${value}`);
         };
@@ -986,6 +988,7 @@
           p256JWKPrivateToPublic,
           convertEcdsaIeee1363ToDer,
           sendMessageUp,
+          setParentFrameMessageChannelPort,
           logMessage,
           base64urlEncode,
           base64urlDecode,
@@ -1006,56 +1009,53 @@
       // In memory spot for the credential to live. We do NOT persist it to localStorage.
       var CREDENTIAL_BYTES = null;
 
-      document.addEventListener(
-        "DOMContentLoaded",
-        async function () {
+      // persist the MessageChannel object so we can use it to communicate with the parent window
+      var iframeMessagePort = null;
+
+      window.addEventListener("message", async function (event) {
+        if (event.ports?.[0]) {
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = async function (event) {
+            if (event.data && event.data["type"] == "INJECT_CREDENTIAL_BUNDLE") {
+              TKHQ.logMessage(
+                `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
+              );
+              try {
+                await onInjectBundle(event.data["value"]);
+              } catch (e) {
+                TKHQ.sendMessageUp("ERROR", e.toString());
+              }
+            }
+            if (event.data && event.data["type"] == "STAMP_REQUEST") {
+              TKHQ.logMessage(
+                `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
+              );
+              try {
+                await onStampRequest(event.data["value"]);
+              } catch (e) {
+                TKHQ.sendMessageUp("ERROR", e.toString());
+              }
+            }
+            if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+              TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+              try {
+                TKHQ.onResetEmbeddedKey();
+              } catch (e) {
+                TKHQ.sendMessageUp("ERROR", e.toString());
+              }
+            }
+          };
+
+          TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+        
           await TKHQ.initEmbeddedKey();
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
           document.getElementById("embedded-key").value = targetPubHex;
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
-          // TODO: find a way to filter messages and ensure they're coming from the parent window?
-          // We do not want to arbitrarily receive messages from all origins.
-          window.addEventListener(
-            "message",
-            async function (event) {
-              if (
-                event.data &&
-                (event.data["type"] == "INJECT_CREDENTIAL_BUNDLE" ||
-                  event.data["type"] == "INJECT_RECOVERY_BUNDLE")
-              ) {
-                TKHQ.logMessage(
-                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
-                );
-                try {
-                  await onInjectBundle(event.data["value"]);
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (event.data && event.data["type"] == "STAMP_REQUEST") {
-                TKHQ.logMessage(
-                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
-                );
-                try {
-                  await onStampRequest(event.data["value"]);
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
-                TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-                try {
-                  TKHQ.onResetEmbeddedKey();
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-            },
-            false
-          );
+          // iframe is ready to receive messages
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
           /**
            * Event handlers to power the recovery and auth flows in standalone mode
@@ -1092,9 +1092,8 @@
             },
             false
           );
-        },
-        false
-      );
+        }
+      });
 
       /**
        * Function triggered when INJECT_CREDENTIAL_BUNDLE event is received.
