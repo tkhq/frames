@@ -177,6 +177,8 @@
         /** 48 hours in milliseconds */
         const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 
+        var parentFrameMessageChannelPort = null;
+
         /*
          * Loads the quorum public key as a CryptoKey.
          */
@@ -240,6 +242,10 @@
             TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
           );
         }
+
+        function setParentFrameMessageChannelPort(port) {
+          parentFrameMessageChannelPort = port;
+        };
 
         /**
          * Resets the current embedded private key JWK.
@@ -480,13 +486,18 @@
         }
 
         /**
-         * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+         * Function to send a message. If this page is embedded as an iframe we'll use window.parent.postMessage. Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
          * @param value message value
          */
         function sendMessageUp(type, value) {
-          if (window.top !== null) {
-            window.top.postMessage(
+          if (parentFrameMessageChannelPort) {
+            parentFrameMessageChannelPort.postMessage({
+              type: type,
+              value: value,
+            })
+          } else if (window.parent !== window) {
+            window.parent.postMessage(
               {
                 type: type,
                 value: value,
@@ -814,6 +825,7 @@
           logMessage,
           uint8arrayFromHexString,
           uint8arrayToHexString,
+          setParentFrameMessageChannelPort,
           normalizePadding,
           fromDerSignature,
           additionalAssociatedData,
@@ -830,6 +842,107 @@
     <script type="module">
       // Vendor @hpke/core from https://esm.sh/@hpke/core@1.2.7
       import * as hpke from "./hpke-core.js";
+
+      // persist the MessageChannel object so we can use it to communicate with the parent window
+      var iframeMessagePort = null;
+
+      /**
+       * Event handlers to power the export flow in standalone mode
+       * Instead of receiving events from the parent page, forms trigger them.
+       * This is useful for debugging as well.
+       */
+      var addDOMEventListeners = function () {   
+        document.getElementById("inject-key").addEventListener(
+          "click",
+          async (e) => {
+            e.preventDefault();
+            window.postMessage({
+              type: "INJECT_KEY_EXPORT_BUNDLE",
+              value: document.getElementById("key-export-bundle").value,
+              keyFormat: document.getElementById("key-export-format").value,
+              organizationId: document.getElementById("key-organization-id")
+                .value,
+            });
+          },
+          false
+        );
+        document.getElementById("inject-wallet").addEventListener(
+          "click",
+          async (e) => {
+            e.preventDefault();
+            window.postMessage({
+              type: "INJECT_WALLET_EXPORT_BUNDLE",
+              value: document.getElementById("wallet-export-bundle").value,
+              organizationId: document.getElementById(
+                "wallet-organization-id"
+              ).value,
+            });
+          },
+          false
+        );
+        document.getElementById("reset").addEventListener(
+          "click",
+          async (e) => {
+            e.preventDefault();
+            window.postMessage({ type: "RESET_EMBEDDED_KEY" });
+          },
+          false
+        );
+      }
+
+      /**
+       * messageEventListener is the event listener for messages sent to the iframe.
+       */
+       var messageEventListener = async function(event) {
+        if (
+          event.data &&
+          event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE"
+        ) {
+          TKHQ.logMessage(
+            `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
+          );
+          try {
+            await onInjectKeyBundle(
+              event.data["value"],
+              event.data["keyFormat"],
+              event.data["organizationId"]
+            );
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (
+          event.data &&
+          event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE"
+        ) {
+          TKHQ.logMessage(
+            `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
+          );
+          try {
+            await onInjectWalletBundle(
+              event.data["value"],
+              event.data["organizationId"]
+            );
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          try {
+            TKHQ.onResetEmbeddedKey();
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+          try {
+            await onApplySettings(event.data["value"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+      }
 
       document.addEventListener(
         "DOMContentLoaded",
@@ -848,107 +961,33 @@
           document.getElementById("embedded-key").value = targetPubHex;
           TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
-          // TODO: find a way to filter messages and ensure they're coming from the parent window?
-          // We do not want to arbitrarily receive messages from all origins.
           window.addEventListener(
             "message",
-            async function (event) {
-              if (
-                event.data &&
-                event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE"
-              ) {
-                TKHQ.logMessage(
-                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
-                );
-                try {
-                  await onInjectKeyBundle(
-                    event.data["value"],
-                    event.data["keyFormat"],
-                    event.data["organizationId"]
-                  );
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (
-                event.data &&
-                event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE"
-              ) {
-                TKHQ.logMessage(
-                  `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
-                );
-                try {
-                  await onInjectWalletBundle(
-                    event.data["value"],
-                    event.data["organizationId"]
-                  );
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
-                TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-                try {
-                  TKHQ.onResetEmbeddedKey();
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (event.data && event.data["type"] == "APPLY_SETTINGS") {
-                try {
-                  await onApplySettings(event.data["value"]);
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-            },
+            messageEventListener,
             false
           );
 
-          /**
-           * Event handlers to power the export flow in standalone mode
-           * Instead of receiving events from the parent page, forms trigger them.
-           * This is useful for debugging as well.
-           */
-          document.getElementById("inject-key").addEventListener(
-            "click",
-            async (e) => {
-              e.preventDefault();
-              window.postMessage({
-                type: "INJECT_KEY_EXPORT_BUNDLE",
-                value: document.getElementById("key-export-bundle").value,
-                keyFormat: document.getElementById("key-export-format").value,
-                organizationId: document.getElementById("key-organization-id")
-                  .value,
-              });
-            },
-            false
-          );
-          document.getElementById("inject-wallet").addEventListener(
-            "click",
-            async (e) => {
-              e.preventDefault();
-              window.postMessage({
-                type: "INJECT_WALLET_EXPORT_BUNDLE",
-                value: document.getElementById("wallet-export-bundle").value,
-                organizationId: document.getElementById(
-                  "wallet-organization-id"
-                ).value,
-              });
-            },
-            false
-          );
-          document.getElementById("reset").addEventListener(
-            "click",
-            async (e) => {
-              e.preventDefault();
-              window.postMessage({ type: "RESET_EMBEDDED_KEY" });
-            },
-            false
-          );
+          addDOMEventListeners();
         },
         false
       );
+
+      window.addEventListener("message", async function (event) {
+        /** 
+         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event
+         * and persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+        */
+        if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
+          // remove the message event listener that was added in the DOMContentLoaded event
+          window.removeEventListener("message", messageEventListener, false);
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = messageEventListener
+
+          TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+        }
+      });
 
       /**
        * Hide every HTML element in <body> except any <script> elements.
