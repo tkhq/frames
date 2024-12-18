@@ -45,6 +45,8 @@
         const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
         const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 
+        var parentFrameMessageChannelPort = null;
+
         /*
          * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
          */
@@ -240,6 +242,10 @@
               return uint8arrayFromHexString(privateKey);
           }
         }
+
+        function setParentFrameMessageChannelPort(port) {
+          parentFrameMessageChannelPort = port;
+        };
 
         /**
          * Function to normalize padding of byte array with 0's to a target length
@@ -487,13 +493,18 @@
         }
 
         /**
-         * Function to send a message. If this page is embedded as an iframe we'll use window.top.postMessage. Otherwise we'll display it in the DOM.
+         * Function to send a message. If this page is embedded as an iframe we'll use window.parent.postMessage. Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
          * @param value message value
          */
         function sendMessageUp(type, value) {
-          if (window.top !== null) {
-            window.top.postMessage(
+          if (parentFrameMessageChannelPort) {
+            parentFrameMessageChannelPort.postMessage({
+              type: type,
+              value: value,
+            })
+          } else if (window.parent !== window) {
+            window.parent.postMessage(
               {
                 type: type,
                 value: value,
@@ -515,6 +526,7 @@
           uint8arrayToHexString,
           base58Decode,
           decodeKey,
+          setParentFrameMessageChannelPort,
           normalizePadding,
           fromDerSignature,
           additionalAssociatedData,
@@ -529,6 +541,54 @@
       // Vendor @hpke/core from https://esm.sh/@hpke/core@1.2.7
       import * as hpke from "./hpke-core.js";
 
+      // persist the MessageChannel object so we can use it to communicate with the parent window
+      var iframeMessagePort = null;
+
+      /**
+       * messageEventListener is the event listener for messages sent to the iframe.
+       */
+      var messageEventListener = async function(event) {
+        if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
+          try {
+            await onInjectImportBundle(
+              event.data["value"],
+              event.data["organizationId"],
+              event.data["userId"]
+            );
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (
+          event.data &&
+          event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE"
+        ) {
+          try {
+            await onExtractWalletEncryptedBundle();
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (
+          event.data &&
+          event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE"
+        ) {
+          try {
+            await onExtractKeyEncryptedBundle(event.data["keyFormat"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "APPLY_SETTINGS") {
+          try {
+            await onApplySettings(event.data["value"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+      }
+
+      // maintain for backwards compatibility
       document.addEventListener(
         "DOMContentLoaded",
         async () => {
@@ -543,55 +603,32 @@
           // In the case of import, this public key is not used because the client encrypts messages
           // to the server's public key.
           TKHQ.sendMessageUp("PUBLIC_KEY_READY", "");
-          // TODO: find a way to filter messages and ensure they're coming from the parent window?
-          // We do not want to arbitrarily receive messages from all origins.
+
           window.addEventListener(
             "message",
-            async function (event) {
-              if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
-                try {
-                  await onInjectImportBundle(
-                    event.data["value"],
-                    event.data["organizationId"],
-                    event.data["userId"]
-                  );
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (
-                event.data &&
-                event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE"
-              ) {
-                try {
-                  await onExtractWalletEncryptedBundle();
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (
-                event.data &&
-                event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE"
-              ) {
-                try {
-                  await onExtractKeyEncryptedBundle(event.data["keyFormat"]);
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-              if (event.data && event.data["type"] == "APPLY_SETTINGS") {
-                try {
-                  await onApplySettings(event.data["value"]);
-                } catch (e) {
-                  TKHQ.sendMessageUp("ERROR", e.toString());
-                }
-              }
-            },
+            messageEventListener,
             false
           );
         },
         false
       );
+
+      window.addEventListener("message", async function (event) {
+        /** 
+         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event
+         * and persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+        */
+        if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
+          // remove the message event listener that was added in the DOMContentLoaded event
+          window.removeEventListener("message", messageEventListener, false);
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = messageEventListener
+
+          TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+        }
+      });
 
       /**
        * Function triggered when INJECT_IMPORT_BUNDLE event is received.
