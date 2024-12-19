@@ -157,7 +157,7 @@
         /** constant for LocalStorage */
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
-        
+
         var parentFrameMessageChannelPort = null;
 
         /**
@@ -509,7 +509,14 @@
         };
 
         /**
-         * Function to send a message. If this page is embedded as an iframe we'll use the MessageChannel port from the parent frame. Otherwise we'll display it in the DOM.
+         * Function to send a message. 
+         * 
+         * If this page is embedded as an iframe we'll send a postMessage
+         * in one of two ways depending on the version of @turnkey/iframe-stamper:
+         *   1. newer versions (>=v2.1.0) pass a MessageChannel MessagePort from the parent frame for postMessages. 
+         *   2. older versions (<v2.1.0) still use the contentWindow so we will postMessage to the window.parent for backwards compatibility.
+         * 
+         * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
          * @param value message value
          */
@@ -1022,7 +1029,7 @@
       var iframeMessagePort = null;
 
       /**
-       * Event handlers to power the recovery and auth flows in standalone mode
+       * DOM Event handlers to power the recovery and auth flows in standalone mode
        * Instead of receiving events from the parent page, forms trigger them.
        * This is useful for debugging as well.
        */
@@ -1060,7 +1067,7 @@
       }
 
       /**
-       * messageEventListener is the event listener for messages sent to the iframe.
+       * Message Event Handlers to process messages from the parent frame
        */
       var messageEventListener = async function(event) {
         if (
@@ -1097,7 +1104,9 @@
         }
       }
 
-      // maintain for backwards compatibility
+      /**
+       * Initialize the embedded key and set up the DOM and message event listeners
+       */
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
@@ -1124,8 +1133,8 @@
         /** 
          * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
          * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event
-         * and persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
         */
         if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
           // remove the message event listener that was added in the DOMContentLoaded event
