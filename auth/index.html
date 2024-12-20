@@ -1143,6 +1143,9 @@
           iframeMessagePort.onmessage = messageEventListener
 
           TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+
+          // gets the embedded key value that was created in the DOMContentLoaded handler and sends it to the parent frame
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", document.getElementById("embedded-key").value);
         }
       });
 

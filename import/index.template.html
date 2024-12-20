@@ -606,18 +606,19 @@
           if (styleSettings) {
             TKHQ.applySettings(styleSettings);
           }
-          // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
-          // init() waits for a public key to be initialized that can be used to send to the server
-          // which will encrypt messages to this public key.
-          // In the case of import, this public key is not used because the client encrypts messages
-          // to the server's public key.
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", "");
 
           window.addEventListener(
             "message",
             messageEventListener,
             false
           );
+
+          // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
+          // init() waits for a public key to be initialized that can be used to send to the server
+          // which will encrypt messages to this public key.
+          // In the case of import, this public key is not used because the client encrypts messages
+          // to the server's public key.
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", "");
         },
         false
       );
@@ -636,6 +637,13 @@
           iframeMessagePort.onmessage = messageEventListener
 
           TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+
+          // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
+          // init() waits for a public key to be initialized that can be used to send to the server
+          // which will encrypt messages to this public key.
+          // In the case of import, this public key is not used because the client encrypts messages
+          // to the server's public key.
+          sendMessageUp("PUBLIC_KEY_READY", "")
         }
       });
 

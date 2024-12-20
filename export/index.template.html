@@ -969,7 +969,6 @@
           );
           const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
           document.getElementById("embedded-key").value = targetPubHex;
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
           window.addEventListener(
             "message",
@@ -978,6 +977,8 @@
           );
 
           addDOMEventListeners();
+
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
         },
         false
       );
@@ -996,6 +997,9 @@
           iframeMessagePort.onmessage = messageEventListener
 
           TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+
+          // gets the embedded key value that was created in the DOMContentLoaded handler and sends it to the parent frame
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", document.getElementById("embedded-key").value);
         }
       });
 
