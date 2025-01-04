@@ -1285,35 +1285,38 @@
         var publicKey = await TKHQ.p256JWKPrivateToPublic(jwkKey);
         var compressedPublicKey = TKHQ.compressRawPublicKey(publicKey);
 
-        var stamps = payloads.map(async (p) => {
-          var signatureIeee1363 = await window.crypto.subtle.sign(
-            {
-              name: "ECDSA",
-              hash: { name: "SHA-256" },
-            },
-            key,
-            new TextEncoder().encode(p)
-          );
+        var stamps = await Promise.all(
+          payloads.map(async (p) => {
+            var signatureIeee1363 = await window.crypto.subtle.sign(
+              {
+                name: "ECDSA",
+                hash: { name: "SHA-256" },
+              },
+              key,
+              new TextEncoder().encode(p)
+            );
 
-          var derSignature = TKHQ.convertEcdsaIeee1363ToDer(
-            new Uint8Array(signatureIeee1363)
-          );
-          var derSignatureHexString = TKHQ.uint8arrayToHexString(derSignature);
+            var derSignature = TKHQ.convertEcdsaIeee1363ToDer(
+              new Uint8Array(signatureIeee1363)
+            );
+            var derSignatureHexString =
+              TKHQ.uint8arrayToHexString(derSignature);
 
-          var stamp = {
-            publicKey: TKHQ.uint8arrayToHexString(compressedPublicKey),
-            scheme: "SIGNATURE_SCHEME_TK_API_P256",
-            signature: derSignatureHexString,
-          };
+            var stamp = {
+              publicKey: TKHQ.uint8arrayToHexString(compressedPublicKey),
+              scheme: "SIGNATURE_SCHEME_TK_API_P256",
+              signature: derSignatureHexString,
+            };
 
-          var stampHeaderValue = TKHQ.stringToBase64urlString(
-            JSON.stringify(stamp)
-          );
+            var stampHeaderValue = TKHQ.stringToBase64urlString(
+              JSON.stringify(stamp)
+            );
 
-          return stampHeaderValue;
-        });
+            return stampHeaderValue;
+          })
+        );
 
-        TKHQ.sendMessageUp("BATCH_STAMP", stamps);
+        TKHQ.sendMessageUp("BATCH_STAMP", JSON.stringify(stamps));
       };
 
       /**
