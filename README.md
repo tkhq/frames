@@ -55,9 +55,9 @@ Clone the `sdk` repo.
 git clone git@github.com:tkhq/sdk.git
 ```
 
-Follow the README.md for the `wallet-export` [example](https://github.com/tkhq/sdk/tree/main/examples/wallet-export). Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/index.template"` in the example's environment variables configuration. The `wallet-export` example embeds this page as an iframe.
+Follow the README.md for the `wallet-import-export` [example](https://github.com/tkhq/sdk/blob/main/examples/wallet-import-export). Set the `NEXT_PUBLIC_EXPORT_IFRAME_URL="http://localhost:3000/index.template"` in the example's environment variables configuration. The `wallet-import-export` example embeds this page as an iframe.
 ```sh
-cd sdk/examples/wallet-export
+cd sdk/examples/wallet-import-export
 ```
 
 # Running Local Auth

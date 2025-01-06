@@ -853,6 +853,10 @@
       // persist the MessageChannel object so we can use it to communicate with the parent window
       var iframeMessagePort = null;
 
+      // controllers to remove event listeners
+      const messageListenerController = new AbortController();
+      const turnkeyInitController = new AbortController();
+
       /**
        * DOM Event handlers to power the export flow in standalone mode
        * Instead of receiving events from the parent page, forms trigger them.
@@ -956,12 +960,7 @@
        */
       document.addEventListener(
         "DOMContentLoaded",
-        async () => {
-          // If styles are saved in local storage, sanitize and apply them.
-          const styleSettings = TKHQ.getSettings();
-          if (styleSettings) {
-            TKHQ.applySettings(styleSettings);
-          }
+        async function () {
           await TKHQ.initEmbeddedKey();
           const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
@@ -973,16 +972,24 @@
           window.addEventListener(
             "message",
             messageEventListener,
-            false
+            { capture: false, signal: messageListenerController.signal }
           );
 
           addDOMEventListeners();
 
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+          if (!messageListenerController.signal.aborted) {
+            // If styles are saved in local storage, sanitize and apply them.
+            const styleSettings = TKHQ.getSettings();
+            if (styleSettings) {
+              TKHQ.applySettings(styleSettings);
+            }
+            TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+          }
         },
         false
       );
 
+      const turnkeyInitController = new AbortController();
       window.addEventListener("message", async function (event) {
         /** 
          * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
@@ -992,16 +999,25 @@
         */
         if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
           // remove the message event listener that was added in the DOMContentLoaded event
-          window.removeEventListener("message", messageEventListener, false);
+          messageListenerController.abort();
+
           iframeMessagePort = event.ports[0];
           iframeMessagePort.onmessage = messageEventListener
 
           TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
+          await TKHQ.initEmbeddedKey();
+          var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+          var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+          var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+          document.getElementById("embedded-key").value = targetPubHex;
           // gets the embedded key value that was created in the DOMContentLoaded handler and sends it to the parent frame
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", document.getElementById("embedded-key").value);
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+
+          // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
+          turnkeyInitController.abort();
         }
-      });
+      }, { signal: turnkeyInitController.signal });
 
       /**
        * Hide every HTML element in <body> except any <script> elements.
