@@ -496,13 +496,21 @@
          * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
          * @param value message value
+         * @param requestId serves as an idempotency key to match incoming requests. Backwards compatible: if not provided, it isn't passed in.
          */
-        function sendMessageUp(type, value) {
+        function sendMessageUp(type, value, requestId) {
+          const message = {
+            type: type,
+            value: value,
+          };
+
+          // Only include requestId if it was provided
+          if (requestId) {
+            message.requestId = requestId;
+          }
+
           if (parentFrameMessageChannelPort) {
-            parentFrameMessageChannelPort.postMessage({
-              type: type,
-              value: value,
-            });
+            parentFrameMessageChannelPort.postMessage(message);
           } else if (window.parent !== window) {
             window.parent.postMessage(
               {
@@ -912,10 +920,11 @@
             await onInjectKeyBundle(
               event.data["value"],
               event.data["keyFormat"],
-              event.data["organizationId"]
+              event.data["organizationId"],
+              event.data["requestId"]
             );
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(),  event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE") {
@@ -925,23 +934,25 @@
           try {
             await onInjectWalletBundle(
               event.data["value"],
-              event.data["organizationId"]
+              event.data["organizationId"],
+              event.data["requestId"]
             );
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
-        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          try {
-            TKHQ.onResetEmbeddedKey();
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "APPLY_SETTINGS") {
           try {
-            await onApplySettings(event.data["value"]);
+            await onApplySettings(event.data["value"], event.data["requestId"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+          }
+        }
+        // This is localized just to the button on the actual page
+        if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          try {
+            TKHQ.onResetEmbeddedKey();
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -981,25 +992,23 @@
         false
       );
 
-      window.addEventListener(
-        "message",
-        async function (event) {
-          /**
-           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-           */
-          if (
-            event.data &&
-            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-            event.ports?.[0]
-          ) {
-            // remove the message event listener that was added in the DOMContentLoaded event
-            messageListenerController.abort();
+      window.addEventListener("message", async function (event) {
+        /**
+         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+         */
+        if (
+          event.data &&
+          event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+          event.ports?.[0]
+        ) {
+          // remove the message event listener that was added in the DOMContentLoaded event
+          messageListenerController.abort();
 
-            iframeMessagePort = event.ports[0];
-            iframeMessagePort.onmessage = messageEventListener;
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = messageEventListener;
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
@@ -1143,8 +1152,9 @@
        * @param {string} bundle
        * @param {string} keyFormat
        * @param {string} organizationId
+       * @param {string} requestId
        */
-      async function onInjectKeyBundle(bundle, keyFormat, organizationId) {
+      async function onInjectKeyBundle(bundle, keyFormat, organizationId, requestId) {
         // Decrypt the export bundle
         const keyBytes = await decryptBundle(bundle, organizationId);
 
@@ -1172,15 +1182,16 @@
         displayKey(key);
 
         // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
       }
 
       /**
        * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
        * @param {string} bundle
        * @param {string} organizationId
+       * @param {string} requestId
        */
-      async function onInjectWalletBundle(bundle, organizationId) {
+      async function onInjectWalletBundle(bundle, organizationId, requestId) {
         // Decrypt the export bundle
         const walletBytes = await decryptBundle(bundle, organizationId);
 
@@ -1194,7 +1205,7 @@
         displayKey(wallet.mnemonic);
 
         // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
       }
 
       /**
@@ -1202,8 +1213,10 @@
        * For now, the only settings that can be applied are for "styles".
        * Persist them in local storage so they can be applied on every
        * page load.
+       * @param {string} settings: JSON-stringified settings
+       * @param {string} requestId
        */
-      async function onApplySettings(settings) {
+      async function onApplySettings(settings, requestId) {
         // Apply settings
         const validSettings = TKHQ.applySettings(settings);
 
@@ -1211,7 +1224,7 @@
         TKHQ.setSettings(validSettings);
 
         // Send up SETTINGS_APPLIED message
-        TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
+        TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
       }
 
       /**

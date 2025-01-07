@@ -504,13 +504,21 @@
          * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
          * @param value message value
+         * @param requestId serves as an idempotency key to match incoming requests. Backwards compatible: if not provided, it isn't passed in.
          */
-        function sendMessageUp(type, value) {
+        function sendMessageUp(type, value, requestId) {
+          const message = {
+            type: type,
+            value: value,
+          };
+
+          // Only include requestId if it was provided
+          if (requestId) {
+            message.requestId = requestId;
+          }
+
           if (parentFrameMessageChannelPort) {
-            parentFrameMessageChannelPort.postMessage({
-              type: type,
-              value: value,
-            });
+            parentFrameMessageChannelPort.postMessage(message);
           } else if (window.parent !== window) {
             window.parent.postMessage(
               {
@@ -565,10 +573,11 @@
             await onInjectImportBundle(
               event.data["value"],
               event.data["organizationId"],
-              event.data["userId"]
+              event.data["userId"],
+              event.data["requestId"]
             );
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (
@@ -576,9 +585,9 @@
           event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE"
         ) {
           try {
-            await onExtractWalletEncryptedBundle();
+            await onExtractWalletEncryptedBundle(event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (
@@ -586,16 +595,19 @@
           event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE"
         ) {
           try {
-            await onExtractKeyEncryptedBundle(event.data["keyFormat"]);
+            await onExtractKeyEncryptedBundle(
+              event.data["keyFormat"],
+              event.data["requestId"]
+            );
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "APPLY_SETTINGS") {
           try {
-            await onApplySettings(event.data["value"]);
+            await onApplySettings(event.data["value"], event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
       };
@@ -628,25 +640,23 @@
         false
       );
 
-      window.addEventListener(
-        "message",
-        async function (event) {
-          /**
-           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-           */
-          if (
-            event.data &&
-            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-            event.ports?.[0]
-          ) {
-            // remove the message event listener that was added in the DOMContentLoaded event
-            messageListenerController.abort();
+      window.addEventListener("message", async function (event) {
+        /**
+         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+         */
+        if (
+          event.data &&
+          event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+          event.ports?.[0]
+        ) {
+          // remove the message event listener that was added in the DOMContentLoaded event
+          messageListenerController.abort();
 
-            iframeMessagePort = event.ports[0];
-            iframeMessagePort.onmessage = messageEventListener;
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = messageEventListener;
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
@@ -672,8 +682,9 @@
        * Example bundle: {"targetPublic":"0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f","targetPublicSignature":"3045022100cefc333c330c9fa300d1aa10a439a76539b4d6967301638ab9edc9fd9468bfdb0220339bba7e2b00b45d52e941d068ecd3bfd16fd1926da69dd7769893268990d62f","enclaveQuorumPublic":"04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569"}
        * @param {string} organizationId
        * @param {string} userId
+       * @param {string} requestId
        */
-      async function onInjectImportBundle(bundle, organizationId, userId) {
+      async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
         let targetPublicBuf;
         let verified;
 
@@ -757,7 +768,7 @@
         TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
 
         // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
       }
 
       /**
@@ -768,8 +779,9 @@
        * `plaintext` textarea element. Upon successful encryption, sends
        * an `encrypted_bundle` containing the ciphertext and encapped public key.
        * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
+       * @param {string} requestId
        */
-      async function onExtractWalletEncryptedBundle() {
+      async function onExtractWalletEncryptedBundle(requestId) {
         // Get target embedded key from previous step (onInjectImportBundle)
         const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
         if (targetPublicKeyJwk == null) {
@@ -793,7 +805,7 @@
         TKHQ.resetTargetEmbeddedKey();
 
         // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle);
+        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
       }
 
       /**
@@ -804,8 +816,10 @@
        * `plaintext` textarea element. Upon successful encryption, sends
        * an `encrypted_bundle` containing the ciphertext and encapped public key.
        * Example bundle: {"encappedPublic":"0497f33f3306f67f4402d4824e15b63b04786b6558d417aac2fef69051e46fa7bfbe776b142e4ded4f02097617a7588e93c53b71f900a4a8831a31be6f95e5f60f","ciphertext":"c17c3085505f3c094f0fa61791395b83ab1d8c90bdf9f12a64fc6e2e9cba266beb528f65c88bd933e36e6203752a9b63e6a92290a0ab6bf0ed591cf7bfa08006001e2cc63870165dc99ec61554ffdc14dea7d567e62cceed29314ae6c71a013843f5c06146dee5bf9c1d"}
+       * @param {string} keyFormat
+       * @param {string} requestId
        */
-      async function onExtractKeyEncryptedBundle(keyFormat) {
+      async function onExtractKeyEncryptedBundle(keyFormat, requestId) {
         // Get target embedded key from previous step (onInjectImportBundle)
         const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
         if (targetPublicKeyJwk == null) {
@@ -829,7 +843,7 @@
         TKHQ.resetTargetEmbeddedKey();
 
         // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle);
+        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
       }
 
       /**
@@ -837,6 +851,8 @@
        * For now, the only settings that can be applied are for "styles".
        * Persist them in local storage so they can be applied on every
        * page load.
+       * @param {string} settings: JSON-stringified settings
+       * @param {string} requestId
        */
       async function onApplySettings(settings) {
         // Apply settings
@@ -846,7 +862,7 @@
         TKHQ.setSettings(validSettings);
 
         // Send up SETTINGS_APPLIED message
-        TKHQ.sendMessageUp("SETTINGS_APPLIED", true);
+        TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
       }
 
       async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {

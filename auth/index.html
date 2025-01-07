@@ -519,13 +519,21 @@
          * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
          * @param value message value
+         * @param requestId serves as an idempotency key to match incoming requests. Backwards compatible: if not provided, it isn't passed in.
          */
-        var sendMessageUp = function (type, value) {
+        var sendMessageUp = function (type, value, requestId) {
+          const message = {
+            type: type,
+            value: value,
+          };
+
+          // Only include requestId if it was provided
+          if (requestId) {
+            message.requestId = requestId;
+          }
+
           if (parentFrameMessageChannelPort) {
-            parentFrameMessageChannelPort.postMessage({
-              type: type,
-              value: value,
-            });
+            parentFrameMessageChannelPort.postMessage(message);
           } else if (window.parent !== window) {
             window.parent.postMessage(
               {
@@ -1038,6 +1046,7 @@
        * This is useful for debugging as well.
        */
       var addDOMEventListeners = function () {
+      var addDOMEventListeners = function () {
         document.getElementById("inject").addEventListener(
           "click",
           async function (e) {
@@ -1069,10 +1078,12 @@
           false
         );
       };
+      };
 
       /**
        * Message Event Handlers to process messages from the parent frame
        */
+      var messageEventListener = async function (event) {
       var messageEventListener = async function (event) {
         if (
           event.data &&
@@ -1083,9 +1094,9 @@
             `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
           );
           try {
-            await onInjectBundle(event.data["value"]);
+            await onInjectBundle(event.data["value"], event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "STAMP_REQUEST") {
@@ -1093,11 +1104,12 @@
             `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
           );
           try {
-            await onStampRequest(event.data["value"]);
+            await onStampRequest(event.data["value"], event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
+        // This is localized just to the button on the actual page
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
@@ -1106,6 +1118,7 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
+      };
       };
 
       /**
@@ -1132,25 +1145,23 @@
         false
       );
 
-      window.addEventListener(
-        "message",
-        async function (event) {
-          /**
-           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-           */
-          if (
-            event.data &&
-            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-            event.ports?.[0]
-          ) {
-            // remove the message event listener that was added in the DOMContentLoaded event
-            messageListenerController.abort();
+      window.addEventListener("message", async function (event) {
+        /**
+         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+         */
+        if (
+          event.data &&
+          event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+          event.ports?.[0]
+        ) {
+          // remove the message event listener that was added in the DOMContentLoaded event
+          messageListenerController.abort();
 
-            iframeMessagePort = event.ports[0];
-            iframeMessagePort.onmessage = messageEventListener;
+          iframeMessagePort = event.ports[0];
+          iframeMessagePort.onmessage = messageEventListener;
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
@@ -1176,8 +1187,9 @@
        * The `bundle` param is the concatenation of a public key and an encrypted payload, and then base64 encoded
        * Example: A6ZPGAlxBRZhjKWky4RpXnHVceGzJjTuBrzKvMGnIgZ3r6JD4D1iiSg_m-y_u0BgJKI397Xjn0wgu17w9wuRooEp-F38m4ql57FgQ7sX9nQA
        * @param {string} bundle
+       * @param {string} requestId
        */
-      var onInjectBundle = async function (bundle) {
+      var onInjectBundle = async function (bundle, requestId) {
         if (
           // Non-alphanumerical characters in base64url: - and _. These aren't in base58.
           bundle.indexOf("-") === -1 &&
@@ -1226,13 +1238,15 @@
         });
 
         CREDENTIAL_BYTES = new Uint8Array(credentialBytes);
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true);
+        TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
       };
+
       /**
        * Function triggered when STAMP_REQUEST event is received.
-       * @param {string} payload to sign
+       * @param {string} payload: payload to sign
+       * @param {string} requestId: idempotency key
        */
-      var onStampRequest = async function (payload) {
+      var onStampRequest = async function (payload, requestId) {
         if (CREDENTIAL_BYTES === null) {
           throw new Error(
             "cannot sign payload without credential. Credential bytes are null"
@@ -1271,7 +1285,7 @@
         var stampHeaderValue = TKHQ.stringToBase64urlString(
           JSON.stringify(stamp)
         );
-        TKHQ.sendMessageUp("STAMP", stampHeaderValue);
+        TKHQ.sendMessageUp("STAMP", stampHeaderValue, requestId);
       };
 
       /**
