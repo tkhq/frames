@@ -1010,7 +1010,7 @@
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
           document.getElementById("embedded-key").value = targetPubHex;
-          // gets the embedded key value that was created in the DOMContentLoaded handler and sends it to the parent frame
+
           TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
           // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
