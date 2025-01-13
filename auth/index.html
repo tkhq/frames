@@ -1028,6 +1028,10 @@
       // persist the MessageChannel object so we can use it to communicate with the parent window
       var iframeMessagePort = null;
 
+      // controllers to remove event listeners
+      const messageListenerController = new AbortController();
+      const turnkeyInitController = new AbortController();
+
       /**
        * DOM Event handlers to power the recovery and auth flows in standalone mode
        * Instead of receiving events from the parent page, forms trigger them.
@@ -1119,7 +1123,7 @@
           window.addEventListener(
             "message",
             messageEventListener,
-            false
+            { capture: false, signal: messageListenerController.signal }
           );
 
           addDOMEventListeners();
@@ -1138,16 +1142,25 @@
         */
         if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
           // remove the message event listener that was added in the DOMContentLoaded event
-          window.removeEventListener("message", messageEventListener, false);
+          messageListenerController.abort();
+
           iframeMessagePort = event.ports[0];
           iframeMessagePort.onmessage = messageEventListener
 
           TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
-          // gets the embedded key value that was created in the DOMContentLoaded handler and sends it to the parent frame
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", document.getElementById("embedded-key").value);
+          await TKHQ.initEmbeddedKey();
+          var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+          var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+          var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+          document.getElementById("embedded-key").value = targetPubHex;
+
+          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+          
+          // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
+          turnkeyInitController.abort()
         }
-      });
+      }, { signal: turnkeyInitController.signal });
 
       /**
        * Function triggered when INJECT_CREDENTIAL_BUNDLE event is received.
