@@ -245,7 +245,7 @@
 
         function setParentFrameMessageChannelPort(port) {
           parentFrameMessageChannelPort = port;
-        };
+        }
 
         /**
          * Function to normalize padding of byte array with 0's to a target length
@@ -384,7 +384,7 @@
           const publicSignatureBuf = fromDerSignature(publicSignature);
           const signedDataBuf = uint8arrayFromHexString(signedData);
           return await crypto.subtle.verify(
-            { name: "ECDSA", namedCurve: "P-256", hash: { name: "SHA-256" } },
+            { name: "ECDSA", hash: "SHA-256" },
             quorumKey,
             publicSignatureBuf,
             signedDataBuf
@@ -494,13 +494,13 @@
         }
 
         /**
-         * Function to send a message. 
-         * 
+         * Function to send a message.
+         *
          * If this page is embedded as an iframe we'll send a postMessage
          * in one of two ways depending on the version of @turnkey/iframe-stamper:
-         *   1. newer versions (>=v2.1.0) pass a MessageChannel MessagePort from the parent frame for postMessages. 
+         *   1. newer versions (>=v2.1.0) pass a MessageChannel MessagePort from the parent frame for postMessages.
          *   2. older versions (<v2.1.0) still use the contentWindow so we will postMessage to the window.parent for backwards compatibility.
-         * 
+         *
          * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED" or "BUNDLE_INJECTED"
          * @param value message value
@@ -510,7 +510,7 @@
             parentFrameMessageChannelPort.postMessage({
               type: type,
               value: value,
-            })
+            });
           } else if (window.parent !== window) {
             window.parent.postMessage(
               {
@@ -559,7 +559,7 @@
       /**
        * Message Event Handlers to process messages from the parent frame
        */
-      var messageEventListener = async function(event) {
+      var messageEventListener = async function (event) {
         if (event.data && event.data["type"] == "INJECT_IMPORT_BUNDLE") {
           try {
             await onInjectImportBundle(
@@ -598,7 +598,7 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-      }
+      };
 
       /**
        * Broadcast that the frame is ready and set up the message event listeners
@@ -606,11 +606,10 @@
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
-          window.addEventListener(
-            "message",
-            messageEventListener,
-            { capture: false, signal: messageListenerController.signal }
-          );
+          window.addEventListener("message", messageEventListener, {
+            capture: false,
+            signal: messageListenerController.signal,
+          });
 
           if (!messageListenerController.signal.aborted) {
             // If styles are saved in local storage, sanitize and apply them.
@@ -629,33 +628,41 @@
         false
       );
 
-      window.addEventListener("message", async function (event) {
-        /** 
-         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-        */
-        if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
-          // remove the message event listener that was added in the DOMContentLoaded event
-          messageListenerController.abort();
+      window.addEventListener(
+        "message",
+        async function (event) {
+          /**
+           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+           */
+          if (
+            event.data &&
+            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+            event.ports?.[0]
+          ) {
+            // remove the message event listener that was added in the DOMContentLoaded event
+            messageListenerController.abort();
 
-          iframeMessagePort = event.ports[0];
-          iframeMessagePort.onmessage = messageEventListener
+            iframeMessagePort = event.ports[0];
+            iframeMessagePort.onmessage = messageEventListener;
 
-          TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+            TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
-          // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
-          // init() waits for a public key to be initialized that can be used to send to the server
-          // which will encrypt messages to this public key.
-          // In the case of import, this public key is not used because the client encrypts messages
-          // to the server's public key.
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", "")
+            // This is a workaround for how @turnkey/iframe-stamper is initialized. Currently,
+            // init() waits for a public key to be initialized that can be used to send to the server
+            // which will encrypt messages to this public key.
+            // In the case of import, this public key is not used because the client encrypts messages
+            // to the server's public key.
+            TKHQ.sendMessageUp("PUBLIC_KEY_READY", "");
 
-          // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
-          turnkeyInitController.abort();
-        }
-      }, { signal: turnkeyInitController.signal });
+            // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
+            turnkeyInitController.abort();
+          }
+        },
+        { signal: turnkeyInitController.signal }
+      );
 
       /**
        * Function triggered when INJECT_IMPORT_BUNDLE event is received.
