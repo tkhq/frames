@@ -509,13 +509,13 @@
         };
 
         /**
-         * Function to send a message. 
-         * 
+         * Function to send a message.
+         *
          * If this page is embedded as an iframe we'll send a postMessage
          * in one of two ways depending on the version of @turnkey/iframe-stamper:
-         *   1. newer versions (>=v2.1.0) pass a MessageChannel MessagePort from the parent frame for postMessages. 
+         *   1. newer versions (>=v2.1.0) pass a MessageChannel MessagePort from the parent frame for postMessages.
          *   2. older versions (<v2.1.0) still use the contentWindow so we will postMessage to the window.parent for backwards compatibility.
-         * 
+         *
          * Otherwise we'll display it in the DOM.
          * @param type message type. Can be "PUBLIC_KEY_CREATED", "BUNDLE_INJECTED" or "STAMP"
          * @param value message value
@@ -525,7 +525,7 @@
             parentFrameMessageChannelPort.postMessage({
               type: type,
               value: value,
-            })
+            });
           } else if (window.parent !== window) {
             window.parent.postMessage(
               {
@@ -1037,7 +1037,7 @@
        * Instead of receiving events from the parent page, forms trigger them.
        * This is useful for debugging as well.
        */
-      var addDOMEventListeners = function () {   
+      var addDOMEventListeners = function () {
         document.getElementById("inject").addEventListener(
           "click",
           async function (e) {
@@ -1068,12 +1068,12 @@
           },
           false
         );
-      }
+      };
 
       /**
        * Message Event Handlers to process messages from the parent frame
        */
-      var messageEventListener = async function(event) {
+      var messageEventListener = async function (event) {
         if (
           event.data &&
           (event.data["type"] == "INJECT_CREDENTIAL_BUNDLE" ||
@@ -1106,7 +1106,7 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-      }
+      };
 
       /**
        * Initialize the embedded key and set up the DOM and message event listeners
@@ -1119,12 +1119,11 @@
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
           document.getElementById("embedded-key").value = targetPubHex;
-          
-          window.addEventListener(
-            "message",
-            messageEventListener,
-            { capture: false, signal: messageListenerController.signal }
-          );
+
+          window.addEventListener("message", messageEventListener, {
+            capture: false,
+            signal: messageListenerController.signal,
+          });
 
           addDOMEventListeners();
 
@@ -1133,34 +1132,44 @@
         false
       );
 
-      window.addEventListener("message", async function (event) {
-        /** 
-         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-        */
-        if (event.data && event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" && event.ports?.[0]) {
-          // remove the message event listener that was added in the DOMContentLoaded event
-          messageListenerController.abort();
+      window.addEventListener(
+        "message",
+        async function (event) {
+          /**
+           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+           */
+          if (
+            event.data &&
+            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+            event.ports?.[0]
+          ) {
+            // remove the message event listener that was added in the DOMContentLoaded event
+            messageListenerController.abort();
 
-          iframeMessagePort = event.ports[0];
-          iframeMessagePort.onmessage = messageEventListener
+            iframeMessagePort = event.ports[0];
+            iframeMessagePort.onmessage = messageEventListener;
 
-          TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
+            TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
-          await TKHQ.initEmbeddedKey();
-          var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-          var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-          var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
-          document.getElementById("embedded-key").value = targetPubHex;
+            await TKHQ.initEmbeddedKey();
+            var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+            var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
+              embeddedKeyJwk
+            );
+            var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+            document.getElementById("embedded-key").value = targetPubHex;
 
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
-          
-          // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
-          turnkeyInitController.abort()
-        }
-      }, { signal: turnkeyInitController.signal });
+            TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+
+            // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
+            turnkeyInitController.abort();
+          }
+        },
+        { signal: turnkeyInitController.signal }
+      );
 
       /**
        * Function triggered when INJECT_CREDENTIAL_BUNDLE event is received.
