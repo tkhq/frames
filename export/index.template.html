@@ -1067,34 +1067,6 @@
         // Parse the import bundle
         const bundleObj = JSON.parse(bundle);
         switch (bundleObj.version) {
-          case undefined:
-            // Validate fields exist
-            if (!bundleObj.encappedPublic) {
-              throw new Error('missing "encappedPublic" in bundle');
-            }
-
-            if (!bundleObj.encappedPublicSignature) {
-              throw new Error('missing "encappedPublicSignature" in bundle');
-            }
-
-            // Verify enclave signature
-            if (!TKHQ.verifyEnclaveSignature) {
-              throw new Error("method not loaded");
-            }
-            verified = await TKHQ.verifyEnclaveSignature(
-              bundleObj.enclaveQuorumPublic,
-              bundleObj.encappedPublicSignature,
-              bundleObj.encappedPublic
-            );
-            if (!verified) {
-              throw new Error(`failed to verify enclave signature: ${bundle}`);
-            }
-
-            encappedKeyBuf = TKHQ.uint8arrayFromHexString(
-              bundleObj.encappedPublic
-            );
-            ciphertextBuf = TKHQ.uint8arrayFromHexString(bundleObj.ciphertext);
-            break;
           case "v1.0.0":
             // Validate fields exist
             if (!bundleObj.data) {

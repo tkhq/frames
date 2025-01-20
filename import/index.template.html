@@ -681,31 +681,6 @@
         const bundleObj = JSON.parse(bundle);
 
         switch (bundleObj.version) {
-          case undefined:
-            // Validate fields exist
-            if (!bundleObj.targetPublic) {
-              throw new Error('missing "targetPublic" in bundle');
-            }
-
-            if (!bundleObj.targetPublicSignature) {
-              throw new Error('missing "targetPublicSignature" in bundle');
-            }
-
-            // Verify enclave signature
-            verified = await TKHQ.verifyEnclaveSignature(
-              bundleObj.enclaveQuorumPublic,
-              bundleObj.targetPublicSignature,
-              bundleObj.targetPublic
-            );
-            if (!verified) {
-              throw new Error("failed to verify enclave signature");
-            }
-
-            // Load target public key generated from enclave and set in local storage
-            targetPublicBuf = TKHQ.uint8arrayFromHexString(
-              bundleObj.targetPublic
-            );
-            break;
           case "v1.0.0":
             // Validate fields exist
             if (!bundleObj.data) {
