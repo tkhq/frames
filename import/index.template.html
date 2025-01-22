@@ -640,23 +640,25 @@
         false
       );
 
-      window.addEventListener("message", async function (event) {
-        /**
-         * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
-         * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
-         * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
-         * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
-         */
-        if (
-          event.data &&
-          event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-          event.ports?.[0]
-        ) {
-          // remove the message event listener that was added in the DOMContentLoaded event
-          messageListenerController.abort();
+      window.addEventListener(
+        "message",
+        async function (event) {
+          /**
+           * @turnkey/iframe-stamper >= v2.1.0 is using a MessageChannel to communicate with the parent frame.
+           * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
+           * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
+           * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+           */
+          if (
+            event.data &&
+            event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
+            event.ports?.[0]
+          ) {
+            // remove the message event listener that was added in the DOMContentLoaded event
+            messageListenerController.abort();
 
-          iframeMessagePort = event.ports[0];
-          iframeMessagePort.onmessage = messageEventListener;
+            iframeMessagePort = event.ports[0];
+            iframeMessagePort.onmessage = messageEventListener;
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
@@ -684,7 +686,12 @@
        * @param {string} userId
        * @param {string} requestId
        */
-      async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
+      async function onInjectImportBundle(
+        bundle,
+        organizationId,
+        userId,
+        requestId
+      ) {
         let targetPublicBuf;
         let verified;
 
@@ -805,7 +812,11 @@
         TKHQ.resetTargetEmbeddedKey();
 
         // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
+        TKHQ.sendMessageUp(
+          "ENCRYPTED_BUNDLE_EXTRACTED",
+          encryptedBundle,
+          requestId
+        );
       }
 
       /**
@@ -843,7 +854,11 @@
         TKHQ.resetTargetEmbeddedKey();
 
         // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-        TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
+        TKHQ.sendMessageUp(
+          "ENCRYPTED_BUNDLE_EXTRACTED",
+          encryptedBundle,
+          requestId
+        );
       }
 
       /**
