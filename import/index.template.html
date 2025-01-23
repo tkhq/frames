@@ -869,7 +869,7 @@
        * @param {string} settings: JSON-stringified settings
        * @param {string} requestId
        */
-      async function onApplySettings(settings) {
+      async function onApplySettings(settings, requestId) {
         // Apply settings
         const validSettings = TKHQ.applySettings(settings);
 
