@@ -40,13 +40,33 @@ cd import && npm install
 The auth and recovery pages each have tests. They run on CI automatically. If you want to run them locally:
 ```sh
 cd auth && npm test
-cd export  && npm test
+cd export && npm test
 cd import && npm test
 ```
 
-# Running Local Wallet Import/Export
+# Local Development
+
+## Wallet Import
 Start the server. This command will run a simple static server on port 3000.
 ```sh
+cd import
+npm start
+```
+
+Clone the `sdk` repo.
+```sh
+git clone git@github.com:tkhq/sdk.git
+```
+
+Follow the README.md for the `wallet-import-export` [example](https://github.com/tkhq/sdk/tree/main/examples/wallet-import-export). Set the `NEXT_PUBLIC_IMPORT_IFRAME_URL="http://localhost:3000/index.template"` in the example's environment variables configuration. The `wallet-import-export` example embeds this page as an iframe.
+```sh
+cd sdk/examples/wallet-import-export
+```
+
+## Wallet Export
+Start the server. This command will run a simple static server on port 3000.
+```sh
+cd export
 npm start
 ```
 
@@ -60,9 +80,10 @@ Follow the README.md for the `wallet-import-export` [example](https://github.com
 cd sdk/examples/wallet-import-export
 ```
 
-# Running Local Auth
-Start the server. This command will run a simple static server on port 8080.
+## Email Auth
+Start the server. This command will run a simple static server on port 3000.
 ```sh
+cd auth
 npm start
 ```
 
