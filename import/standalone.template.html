@@ -817,7 +817,7 @@
         try {
           ciphertextBuf = await senderCtx.seal(plaintextBuf, aad);
         } catch (e) {
-          throw new Error("encryption failed: " + e);
+          throw new Error("failed to encrypt import bundle: " + e.toString());
         }
 
         const ciphertextHex = TKHQ.uint8arrayToHexString(

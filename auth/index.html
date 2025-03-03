@@ -411,7 +411,7 @@
 
           if (computedChecksum.toString() != foundChecksum.toString()) {
             throw new Error(
-              `checksums do not match: computed ${computedChecksum} but found ${foundChecksum}`
+              `unable to decode credential bundle. checksums do not match: computed ${computedChecksum} but found ${foundChecksum}`
             );
           }
 
@@ -1247,7 +1247,7 @@
       var onStampRequest = async function (payload, requestId) {
         if (CREDENTIAL_BYTES === null) {
           throw new Error(
-            "cannot sign payload without credential. Credential bytes are null"
+            "cannot sign payload without credential. Credential bytes are null. Has a credential bundle been injected into the iframe?"
           );
         }
         var key = await TKHQ.importCredential(CREDENTIAL_BYTES);
@@ -1320,7 +1320,10 @@
         try {
           res = await recipientCtx.open(ciphertextBuf, aad);
         } catch (e) {
-          throw new Error("decryption failed: " + e);
+          throw new Error(
+            "unable to decrypt bundle using embedded key. the bundle may be incorrect. failed with error: " +
+              e.toString()
+          );
         }
         return res;
       };
