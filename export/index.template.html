@@ -1268,7 +1268,10 @@
         try {
           res = await recipientCtx.open(ciphertextBuf, aad);
         } catch (e) {
-          throw new Error("decryption failed: " + e);
+          throw new Error(
+            "unable to decrypt bundle using embedded key. the bundle may be incorrect. failed with error: " +
+              e.toString()
+          );
         }
         return res;
       }
