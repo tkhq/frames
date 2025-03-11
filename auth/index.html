@@ -206,7 +206,6 @@
         };
 
         var setEmbeddedKey = function (targetKey, ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS) {
-          console.log(ttl)
           return setItemWithExpiry(
             TURNKEY_EMBEDDED_KEY,
             JSON.stringify(targetKey),
@@ -1164,11 +1163,17 @@
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
-            if (event.data.dangerouslyOverrideIframeKeyTtl) {
-              await TKHQ.initEmbeddedKey(event.data.dangerouslyOverrideIframeKeyTtl);
-            } else {
-                await TKHQ.initEmbeddedKey();
+            let iframeKeyTtl = TKHQ.TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS;
+
+            if (
+              event.data.dangerouslyOverrideIframeKeyTtl &&
+              typeof event.data.dangerouslyOverrideIframeKeyTtl === "number" &&
+              event.data.dangerouslyOverrideIframeKeyTtl > 0
+            ) {
+              iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
             }
+
+            await TKHQ.initEmbeddedKey(iframeKeyTtl);
 
             var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
             var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
