@@ -164,7 +164,9 @@
         /**
          * Creates a new public/private key pair and persists it in localStorage
          */
-        var initEmbeddedKey = async function (ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS) {
+        var initEmbeddedKey = async function (
+          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+        ) {
           var retrievedKey = await getEmbeddedKey();
           if (retrievedKey === null) {
             var targetKey = await generateTargetKey();
@@ -208,7 +210,10 @@
           }
         };
 
-        var setEmbeddedKey = function (targetKey, ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS) {
+        var setEmbeddedKey = function (
+          targetKey,
+          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+        ) {
           return setItemWithExpiry(
             TURNKEY_EMBEDDED_KEY,
             JSON.stringify(targetKey),
@@ -1003,6 +1008,7 @@
 
         return {
           initEmbeddedKey,
+          getEmbeddedKey,
           generateTargetKey,
           setItemWithExpiry,
           getItemWithExpiry,
@@ -1109,11 +1115,18 @@
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
-        // This is localized just to the button on the actual page
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
             TKHQ.onResetEmbeddedKey();
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "GET_EMBEDDED_PUBLIC_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          try {
+            await onGetEmbeddedPublicKey(event.data["requestId"]);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -1126,7 +1139,8 @@
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
-          window.isInitEmbeddedKeyRunByDomContentLoaded = await TKHQ.initEmbeddedKey();
+          window.isInitEmbeddedKeyRunByDomContentLoaded =
+            await TKHQ.initEmbeddedKey();
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
@@ -1252,6 +1266,18 @@
 
         CREDENTIAL_BYTES = new Uint8Array(credentialBytes);
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
+      };
+
+      /**
+       * Function triggered when GET_EMBEDDED_PUBLIC_KEY event is received.
+       * @param {string} requestId: idempotency key
+       */
+      var onGetEmbeddedPublicKey = async function (requestId) {
+        var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+        var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+        var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+
+        TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
       };
 
       /**
