@@ -163,11 +163,11 @@
         /**
          * Creates a new public/private key pair and persists it in localStorage
          */
-        var initEmbeddedKey = async function () {
+        var initEmbeddedKey = async function (ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS) {
           var retrievedKey = await getEmbeddedKey();
           if (retrievedKey === null) {
             var targetKey = await generateTargetKey();
-            setEmbeddedKey(targetKey);
+            setEmbeddedKey(targetKey, ttl);
           } else {
             // Nothing to do, key is correctly initialized!
           }
@@ -205,11 +205,11 @@
           }
         };
 
-        var setEmbeddedKey = function (targetKey) {
+        var setEmbeddedKey = function (targetKey, ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS) {
           return setItemWithExpiry(
             TURNKEY_EMBEDDED_KEY,
             JSON.stringify(targetKey),
-            TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+            ttl
           );
         };
 
@@ -1163,7 +1163,18 @@
 
             TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 
-            await TKHQ.initEmbeddedKey();
+            let iframeKeyTtl = TKHQ.TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS;
+
+            if (
+              event.data.dangerouslyOverrideIframeKeyTtl &&
+              typeof event.data.dangerouslyOverrideIframeKeyTtl === "number" &&
+              event.data.dangerouslyOverrideIframeKeyTtl > 0
+            ) {
+              iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
+            }
+
+            await TKHQ.initEmbeddedKey(iframeKeyTtl);
+
             var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
             var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
               embeddedKeyJwk
