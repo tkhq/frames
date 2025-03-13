@@ -153,7 +153,7 @@
     These helpers are unit-testable, so most of the logic should be written here.
   -->
     <script>
-      var isInitEmbeddedKeyRunByDomContentLoaded = false;
+      window.isInitEmbeddedKeyRunByDomContentLoaded = false;
       window.TKHQ = (function () {
         /** constant for LocalStorage */
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
@@ -1126,8 +1126,7 @@
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
-          const keyWasInitialized = await TKHQ.initEmbeddedKey();
-          isInitEmbeddedKeyRunByDomContentLoaded = keyWasInitialized;
+          window.isInitEmbeddedKeyRunByDomContentLoaded = await TKHQ.initEmbeddedKey();
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
@@ -1175,7 +1174,7 @@
             ) {
               iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
             }
-            if (isInitEmbeddedKeyRunByDomContentLoaded) {
+            if (window.isInitEmbeddedKeyRunByDomContentLoaded) {
               await TKHQ.onResetEmbeddedKey();
             }
             await TKHQ.initEmbeddedKey(iframeKeyTtl);
