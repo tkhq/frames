@@ -956,14 +956,6 @@
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
         }
-        if (event.data && event.data["type"] == "GET_EMBEDDED_KEY") {
-          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-          try {
-            await onGetEmbeddedKey(event.data["requestId"]);
-          } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
-          }
-        }
       };
 
       /**
@@ -1239,16 +1231,6 @@
 
         // Send up SETTINGS_APPLIED message
         TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
-      }
-
-      /**
-       * Function triggered when GET_EMBEDDED_KEY event is received.
-       * @param {string} requestId: idempotency key
-       */
-      async function onGetEmbeddedKey(requestId) {
-        const embeddedKey = await TKHQ.getEmbeddedKey();
-
-        TKHQ.sendMessageUp("EMBEDDED_KEY", embeddedKey, requestId);
       }
 
       /**
