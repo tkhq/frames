@@ -948,7 +948,6 @@
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
-        // This is localized just to the button on the actual page
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
