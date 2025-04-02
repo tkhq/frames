@@ -48,6 +48,7 @@
         border: 1px rgb(112, 42, 42) solid;
         cursor: pointer;
       }
+      #init,
       #inject,
       #stamp {
         color: white;
@@ -91,6 +92,7 @@
       <label>Embedded key</label>
       <input type="text" name="embedded-key" id="embedded-key" disabled />
       <button id="reset">Reset Key</button>
+      <button id="init">Init Key</button>
     </form>
     <br />
     <br />
@@ -233,6 +235,7 @@
          */
         var onResetEmbeddedKey = function () {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+          document.getElementById("embedded-key").value = "";
         };
 
         /**
@@ -1087,7 +1090,6 @@
           },
           false
         );
-        // this should also reset the text in the actual webpage
         // also, reset isn't a completely accurate name for this
         document.getElementById("reset").addEventListener(
           "click",
