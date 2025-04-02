@@ -1274,6 +1274,12 @@
        */
       var onGetEmbeddedPublicKey = async function (requestId) {
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+
+        // If we don't have an embedded key, return an empty string as the public key
+        if (!embeddedKeyJwk) {
+          TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId);
+        }
+        
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
         var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
 
