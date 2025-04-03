@@ -233,9 +233,8 @@
         /**
          * Removes the embedded key from local storage.
          */
-        var onResetEmbeddedKey = function () {
+        var resetEmbeddedKey = function () {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
-          document.getElementById("embedded-key").value = "";
         };
 
         /**
@@ -1027,7 +1026,7 @@
           getItemWithExpiry,
           getEmbeddedKey,
           setEmbeddedKey,
-          onResetEmbeddedKey,
+          resetEmbeddedKey,
           importCredential,
           compressRawPublicKey,
           uncompressRawPublicKey,
@@ -1132,7 +1131,7 @@
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
-            TKHQ.onResetEmbeddedKey();
+            await onResetEmbeddedKey(event.data["requestId"]);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -1211,7 +1210,8 @@
               iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
             }
             if (window.isInitEmbeddedKeyRunByDomContentLoaded) {
-              await TKHQ.onResetEmbeddedKey();
+              await TKHQ.resetEmbeddedKey();
+              document.getElementById("embedded-key").value = "";
             }
             await TKHQ.initEmbeddedKey(iframeKeyTtl);
 
@@ -1301,7 +1301,7 @@
         if (!embeddedKeyJwk) {
           TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId);
         }
-        
+
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
         var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
 
@@ -1320,6 +1320,16 @@
         document.getElementById("embedded-key").value = targetPubHex;
 
         TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
+      };
+
+      /**
+       * Removes the embedded key from local storage.
+       */
+      var onResetEmbeddedKey = async function (requestId) {
+        await TKHQ.resetEmbeddedKey();
+        document.getElementById("embedded-key").value = "";
+
+        TKHQ.sendMessageUp("EMBEDDED_KEY_RESET", null, requestId);
       };
 
       /**
