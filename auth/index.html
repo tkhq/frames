@@ -48,6 +48,7 @@
         border: 1px rgb(112, 42, 42) solid;
         cursor: pointer;
       }
+      #init,
       #inject,
       #stamp {
         color: white;
@@ -91,6 +92,7 @@
       <label>Embedded key</label>
       <input type="text" name="embedded-key" id="embedded-key" disabled />
       <button id="reset">Reset Key</button>
+      <button id="init">Init Key</button>
     </form>
     <br />
     <br />
@@ -163,6 +165,7 @@
 
         /**
          * Creates a new public/private key pair and persists it in localStorage
+         * @return boolean indicating whether an embedded key has been set
          */
         var initEmbeddedKey = async function (
           ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
@@ -199,7 +202,8 @@
         };
 
         /**
-         * Gets the current embedded private key JWK. Returns `null` if not found.
+         * Gets the current embedded private key JWK.
+         * @return `null` if not found.
          */
         var getEmbeddedKey = function () {
           var jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
@@ -210,6 +214,11 @@
           }
         };
 
+        /**
+         * Sets the current embedded private key JWK in local storage.
+         * @param {string} targetKey the private key JWK
+         * @param {number} ttl (optional) if unset, default to TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+         */
         var setEmbeddedKey = function (
           targetKey,
           ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
@@ -221,8 +230,12 @@
           );
         };
 
+        /**
+         * Removes the embedded key from local storage.
+         */
         var onResetEmbeddedKey = function () {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+          document.getElementById("embedded-key").value = "";
         };
 
         /**
@@ -1077,6 +1090,7 @@
           },
           false
         );
+        // Reset isn't a completely accurate name for this because this only clears the key, without regenerating a fresh one
         document.getElementById("reset").addEventListener(
           "click",
           async function (e) {
@@ -1127,6 +1141,14 @@
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
             await onGetEmbeddedPublicKey(event.data["requestId"]);
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString());
+          }
+        }
+        if (event.data && event.data["type"] == "INIT_EMBEDDED_KEY") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          try {
+            await onInitEmbeddedKey(event.data["requestId"]);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -1282,6 +1304,20 @@
         
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
         var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+
+        TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
+      };
+
+      /**
+       * Function triggered when INIT_EMBEDDED_KEY event is received.
+       * @param {string} requestId: idempotency key
+       */
+      var onInitEmbeddedKey = async function (requestId) {
+        await TKHQ.initEmbeddedKey();
+        var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+        var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+        var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+        document.getElementById("embedded-key").value = targetPubHex;
 
         TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
       };
