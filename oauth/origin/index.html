@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Redirecting to Google</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+        text-align: center;
+        padding: 0 1rem;
+      }
+      img.logo {
+        display: block;
+        margin: 0 auto;
+        max-width: 150px;
+      }
+      h1 {
+        margin-top: 0.5rem;
+        font-size: 18px;
+      }
+      p {
+        font-size: 14px;
+      }
+      p.error {
+        color: red;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <img class="logo" src="./favicon.svg" alt="Logo" />
+    <h1>Redirecting to Google...</h1>
+
+    <script>
+      (function () {
+        "use strict";
+
+        function displayError(message) {
+          document.body.innerHTML = `<p class="error">${message}</p>`;
+        }
+
+        function getOAuthUrl(provider, clientId, redirectUri, nonce) {
+          let baseUrl;
+          let oauthParams = {};
+
+          switch (provider.toLowerCase()) {
+            case "google":
+              baseUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+              oauthParams = {
+                client_id: clientId,
+                redirect_uri: redirectUri,
+                response_type: "id_token",
+                scope: "openid email profile",
+                nonce: nonce,
+                prompt: "select_account"
+              };
+              break;
+            default:
+              displayError("Error: Unsupported provider.");
+              return null;
+          }
+
+          return `${baseUrl}?${new URLSearchParams(oauthParams).toString()}`;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+
+        // get the provider, clientId, redirectUri, and nonce from the query parameters
+        const provider = params.get("provider");
+        const clientId = params.get("clientId");
+        const redirectUri = params.get("redirectUri");
+        const nonce = params.get("nonce");
+
+        if (!provider || !clientId || !redirectUri || !nonce) {
+          displayError(
+            "Error: Missing provider, clientId, redirectUri, or nonce query parameters."
+          );
+          return;
+        }
+
+        const oauthUrl = getOAuthUrl(provider, clientId, redirectUri, nonce);
+        if (!oauthUrl) {
+          // we already displayed an error message so we can just return
+          return;
+        }
+
+        // redirect the browser to the google oauth URL
+        window.location.href = oauthUrl;
+      })();
+    </script>
+  </body>
+</html>
