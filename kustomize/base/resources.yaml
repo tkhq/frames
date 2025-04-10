@@ -1,18 +1,18 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: auth-components
+  name: frames
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: auth-components
+  name: frames
 spec:
   template:
     spec:
       initContainers:
         - name: template-quorum-key
-          image: ghcr.io/tkhq/auth-components
+          image: ghcr.io/tkhq/frames
           env:
             - name: TURNKEY_SIGNER_ENVIRONMENT
               value: "prod"
@@ -35,8 +35,8 @@ spec:
             - name: templated
               mountPath: /usr/share/nginx/templated
       containers:
-        - name: auth-components
-          image: ghcr.io/tkhq/auth-components
+        - name: frames
+          image: ghcr.io/tkhq/frames
           ports:
             # iframe
             - name: auth
@@ -71,7 +71,7 @@ spec:
             - name: templated
               mountPath: /usr/share/nginx/templated
               readOnly: true
-      serviceAccountName: auth-components
+      serviceAccountName: frames
       topologySpreadConstraints:
         - maxSkew: 1
           topologyKey: kubernetes.io/hostname
@@ -94,7 +94,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: auth-components
+  name: frames
 spec:
   ports:
     # iframe

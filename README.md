@@ -41,8 +41,8 @@ This page is hosted at https://oauth-redirect.turnkey.com/
 
 Clone the repo:
 ```sh
-git clone git@github.com:tkhq/auth-components.git
-cd auth-components/
+git clone git@github.com:tkhq/frames.git
+cd frames/
 ```
 
 Install Node:
@@ -130,12 +130,12 @@ cd sdk/examples/email-auth
 
 To build:
 ```
-docker build . -t auth-components
+docker build . -t frames
 ```
 
 To run (mapping `[8080, 8081, ...]` to `[18080, 18081, ...]` because they're often busy):
 ```
-docker run -p18080:8080 -p18081:8081 -t auth-components
+docker run -p18080:8080 -p18081:8081 -t frames
 ```
 
 # Deploying to a test Kubernetes cluster
@@ -143,16 +143,16 @@ docker run -p18080:8080 -p18081:8081 -t auth-components
 This requires [`k3d`](https://k3d.io/) to be installed:
 ```
 # Create a local cluster
-k3d cluster create auth-components
+k3d cluster create frames
 
 # Deploy to it
-kubectl kustomize kustomize | kubectl --context k3d-auth-components apply -f-
+kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
 
 # Be able to access locally (8080 as an example)
-kubectl port-forward svc/auth-components 8080:8080
+kubectl port-forward svc/frames 8080:8080
 ```
 
 To clean things up:
 ```
-k3d cluster delete auth-components
+k3d cluster delete frames
 ```
