@@ -1,7 +1,7 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: frames
+  name: auth-components
 spec:
   minAvailable: 1
   selector:
