@@ -20,10 +20,12 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/export templated/import;
+                mkdir -p templated/export templated/import templated/origin templated/redirect;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < origin/index.template.html > templated/origin/index.html;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < redirect/index.template.html > templated/redirect/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -38,6 +40,7 @@ spec:
         - name: frames
           image: ghcr.io/tkhq/frames
           ports:
+            # iframes
             - name: auth
               containerPort: 8080
             - name: export
@@ -46,6 +49,12 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
+            
+            # oauth
+            - name: origin
+              containerPort: 8084
+            - name: redirect
+              containerPort: 8085
           livenessProbe:
             httpGet:
               path: /health
@@ -90,6 +99,7 @@ metadata:
   name: frames
 spec:
   ports:
+    # iframe
     - name: http-auth
       port: 8080
       targetPort: auth
@@ -102,3 +112,12 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
+    
+    # oauth
+    - name: http-origin
+      port: 8084
+      targetPort: origin
+    - name: http-redirect
+      port: 8084
+      targetPort: redirect
+
