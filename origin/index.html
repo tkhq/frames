@@ -2,11 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Redirecting to Google</title>
+    <title>OAuth Origin</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <style>
-      html, body {
+      html,
+      body {
         height: 100%;
         margin: 0;
         padding: 0;
@@ -38,18 +39,55 @@
         color: red;
         font-weight: bold;
       }
+      .back-button {
+        background-color: #000;
+        color: #fff;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+        margin-top: 1rem;
+      }
     </style>
   </head>
   <body>
     <img class="logo" src="./favicon.svg" alt="Logo" />
-    <h1>Redirecting to Google...</h1>
+    <h1>Redirecting...</h1>
 
     <script>
       (function () {
         "use strict";
 
-        function displayError(message) {
-          document.body.innerHTML = `<p class="error">${message}</p>`;
+        function displayError(message, redirectUri) {
+          let backButton = "";
+
+          try {
+            if (redirectUri) {
+              const redirectUrl = new URL(redirectUri);
+              const scheme = new URLSearchParams(redirectUrl.search).get(
+                "scheme"
+              );
+
+              if (scheme) {
+                // we ensure the scheme includes "://"
+                let appUrl = scheme;
+                if (!appUrl.includes("://")) {
+                  appUrl += "://";
+                }
+
+                backButton = `<button class="back-button" onclick="window.location.href='${appUrl}'"> < Go back to app</button>`;
+              }
+            }
+          } finally {
+            console.log("I AM HERE");
+            document.body.innerHTML = `
+                <img class="logo" src="./favicon.svg" alt="Logo" />
+                <p class="error">${message}</p>
+                ${backButton}
+              `;
+          }
         }
 
         function getOAuthUrl(provider, clientId, redirectUri, nonce) {
@@ -65,11 +103,10 @@
                 response_type: "id_token",
                 scope: "openid email profile",
                 nonce: nonce,
-                prompt: "select_account"
+                prompt: "select_account",
               };
               break;
             default:
-              displayError("Error: Unsupported provider.");
               return null;
           }
 
@@ -84,16 +121,26 @@
         const redirectUri = params.get("redirectUri");
         const nonce = params.get("nonce");
 
-        if (!provider || !clientId || !redirectUri || !nonce) {
+        const missingParams = [];
+        if (!provider) missingParams.push("provider");
+        if (!clientId) missingParams.push("clientId");
+        if (!redirectUri) missingParams.push("redirectUri");
+        if (!nonce) missingParams.push("nonce");
+
+        if (missingParams.length > 0) {
           displayError(
-            "Error: Missing provider, clientId, redirectUri, or nonce query parameters."
+            "Error: Missing query parameter" + (missingParams.length > 1 ? "s" : "") + ": " + missingParams.join(", "),
+            redirectUri
           );
           return;
         }
 
         const oauthUrl = getOAuthUrl(provider, clientId, redirectUri, nonce);
         if (!oauthUrl) {
-          // we already displayed an error message so we can just return
+          displayError(
+            `Error: Unsupported provider "${provider}".`,
+            redirectUri
+          );
           return;
         }
 
