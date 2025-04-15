@@ -116,6 +116,6 @@ spec:
       port: 8084
       targetPort: oauth-origin
     - name: http-oauth-redirect
-      port: 8084
+      port: 8085
       targetPort: oauth-redirect
 
