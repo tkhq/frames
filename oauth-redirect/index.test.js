@@ -3,9 +3,7 @@ import { JSDOM } from "jsdom";
 import fs from "fs";
 import path from "path";
 
-const html = fs
-  .readFileSync(path.resolve(__dirname, "./index.html"), "utf8")
-  .replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
+const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
 
 function createDOM(url) {
   const domInstance = new JSDOM(html, {

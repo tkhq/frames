@@ -20,12 +20,10 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/export templated/import templated/origin templated/redirect;
+                mkdir -p templated/export templated/import;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
-                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < oauth-origin/index.template.html > templated/oauth-origin/index.html;
-                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < oauth-redirect/index.template.html > templated/oauth-redirect/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
