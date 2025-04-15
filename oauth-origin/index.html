@@ -81,12 +81,11 @@
               }
             }
           } finally {
-            console.log("I AM HERE");
             document.body.innerHTML = `
-                <img class="logo" src="./favicon.svg" alt="Logo" />
-                <p class="error">${message}</p>
-                ${backButton}
-              `;
+          <img class="logo" src="./favicon.svg" alt="Logo" />
+          <p class="error">${message}</p>
+          ${backButton}
+        `;
           }
         }
 
@@ -129,7 +128,10 @@
 
         if (missingParams.length > 0) {
           displayError(
-            "Error: Missing query parameter" + (missingParams.length > 1 ? "s" : "") + ": " + missingParams.join(", "),
+            "Error: Missing query parameter" +
+              (missingParams.length > 1 ? "s" : "") +
+              ": " +
+              missingParams.join(", "),
             redirectUri
           );
           return;

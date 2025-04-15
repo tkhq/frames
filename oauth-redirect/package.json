@@ -1,5 +1,5 @@
 {
-  "name": "origin-tests",
+  "name": "oauth-redirect-tests",
   "version": "1.0.0",
   "main": "index.test.js",
   "scripts": {
@@ -8,8 +8,8 @@
     "prettier:check": "prettier --check \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore",
     "prettier:write": "prettier --write \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore"
   },
-  "repository": "git@github.com:tkhq/oauth-proxy.git",
-  "author": "Turnkey <moe.odeh@turnkey.com>",
+  "repository": "git@github.com:tkhq/frames.git",
+  "author": "Turnkey <hello@turnkey.com>",
   "description": "This package is only here to help us test the main html file",
   "license": "MIT",
   "devDependencies": {

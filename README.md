@@ -1,6 +1,6 @@
 # Frames
 
-This repository contains authentication components for Turnkey, including iframe-based components (auth, export, import) and OAuth proxies (origin, redirectUri).
+This repository contains authentication components for Turnkey, including iframe-based components (auth, export, import) and OAuth proxies (oauth-origin, oauth-redirect).
 
 ## iFrames
 
@@ -57,8 +57,8 @@ cd auth && npm install
 cd export && npm install
 cd import && npm install
 
-cd origin && npm install
-cd redirect && npm install
+cd oauth-origin && npm install
+cd oauth-redirect && npm install
 ```
 
 # Unit Testing
@@ -69,8 +69,8 @@ cd auth && npm test
 cd export && npm test
 cd import && npm test
 
-cd origin && npm test
-cd redirect && npm test
+cd oauth-origin && npm test
+cd oauth-redirect && npm test
 ```
 
 # Local Development
