@@ -17,7 +17,7 @@ COPY import /usr/share/nginx/import
 
 # oauth
 COPY oauth-origin /usr/share/nginx/oauth-origin
-COPY oauth-redirect /usr/share/nginx/redirect
+COPY oauth-redirect /usr/share/nginx/oauth-redirect
 
 # iframe
 EXPOSE 8080/tcp
