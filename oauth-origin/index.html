@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>OAuth Origin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        line-height: 1.4;
+        text-align: center;
+        padding: 0 1rem;
+      }
+      img.logo {
+        display: block;
+        margin: 0 auto;
+        max-width: 150px;
+      }
+      h1 {
+        margin-top: 0.5rem;
+        font-size: 18px;
+      }
+      p {
+        font-size: 14px;
+      }
+      p.error {
+        color: red;
+        font-weight: bold;
+      }
+      .back-button {
+        background-color: #000;
+        color: #fff;
+        border: none;
+        border-radius: 0.5rem;
+        padding: 8px 16px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <img class="logo" src="./favicon.svg" alt="Logo" />
+    <h1>Redirecting...</h1>
+
+    <script>
+      (function () {
+        "use strict";
+
+        function displayError(message, redirectUri) {
+          let backButton = "";
+
+          try {
+            if (redirectUri) {
+              const redirectUrl = new URL(redirectUri);
+              const scheme = new URLSearchParams(redirectUrl.search).get(
+                "scheme"
+              );
+
+              if (scheme) {
+                // we ensure the scheme includes "://"
+                let appUrl = scheme;
+                if (!appUrl.includes("://")) {
+                  appUrl += "://";
+                }
+
+                backButton = `<button class="back-button" onclick="window.location.href='${appUrl}'"> < Go back to app</button>`;
+              }
+            }
+          } finally {
+            document.body.innerHTML = `
+          <img class="logo" src="./favicon.svg" alt="Logo" />
+          <p class="error">${message}</p>
+          ${backButton}
+        `;
+          }
+        }
+
+        function getOAuthUrl(provider, clientId, redirectUri, nonce) {
+          let baseUrl;
+          let oauthParams = {};
+
+          switch (provider.toLowerCase()) {
+            case "google":
+              baseUrl = "https://accounts.google.com/o/oauth2/v2/auth";
+              oauthParams = {
+                client_id: clientId,
+                redirect_uri: redirectUri,
+                response_type: "id_token",
+                scope: "openid email profile",
+                nonce: nonce,
+                prompt: "select_account",
+              };
+              break;
+            default:
+              return null;
+          }
+
+          return `${baseUrl}?${new URLSearchParams(oauthParams).toString()}`;
+        }
+
+        const params = new URLSearchParams(window.location.search);
+
+        // get the provider, clientId, redirectUri, and nonce from the query parameters
+        const provider = params.get("provider");
+        const clientId = params.get("clientId");
+        const redirectUri = params.get("redirectUri");
+        const nonce = params.get("nonce");
+
+        const missingParams = [];
+        if (!provider) missingParams.push("provider");
+        if (!clientId) missingParams.push("clientId");
+        if (!redirectUri) missingParams.push("redirectUri");
+        if (!nonce) missingParams.push("nonce");
+
+        if (missingParams.length > 0) {
+          displayError(
+            "Error: Missing query parameter" +
+              (missingParams.length > 1 ? "s" : "") +
+              ": " +
+              missingParams.join(", "),
+            redirectUri
+          );
+          return;
+        }
+
+        const oauthUrl = getOAuthUrl(provider, clientId, redirectUri, nonce);
+        if (!oauthUrl) {
+          displayError(
+            `Error: Unsupported provider "${provider}".`,
+            redirectUri
+          );
+          return;
+        }
+
+        // redirect the browser to the google oauth URL
+        window.location.href = oauthUrl;
+      })();
+    </script>
+  </body>
+</html>

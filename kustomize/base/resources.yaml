@@ -38,6 +38,7 @@ spec:
         - name: frames
           image: ghcr.io/tkhq/frames
           ports:
+            # iframes
             - name: auth
               containerPort: 8080
             - name: export
@@ -46,6 +47,12 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
+            
+            # oauth
+            - name: oauth-origin
+              containerPort: 8084
+            - name: oauth-redirect
+              containerPort: 8085
           livenessProbe:
             httpGet:
               path: /health
@@ -90,6 +97,7 @@ metadata:
   name: frames
 spec:
   ports:
+    # iframe
     - name: http-auth
       port: 8080
       targetPort: auth
@@ -102,3 +110,12 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
+    
+    # oauth
+    - name: http-oauth-origin
+      port: 8084
+      targetPort: oauth-origin
+    - name: http-oauth-redirect
+      port: 8084
+      targetPort: oauth-redirect
+

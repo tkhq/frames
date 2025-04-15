@@ -7,16 +7,27 @@ LABEL org.opencontainers.image.source https://github.com/tkhq/frames
 
 COPY nginx.conf /etc/nginx/nginx.conf
 
+# iframe
+
 # maintain recovery for backwards-compatibility
 COPY auth /usr/share/nginx/auth
 COPY auth /usr/share/nginx/recovery
 COPY export /usr/share/nginx/export
 COPY import /usr/share/nginx/import
 
+# oauth
+COPY oauth-origin /usr/share/nginx/oauth-origin
+COPY oauth-redirect /usr/share/nginx/oauth-redirect
+
+# iframe
 EXPOSE 8080/tcp
 EXPOSE 8081/tcp
 EXPOSE 8082/tcp
 EXPOSE 8083/tcp
+
+# oauth
+EXPOSE 8084/tcp
+EXPOSE 8085/tcp
 
 WORKDIR /usr/share/nginx
 
