@@ -112,10 +112,10 @@ spec:
       targetPort: import
     
     # oauth
-    - name: http-oauth-origin
+    - name: http-oauth-og
       port: 8084
       targetPort: oauth-origin
-    - name: http-oauth-redirect
+    - name: http-oauth-rd
       port: 8085
       targetPort: oauth-redirect
 
