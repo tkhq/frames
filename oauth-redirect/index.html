@@ -2,6 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; img-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self';"
+    />
+    <meta name="referrer" content="origin">
     <title>Redirecting back to your app</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <style>
@@ -37,44 +42,6 @@
   <body>
     <h1>Redirecting back to your app...</h1>
     <p>Please wait...</p>
-    <script>
-      (function () {
-        "use strict";
-
-        const displayError = (message) => {
-          document.body.innerHTML = `<p class="error">${message}</p>`;
-        };
-
-        const searchParams = new URLSearchParams(window.location.search);
-
-        // get the app scheme from the query parameters
-        let scheme = searchParams.get("scheme");
-
-        if (!scheme) {
-          displayError("Error: Missing scheme in query parameters.");
-          return;
-        }
-
-        // we ensure the scheme includes "://"
-        if (!scheme.includes("://")) {
-          scheme += "://";
-        }
-
-        // parse the hash fragment that contains the oauth parameters
-        const hash = window.location.hash.slice(1); // remove the leading '#' character
-        if (!hash) {
-          displayError("Error: Missing OAuth hash parameters.");
-          return;
-        }
-
-        const hashParams = new URLSearchParams(hash);
-
-        // build the scheme URL with the hash parameters
-        const redirectUrl = `${scheme}?${hashParams.toString()}`;
-
-        // redirect the browser to the custom scheme URL
-        window.location.href = redirectUrl;
-      })();
-    </script>
+    <script src="./oauth-redirect.js" defer></script>
   </body>
 </html>
