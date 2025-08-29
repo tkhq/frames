@@ -1160,8 +1160,10 @@
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
-          window.isInitEmbeddedKeyRunByDomContentLoaded =
-            await TKHQ.initEmbeddedKey();
+          // Initialize embedded key. Currently don't need to use the return value.
+          await TKHQ.initEmbeddedKey();
+          window.isInitEmbeddedKeyRunByDomContentLoaded = true;
+
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
           var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
@@ -1209,13 +1211,18 @@
             ) {
               iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
             }
-            if (window.isInitEmbeddedKeyRunByDomContentLoaded) {
-              await TKHQ.resetEmbeddedKey();
-              document.getElementById("embedded-key").value = "";
-            }
-            await TKHQ.initEmbeddedKey(iframeKeyTtl);
 
             var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+            
+            // If the embedded key is not initialized or not available, reset it
+            if (!(window.isInitEmbeddedKeyRunByDomContentLoaded && embeddedKeyJwk)) {
+              await TKHQ.resetEmbeddedKey();
+              document.getElementById("embedded-key").value = "";
+              await TKHQ.initEmbeddedKey(iframeKeyTtl);
+            }
+            
+            // Re-fetch embedded key
+            embeddedKeyJwk = await TKHQ.getEmbeddedKey();
             var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
               embeddedKeyJwk
             );
