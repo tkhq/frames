@@ -1320,6 +1320,9 @@
        * @param {string} requestId: idempotency key
        */
       var onInitEmbeddedKey = async function (requestId) {
+        if (isDoublyIframed()) {
+          throw new Error("Cannot initialize embedded key in a doubly iframed context");
+        }
         await TKHQ.initEmbeddedKey();
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -1426,6 +1429,17 @@
           );
         }
         return res;
+      };
+
+      var isDoublyIframed = function () {
+        if (window.location.ancestorOrigins !== undefined) {
+          // Does not exist in IE and firefox.
+          // See https://developer.mozilla.org/en-US/docs/Web/API/Location/ancestorOrigins for how this works
+          return window.location.ancestorOrigins.length > 1
+        } 
+        else { 
+          return window.parent !== window.top
+        }
       };
     </script>
   </body>
