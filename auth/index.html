@@ -160,6 +160,7 @@
         /** constant for LocalStorage */
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
+        var TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
 
         var parentFrameMessageChannelPort = null;
 
@@ -168,12 +169,14 @@
          * @return boolean indicating whether an embedded key has been set
          */
         var initEmbeddedKey = async function (
-          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+          origin,
+          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS,
         ) {
           var retrievedKey = await getEmbeddedKey();
           if (retrievedKey === null) {
             var targetKey = await generateTargetKey();
             setEmbeddedKey(targetKey, ttl);
+            setEmbeddedKeyOrigin(origin, ttl);
             return true;
           } else {
             return false;
@@ -215,17 +218,46 @@
         };
 
         /**
+         * Gets the current embedded key origin.
+         * @return `null` if not found.
+         */
+         var getEmbeddedKeyOrigin = function () {
+          var origin = getItemWithExpiry(TURNKEY_EMBEDDED_KEY_ORIGIN);
+          if (!origin) {
+            return null;
+          } else {
+            return origin;
+          }
+        };
+
+        /**
          * Sets the current embedded private key JWK in local storage.
          * @param {string} targetKey the private key JWK
          * @param {number} ttl (optional) if unset, default to TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
          */
         var setEmbeddedKey = function (
           targetKey,
-          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS,
         ) {
           return setItemWithExpiry(
             TURNKEY_EMBEDDED_KEY,
             JSON.stringify(targetKey),
+            ttl
+          );
+        };
+
+                /**
+         * Sets the current embedded private key origin.
+         * @param {string} origin the origin 
+         * @param {number} ttl (optional) if unset, default to TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
+         */
+         var setEmbeddedKeyOrigin = function (
+          origin,
+          ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS,
+        ) {
+          return setItemWithExpiry(
+            TURNKEY_EMBEDDED_KEY_ORIGIN,
+            origin,
             ttl
           );
         };
@@ -235,6 +267,7 @@
          */
         var resetEmbeddedKey = function () {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+          window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY_ORIGIN);
         };
 
         /**
@@ -1026,6 +1059,8 @@
           getItemWithExpiry,
           getEmbeddedKey,
           setEmbeddedKey,
+          getEmbeddedKeyOrigin,
+          setEmbeddedKeyOrigin,
           resetEmbeddedKey,
           importCredential,
           compressRawPublicKey,
@@ -1131,7 +1166,7 @@
         if (event.data && event.data["type"] == "RESET_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
-            await onResetEmbeddedKey(event.data["requestId"]);
+            await onResetEmbeddedKey(event.data["requestId"], event.origin);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -1147,7 +1182,7 @@
         if (event.data && event.data["type"] == "INIT_EMBEDDED_KEY") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
-            await onInitEmbeddedKey(event.data["requestId"]);
+            await onInitEmbeddedKey(event.data["requestId"], event.origin);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString());
           }
@@ -1319,10 +1354,11 @@
        * Function triggered when INIT_EMBEDDED_KEY event is received.
        * @param {string} requestId: idempotency key
        */
-      var onInitEmbeddedKey = async function (requestId) {
+      var onInitEmbeddedKey = async function (requestId, origin) {
         if (isDoublyIframed()) {
           throw new Error("Cannot initialize embedded key in a doubly iframed context");
         }
+
         await TKHQ.initEmbeddedKey();
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -1335,11 +1371,47 @@
       /**
        * Removes the embedded key from local storage.
        */
-      var onResetEmbeddedKey = async function (requestId) {
+      var onResetEmbeddedKey = async function (requestId, origin) {
+        if (getEmbeddedKeyOrigin() !== origin) {
+          throw new Error("Cannot reset embedded key with a different origin");
+        }
         await TKHQ.resetEmbeddedKey();
         document.getElementById("embedded-key").value = "";
 
         TKHQ.sendMessageUp("EMBEDDED_KEY_RESET", null, requestId);
+      };
+
+      /**
+       * Function triggered when SIGN_ETHEREUM_TRANSACTION event is received.
+       * @param {string} requestId: idempotency key
+       * @param {string} origin: origin of the request
+       */
+      var onSignEthereumTransaction = async function (requestId, origin) {
+        if (getEmbeddedKeyOrigin() !== origin) {
+          throw new Error("Cannot sign Ethereum transaction with a different origin");
+        }
+        if (isDoublyIframed()) {
+          throw new Error("Cannot sign Ethereum transaction in a doubly iframed context");
+        }
+        /*await TKHQ.signEthereumTransaction(requestId);
+        var signature = await TKHQ.signEthereumTransaction(requestId);
+        var signatureHexString = TKHQ.uint8arrayToHexString(signature);
+        TKHQ.sendMessageUp("SIGNATURE", signatureHexString, requestId);
+        */
+      };
+
+      var onSignSolanaTransaction = async function (requestId, origin) {
+        if (getEmbeddedKeyOrigin() !== origin) {
+          throw new Error("Cannot sign Solana transaction with a different origin");
+        }
+        if (isDoublyIframed()) {
+          throw new Error("Cannot sign Solana transaction key in a doubly iframed context");
+        }
+        /*await TKHQ.signSolanaTransaction(requestId);
+        var signature = await TKHQ.signSolanaTransaction(requestId);
+        var signatureHexString = TKHQ.uint8arrayToHexString(signature);
+        TKHQ.sendMessageUp("SIGNATURE", signatureHexString, requestId);
+        */
       };
 
       /**
