@@ -161,6 +161,7 @@
         var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
         var TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
+        var EMBEDDED_CSP_META_TAG_ID = "embedded-csp";
 
         var parentFrameMessageChannelPort = null;
 
@@ -177,6 +178,15 @@
             var targetKey = await generateTargetKey();
             setEmbeddedKey(targetKey, ttl);
             setEmbeddedKeyOrigin(origin, ttl);
+            
+            // Add CSP meta tag to DOM
+            var cspMetaTag = document.createElement('meta');
+            cspMetaTag.id = EMBEDDED_CSP_META_TAG_ID;
+            cspMetaTag.setAttribute('http-equiv', 'Content-Security-Policy');
+            // Note: if we need logging, we need to set connect-src to include where we are logging to
+            cspMetaTag.setAttribute('content', "default-src 'self'; script-src 'self'; img-src 'none'; connect-src 'none'; worker-src 'self'; frame-src 'none'; style-src 'self'; media-src 'none'; form-action 'none'");
+            document.head.appendChild(cspMetaTag);
+            
             return true;
           } else {
             return false;
@@ -268,6 +278,12 @@
         var resetEmbeddedKey = function () {
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
           window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY_ORIGIN);
+          
+          // Remove CSP meta tag from DOM
+          var cspMetaTag = document.getElementById(EMBEDDED_CSP_META_TAG_ID);
+          if (cspMetaTag) {
+            cspMetaTag.remove();
+          }
         };
 
         /**
