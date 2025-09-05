@@ -1386,12 +1386,16 @@
        * @param {string} requestId: idempotency key
        * @param {string} origin: origin of the request
        */
-      var onSignEthereumTransaction = async function (requestId, origin) {
+      var onSignEthereumTransaction = async function (requestId, transactionData, origin) {
         if (getEmbeddedKeyOrigin() !== origin) {
           throw new Error("Cannot sign Ethereum transaction with a different origin");
         }
         if (isDoublyIframed()) {
           throw new Error("Cannot sign Ethereum transaction in a doubly iframed context");
+        }
+        var embeddedKeyJwk = await getEmbeddedKey();
+        if (!embeddedKeyJwk) {
+          throw new Error("Cannot sign Ethereum transaction without an embedded key");
         }
         /*await TKHQ.signEthereumTransaction(requestId);
         var signature = await TKHQ.signEthereumTransaction(requestId);
@@ -1400,12 +1404,22 @@
         */
       };
 
-      var onSignSolanaTransaction = async function (requestId, origin) {
+
+      /** 
+       * Function triggered when SIGN_SOLANA_TRANSACTION event is received.
+       * @param {string} requestId: idempotency key
+       * @param {string} origin: origin of the request
+       */
+      var onSignSolanaTransaction = async function (requestId, transactionData, origin) {
         if (getEmbeddedKeyOrigin() !== origin) {
           throw new Error("Cannot sign Solana transaction with a different origin");
         }
         if (isDoublyIframed()) {
           throw new Error("Cannot sign Solana transaction key in a doubly iframed context");
+        }
+        var embeddedKeyJwk = await getEmbeddedKey();
+        if (!embeddedKeyJwk) {
+          throw new Error("Cannot sign Ethereum transaction without an embedded key");
         }
         /*await TKHQ.signSolanaTransaction(requestId);
         var signature = await TKHQ.signSolanaTransaction(requestId);
