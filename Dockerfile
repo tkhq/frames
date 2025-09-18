@@ -14,6 +14,7 @@ COPY auth /usr/share/nginx/auth
 COPY auth /usr/share/nginx/recovery
 COPY export /usr/share/nginx/export
 COPY import /usr/share/nginx/import
+COPY export-and-sign /usr/share/nginx/export-and-sign
 
 # oauth
 COPY oauth-origin /usr/share/nginx/oauth-origin
@@ -24,6 +25,7 @@ EXPOSE 8080/tcp
 EXPOSE 8081/tcp
 EXPOSE 8082/tcp
 EXPOSE 8083/tcp
+EXPOSE 8086/tcp
 
 # oauth
 EXPOSE 8084/tcp

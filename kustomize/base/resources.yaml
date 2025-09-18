@@ -20,10 +20,11 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/export templated/import;
+                mkdir -p templated/export templated/import templated/export-and-sign;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export-and-sign/index.template.html > templated/export-and-sign/index.html;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -47,6 +48,8 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
+            - name: export-and-sign
+              containerPort: 8086
             
             # oauth
             - name: oauth-origin
@@ -110,6 +113,9 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
+    - name: http-export-and-sign
+      port: 8086
+      targetPort: export-and-sign
     
     # oauth
     - name: http-oauth-og
