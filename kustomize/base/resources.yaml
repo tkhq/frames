@@ -20,10 +20,35 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/export templated/import;
+                mkdir -p templated/export templated/import templated/export-and-sign;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+
+                # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
+                cp -r export-and-sign/* templated/export-and-sign/;
+                ls -la templated/export-and-sign/
+
+                # Template the environment variable in the built JavaScript files
+                echo "Templating JS files..."
+                for file in templated/export-and-sign/*.js; do
+                  if [ -f "$file" ]; then
+                    echo "Processing file: $file"
+                    if grep -q "__TURNKEY_SIGNER_ENVIRONMENT__" "$file"; then
+                      echo "Found __TURNKEY_SIGNER_ENVIRONMENT__ in: $file"
+                    else
+                      echo "WARNING: __TURNKEY_SIGNER_ENVIRONMENT__ NOT found in: $file"
+                    fi
+                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                      echo "sed succeeded for: $file"
+                      mv "$file.tmp" "$file"
+                      echo "Completed: $file"
+                    else
+                      echo "ERROR: sed failed for: $file"
+                      exit 1
+                    fi
+                  fi
+                done
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -47,6 +72,8 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
+            - name: export-and-sign
+              containerPort: 8086
             
             # oauth
             - name: oauth-origin
@@ -110,6 +137,9 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
+    - name: http-export-and-sign
+      port: 8086
+      targetPort: export-and-sign
     
     # oauth
     - name: http-oauth-og
