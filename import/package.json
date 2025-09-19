@@ -21,7 +21,8 @@
     "jest": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "jsdom": "^22.1.0",
-    "serve": "^14.2.1",
-    "prettier": "^2.8.4"
+    "prettier": "^2.8.4",
+    "regenerator-runtime": "^0.14.1",
+    "serve": "^14.2.1"
   }
 }
