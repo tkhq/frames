@@ -32,6 +32,21 @@
             prompt: "select_account",
           };
           break;
+        case "apple": {
+          baseUrl = "https://appleid.apple.com/auth/authorize";
+          // Apple often requires a trailing slash in redirect URIs
+          const normalizedRedirectUri = redirectUri.endsWith("/")
+            ? redirectUri
+            : redirectUri + "/";
+          oauthParams = {
+            client_id: clientId,
+            redirect_uri: normalizedRedirectUri,
+            response_type: "code id_token",
+            response_mode: "fragment",
+            nonce: nonce,
+          };
+          break;
+        }
         default:
           return null;
       }
