@@ -31,17 +31,25 @@
       scheme += "://";
     }
 
-    // parse the hash fragment that contains the oauth parameters
-    const hash = window.location.hash.slice(1); // remove the leading '#' character
-    if (!hash) {
-      displayError("Error: Missing OAuth hash parameters.");
-      return;
+    // Prefer hash fragment for providers that return it (e.g., Google/Apple)
+    const hash = window.location.hash.slice(1);
+
+    let paramsToForward;
+    if (hash) {
+      paramsToForward = new URLSearchParams(hash);
+    } else {
+      // Fallback to query parameters for code+PKCE providers (e.g., Discord/Twitter)
+      // Remove "scheme" from forwarded params
+      paramsToForward = new URLSearchParams(window.location.search);
+      paramsToForward.delete("scheme");
+      if ([...paramsToForward.keys()].length === 0) {
+        displayError("Error: Missing OAuth parameters.");
+        return;
+      }
     }
 
-    const hashParams = new URLSearchParams(hash);
-
-    // build the scheme URL with the hash parameters
-    const redirectUrl = `${scheme}?${hashParams.toString()}`;
+    // build the scheme URL with the selected parameters
+    const redirectUrl = `${scheme}?${paramsToForward.toString()}`;
 
     // redirect the browser to the custom scheme URL
     window.location.href = redirectUrl;
