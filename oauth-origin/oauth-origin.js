@@ -16,7 +16,7 @@
       document.body.appendChild(errorText);
     }
 
-    function getOAuthUrl(provider, clientId, redirectUri, nonce) {
+    function getOAuthUrl(provider, clientId, redirectUri, nonce, codeChallenge, state) {
       let baseUrl;
       let oauthParams = {};
 
@@ -47,6 +47,22 @@
           };
           break;
         }
+        case "facebook": {
+          baseUrl = "https://www.facebook.com/v11.0/dialog/oauth";
+          oauthParams = {
+            client_id: clientId,
+            redirect_uri: redirectUri,
+            response_type: "code",
+            scope: "openid",
+            nonce: nonce,
+            code_challenge: codeChallenge,
+            code_challenge_method: "S256",
+          };
+          if (state) {
+            oauthParams.state = state;
+          }
+          break;
+        }
         default:
           return null;
       }
@@ -61,12 +77,19 @@
     const clientId = params.get("clientId");
     const redirectUri = params.get("redirectUri");
     const nonce = params.get("nonce");
+    // optional for some providers
+    const codeChallenge = params.get("codeChallenge");
+    const state = params.get("state");
 
     const missingParams = [];
     if (!provider) missingParams.push("provider");
     if (!clientId) missingParams.push("clientId");
     if (!redirectUri) missingParams.push("redirectUri");
     if (!nonce) missingParams.push("nonce");
+    // Facebook requires PKCE (codeChallenge)
+    if (provider && provider.toLowerCase() === "facebook" && !codeChallenge) {
+      missingParams.push("codeChallenge");
+    }
 
     if (missingParams.length > 0) {
       displayError(
@@ -78,7 +101,14 @@
       return;
     }
 
-    const oauthUrl = getOAuthUrl(provider, clientId, redirectUri, nonce);
+    const oauthUrl = getOAuthUrl(
+      provider,
+      clientId,
+      redirectUri,
+      nonce,
+      codeChallenge,
+      state
+    );
     if (!oauthUrl) {
       displayError("Error: Unsupported provider.");
       return;
