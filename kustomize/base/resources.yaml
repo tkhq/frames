@@ -25,8 +25,8 @@ spec:
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 # For export, copy the webpack-built files and template the environment variable in JS files
                 cp -r export/* templated/export/;
-                # Template the environment variable in the built JavaScript files (with quotes)
-                find templated/export -name "*.js" -exec sed -i 's/"\${TURNKEY_SIGNER_ENVIRONMENT}"/"'"${TURNKEY_SIGNER_ENVIRONMENT}"'"/g' {} \;;
+                # Template the environment variable in the built JavaScript files
+                find templated/export -name "*.js" -exec sed -i 's/\${TURNKEY_SIGNER_ENVIRONMENT}/'"${TURNKEY_SIGNER_ENVIRONMENT}"'/g' {} \;;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
