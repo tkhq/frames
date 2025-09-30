@@ -51,5 +51,5 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           provenance: "false"
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
