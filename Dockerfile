@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Copy package files for export module
 COPY export/package*.json ./export/
-RUN cd export && npm ci --only=production
+RUN cd export && npm ci
 
 # Copy export source files and build
 COPY export/src ./export/src/
