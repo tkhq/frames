@@ -23,7 +23,10 @@ spec:
                 mkdir -p templated/export templated/import;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
-                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+                # For export, copy the webpack-built files and template the environment variable in JS files
+                cp -r export/* templated/export/;
+                # Template the environment variable in the built JavaScript files
+                find templated/export -name "*.js" -exec sed -i "s/\${TURNKEY_SIGNER_ENVIRONMENT}/${TURNKEY_SIGNER_ENVIRONMENT}/g" {} \;;
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -118,4 +121,3 @@ spec:
     - name: http-oauth-rd
       port: 8085
       targetPort: oauth-redirect
-
