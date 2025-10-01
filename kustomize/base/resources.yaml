@@ -26,7 +26,9 @@ spec:
                 # For export, copy the webpack-built files and template the environment variable in JS files
                 cp -r export/* templated/export/;
                 # Template the environment variable in the built JavaScript files
-                find templated/export -type f -name "*.js" -exec sed -i "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" {} \;
+                for file in templated/export/*.js; do
+                  [ -f "$file" ] && sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+                done
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
