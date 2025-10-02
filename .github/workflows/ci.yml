@@ -12,7 +12,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        directory: ["auth", "export", "import", "export-and-sign"]
+        directory:
+          [
+            'auth',
+            'export',
+            'import',
+            'export-and-sign',
+            'oauth-origin',
+            'oauth-redirect',
+          ]
 
     steps:
       - name: Checkout
