@@ -20,15 +20,43 @@ spec:
             - sh
             - -c
             - |
+                set -x
+                echo "Starting init container..."
+                echo "Current directory: $(pwd)"
+                echo "Listing export directory:"
+                ls -la export/ || echo "export/ not found"
+
                 mkdir -p templated/export templated/import;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
+
                 # For export, copy the webpack-built files and template the environment variable in JS files
+                echo "Copying export files..."
                 cp -r export/* templated/export/;
+                echo "Files copied. Listing templated/export:"
+                ls -la templated/export/
+
                 # Template the environment variable in the built JavaScript files
+                echo "Templating JS files..."
                 for file in templated/export/*.js; do
-                  [ -f "$file" ] && sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp" && mv "$file.tmp" "$file"
+                  if [ -f "$file" ]; then
+                    echo "Processing file: $file"
+                    if grep -q "__TURNKEY_SIGNER_ENVIRONMENT__" "$file"; then
+                      echo "Found __TURNKEY_SIGNER_ENVIRONMENT__ in: $file"
+                    else
+                      echo "WARNING: __TURNKEY_SIGNER_ENVIRONMENT__ NOT found in: $file"
+                    fi
+                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                      echo "sed succeeded for: $file"
+                      mv "$file.tmp" "$file"
+                      echo "Completed: $file"
+                    else
+                      echo "ERROR: sed failed for: $file"
+                      exit 1
+                    fi
+                  fi
                 done
+                echo "Init container completed successfully"
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
