@@ -24,26 +24,6 @@ function isDoublyIframed() {
   }
 }
 
-function setOrigin(
-  origin,
-  ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
-) {
-  setItemWithExpiry(TURNKEY_EMBEDDED_KEY_ORIGIN, origin, ttl);
-}
-
-function getOrigin() {
-  return getItemWithExpiry(TURNKEY_EMBEDDED_KEY_ORIGIN);
-}
-
-function checkOrigin(origin) {
-  const storedOrigin = getOrigin();
-  if (storedOrigin !== origin) {
-    throw new Error(
-      `Origin mismatch. Expected: ${origin}. Found: ${storedOrigin}.`
-    );
-  }
-}
-
 // Helper to parse a private key into a Solana base58 private key
 // This shouldn't be needed in the case that a Turnkey wallet account is exported with the address format "SOLANA"
 function parsePrivateKey(privateKey) {
@@ -97,7 +77,7 @@ async function loadQuorumKey(quorumPublic) {
 /**
  * Creates a new public/private key pair and persists it in localStorage
  */
-async function initEmbeddedKey(origin = null) {
+async function initEmbeddedKey() {
   if (isDoublyIframed()) {
     throw new Error("Doubly iframed");
   }
@@ -351,7 +331,7 @@ async function verifyEnclaveSignature(
       "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
   };
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
-    TURNKEY_SIGNERS_ENCLAVES["__TURNKEY_SIGNERS_ENCLAVES__"];
+    TURNKEY_SIGNERS_ENCLAVES["__TURNKEY_SIGNER_ENVIRONMENT__"];
   if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
     throw new Error(
       "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
