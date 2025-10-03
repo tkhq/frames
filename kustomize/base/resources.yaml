@@ -47,7 +47,9 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
-            
+            - name: export-sign
+              containerPort: 8086
+
             # oauth
             - name: oauth-origin
               containerPort: 8084
@@ -110,7 +112,10 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
-    
+    - name: http-export-sign
+      port: 8086
+      targetPort: export-sign
+
     # oauth
     - name: http-oauth-og
       port: 8084
