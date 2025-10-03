@@ -336,7 +336,7 @@ async function verifyEnclaveSignature(
     (typeof window !== "undefined" && window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
     "__TURNKEY_SIGNER_ENVIRONMENT__";
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
-    TURNKEY_SIGNERS_ENCLAVES["prod"];
+    TURNKEY_SIGNERS_ENCLAVES[environment];
   
     if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
     throw new Error(
