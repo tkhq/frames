@@ -331,7 +331,7 @@ async function verifyEnclaveSignature(
       "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
   };
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
-    TURNKEY_SIGNERS_ENCLAVES["__TURNKEY_SIGNER_ENVIRONMENT__"];
+    TURNKEY_SIGNERS_ENCLAVES["prod"];
   if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
     throw new Error(
       "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
@@ -596,8 +596,6 @@ function encodeWallet(walletBytes) {
  * @param {string} privateKeyHex
  */
 function getEd25519PublicKey(privateKeyHex) {
-  window.nobleEd25519.etc.sha512Sync = (...m) =>
-    window.nobleHashes.sha512(window.nobleEd25519.etc.concatBytes(...m));
   return window.nobleEd25519.getPublicKey(privateKeyHex);
 }
 
