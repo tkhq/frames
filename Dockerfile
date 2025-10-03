@@ -34,8 +34,6 @@ COPY import /usr/share/nginx/import
 
 # Copy built export-and-sign files from builder stage
 COPY --from=builder /app/export-and-sign/dist /usr/share/nginx/export-and-sign
-# Also copy the template for environment variable substitution
-COPY export-and-sign/index.template.html /usr/share/nginx/export-and-sign/
 
 # oauth
 COPY oauth-origin /usr/share/nginx/oauth-origin
