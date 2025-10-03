@@ -1,5 +1,5 @@
 // Import styles
-import '../styles.css';
+import './styles.css';
 
 // Bundle all external dependencies for the iframe
 import * as hpke from '@hpke/core';
