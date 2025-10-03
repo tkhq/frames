@@ -39,6 +39,7 @@ describe("TKHQ", () => {
     global.window = dom.window;
     global.document = dom.window.document;
     global.localStorage = dom.window.localStorage;
+    global.crypto = crypto.webcrypto;
 
     // Now import the module after setting up the global window
     const module = await import("./src/turnkey-core.js");
