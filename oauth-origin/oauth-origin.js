@@ -41,7 +41,7 @@
         oauthParams = {
           client_id: clientId,
           redirect_uri: redirectUri,
-          response_type: "id_token",
+          response_type: "code id_token",
           scope: "openid email profile",
           nonce: nonce,
           prompt: "select_account",
