@@ -1,6 +1,6 @@
 {
-  "name": "export-tests",
-  "version": "1.0.0",
+  "name": "export-and-sign",
+  "version": "0.1.0",
   "main": "index.test.js",
   "scripts": {
     "build": "webpack --mode=production",
@@ -13,7 +13,7 @@
   },
   "repository": "git@github.com:tkhq/frames.git",
   "author": "Turnkey <hello@turnkey.com>",
-  "description": "Export iframe with webpack-managed dependencies",
+  "description": "export-and-signiframe with webpack-managed dependencies",
   "license": "MIT",
   "dependencies": {
     "@hpke/core": "^1.2.7",
@@ -37,6 +37,7 @@
     "jsdom": "^22.1.0",
     "mini-css-extract-plugin": "^2.9.4",
     "prettier": "^2.8.4",
+    "regenerator-runtime": "^0.14.1",
     "serve": "^14.2.1",
     "style-loader": "^3.3.3",
     "webpack": "^5.88.2",
