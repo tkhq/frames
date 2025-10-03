@@ -26,7 +26,7 @@ spec:
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
 
                 # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
-                cp -r export-and-sign/* templated/export-and-sign/;
+                cp -r /usr/share/nginx/export-and-sign/* templated/export-and-sign/;
                 ls -la templated/export-and-sign/
 
                 # Template the environment variable in the built JavaScript files
