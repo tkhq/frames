@@ -16,6 +16,7 @@ ed25519.etc.sha512Sync = (...m) => sha512(ed25519.etc.concatBytes(...m));
 window.hpke = hpke;
 window.nobleHashes = { sha512 };
 window.nobleEd25519 = ed25519;
+window.TKHQ = TKHQ;
 
 console.log("nobleHashes", window.nobleHashes);
 console.log("nobleEd25519", window.nobleEd25519);

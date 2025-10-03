@@ -5,14 +5,15 @@ import path from "path";
 import * as crypto from "crypto";
 
 const html = fs
-  .readFileSync(path.resolve(__dirname, "./index.template.html"), "utf8")
-  .replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
+  .readFileSync(path.resolve(__dirname, "./src/index.template.html"), "utf8")
+  .replace("__TURNKEY_SIGNER_ENVIRONMENT__", "prod");
 
 let dom;
 let TKHQ;
+let TKHQModule;
 
 describe("TKHQ", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     dom = new JSDOM(html, {
       // Necessary to run script tags
       runScripts: "dangerously",
@@ -23,6 +24,7 @@ describe("TKHQ", () => {
       beforeParse(window) {
         window.TextDecoder = TextDecoder;
         window.TextEncoder = TextEncoder;
+        window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
       },
     });
 
@@ -32,6 +34,18 @@ describe("TKHQ", () => {
       value: crypto.webcrypto,
     });
 
+    // Create a script element and inject the bundled TKHQ code
+    // For now, we'll expose the module directly but need to ensure it uses dom.window
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+
+    // Now import the module after setting up the global window
+    const module = await import("./src/turnkey-core.js");
+    TKHQModule = module.TKHQ;
+
+    // Expose TKHQ module to the window for testing
+    dom.window.TKHQ = TKHQModule;
     TKHQ = dom.window.TKHQ;
   });
 
