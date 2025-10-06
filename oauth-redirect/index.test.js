@@ -1,21 +1,40 @@
 import "@testing-library/jest-dom";
 import { JSDOM } from "jsdom";
-import fs from "fs";
 import path from "path";
+import { pathToFileURL } from "url";
 
-const html = fs.readFileSync(path.resolve(__dirname, "./index.html"), "utf8");
+const indexPath = path.resolve(__dirname, "./index.html");
 
-function createDOM(url) {
-  const domInstance = new JSDOM(html, {
+async function createDOMWithResourceLoading({ search = "", hash = "" } = {}) {
+  const fileUrl = pathToFileURL(indexPath);
+  const url = new URL(fileUrl.href);
+  if (search) {
+    url.search = search.startsWith("?") ? search : `?${search}`;
+  }
+  if (hash) {
+    url.hash = hash.startsWith("#") ? hash : `#${hash}`;
+  }
+
+  const domInstance = await JSDOM.fromFile(indexPath, {
     // Necessary to run script tags
     runScripts: "dangerously",
-    url,
+    // Necessary to load external resources like ./oauth-redirect.js
+    resources: "usable",
+    // Set the document location so the script sees the intended query/hash
+    url: url.href,
     beforeParse(window) {
       // Necessary for TextDecoder to be available.
       // See https://github.com/jsdom/jsdom/issues/2524
       window.TextDecoder = TextDecoder;
       window.TextEncoder = TextEncoder;
     },
+  });
+
+  // The script is "defer"; wait until the page's load event fires
+  await new Promise((resolve) => {
+    domInstance.window.addEventListener("load", () => resolve(), {
+      once: true,
+    });
   });
 
   return domInstance;
@@ -30,9 +49,11 @@ describe("OAuth redirect", () => {
     }
   });
 
-  it("displays an error if the scheme is missing", () => {
-    const url = "http://localhost/?foo=bar#id_token=abc";
-    dom = createDOM(url);
+  it("displays an error if the scheme is missing", async () => {
+    dom = await createDOMWithResourceLoading({
+      search: "?foo=bar",
+      hash: "#id_token=abc",
+    });
 
     const errorEl = dom.window.document.querySelector("p.error");
     expect(errorEl).not.toBeNull();
@@ -41,14 +62,11 @@ describe("OAuth redirect", () => {
     );
   });
 
-  it("displays an error if OAuth hash parameters are missing", () => {
-    const url = "http://localhost/?scheme=myapp";
-    dom = createDOM(url);
+  it("displays an error if OAuth parameters are missing in both hash and query", async () => {
+    dom = await createDOMWithResourceLoading({ search: "?scheme=myapp" });
 
     const errorEl = dom.window.document.querySelector("p.error");
     expect(errorEl).not.toBeNull();
-    expect(errorEl.textContent).toContain(
-      "Error: Missing OAuth hash parameters."
-    );
+    expect(errorEl.textContent).toContain("Error: Missing OAuth parameters.");
   });
 });
