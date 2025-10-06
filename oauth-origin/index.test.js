@@ -192,7 +192,7 @@ describe("OAuth origin", () => {
     const search = new URLSearchParams(qs);
     expect(search.get("client_id")).toBe("myClient");
     expect(search.get("redirect_uri")).toBe("https://example.com?scheme=myapp");
-    expect(search.get("response_type")).toBe("id_token");
+    expect(search.get("response_type")).toBe("code id_token");
     expect(search.get("scope")).toBe("openid email profile");
     expect(search.get("nonce")).toBe("abc123");
     expect(search.get("prompt")).toBe("select_account");
