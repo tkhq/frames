@@ -20,10 +20,29 @@ spec:
             - sh
             - -c
             - |
-                mkdir -p templated/export templated/import;
+                mkdir -p templated/export templated/import templated/export-and-sign;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
+
+                # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
+                if [ -d "export-and-sign" ]; then
+                  echo "Found export-and-sign directory, copying contents..."
+                  cp -r export-and-sign/. templated/export-and-sign/;
+                  ls -la templated/export-and-sign/
+                else
+                  echo "WARNING: export-and-sign directory not found! Skipping..."
+                  echo "You need to rebuild the Docker image with the updated Dockerfile."
+                fi
+
+                # Template the environment variable in the built JavaScript files
+                for file in templated/export-and-sign/*.js; do
+                  if [ -f "$file" ]; then
+                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                      mv "$file.tmp" "$file"
+                    fi
+                  fi
+                done
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -47,6 +66,8 @@ spec:
               containerPort: 8082
             - name: import
               containerPort: 8083
+            - name: export-and-sign
+              containerPort: 8086
             
             # oauth
             - name: oauth-origin
@@ -110,6 +131,9 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
+    - name: http-export-and-sign
+      port: 8086
+      targetPort: export-and-sign
     
     # oauth
     - name: http-oauth-og
