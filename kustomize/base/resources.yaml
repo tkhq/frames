@@ -26,26 +26,20 @@ spec:
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
 
                 # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
-                cp -r export-and-sign/* templated/export-and-sign/;
-                ls -la templated/export-and-sign/
+                if [ -d "export-and-sign" ]; then
+                  echo "Found export-and-sign directory, copying contents..."
+                  cp -r export-and-sign/. templated/export-and-sign/;
+                  ls -la templated/export-and-sign/
+                else
+                  echo "WARNING: export-and-sign directory not found! Skipping..."
+                  echo "You need to rebuild the Docker image with the updated Dockerfile."
+                fi
 
                 # Template the environment variable in the built JavaScript files
-                echo "Templating JS files..."
                 for file in templated/export-and-sign/*.js; do
                   if [ -f "$file" ]; then
-                    echo "Processing file: $file"
-                    if grep -q "__TURNKEY_SIGNER_ENVIRONMENT__" "$file"; then
-                      echo "Found __TURNKEY_SIGNER_ENVIRONMENT__ in: $file"
-                    else
-                      echo "WARNING: __TURNKEY_SIGNER_ENVIRONMENT__ NOT found in: $file"
-                    fi
                     if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
-                      echo "sed succeeded for: $file"
                       mv "$file.tmp" "$file"
-                      echo "Completed: $file"
-                    else
-                      echo "ERROR: sed failed for: $file"
-                      exit 1
                     fi
                   fi
                 done
