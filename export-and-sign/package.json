@@ -13,7 +13,7 @@
   },
   "repository": "git@github.com:tkhq/frames.git",
   "author": "Turnkey <hello@turnkey.com>",
-  "description": "export-and-signiframe with webpack-managed dependencies",
+  "description": "export-and-sign iframe with webpack-managed dependencies",
   "license": "MIT",
   "dependencies": {
     "@hpke/core": "^1.2.7",
