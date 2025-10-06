@@ -34,7 +34,7 @@
 
   // Determine the source of OAuth parameters.
   // Many providers return parameters in the URL hash (e.g., Google/Apple with id_token in the hash).
-  // Others return them in the query string (e.g., code+PKCE flows like Facebook/Discord/Twitter).
+  // Others return them in the query string (e.g., code+PKCE flows like Facebook).
   // We prefer the hash only if it contains clearly relevant keys; otherwise we fall back to the query.
   const rawHash = window.location.hash.slice(1);
   const hashParams = rawHash ? new URLSearchParams(rawHash) : null;
