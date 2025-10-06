@@ -131,7 +131,7 @@ spec:
     - name: http-import
       port: 8083
       targetPort: import
-    - name: http-export-and-sign
+    - name: http-exp-sign
       port: 8086
       targetPort: export-and-sign
     
