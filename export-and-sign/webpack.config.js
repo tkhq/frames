@@ -40,6 +40,12 @@ module.exports = (env, argv) => {
         template: './src/index.template.html',
         filename: 'index.html',
         inject: 'body',
+        meta: {
+          'Content-Security-Policy': {
+            'http-equiv': 'Content-Security-Policy',
+            content: "default-src 'self';"
+          }
+        },
         minify: isProduction ? {
           removeComments: true,
           collapseWhitespace: true,
