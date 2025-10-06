@@ -46,6 +46,9 @@
           nonce: nonce,
           prompt: "select_account",
         };
+        if (state) {
+          oauthParams.state = state;
+        }
         break;
       case "apple": {
         baseUrl = "https://appleid.apple.com/auth/authorize";
@@ -58,6 +61,9 @@
           response_mode: "fragment",
           nonce: nonce,
         };
+        if (state) {
+          oauthParams.state = state;
+        }
         break;
       }
       case "facebook": {
