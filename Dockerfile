@@ -3,16 +3,9 @@ FROM node:18-bullseye-slim AS builder
 
 WORKDIR /app
 
-# Copy package files for export-and-sign module
-COPY export-and-sign/package*.json ./export-and-sign/
-RUN cd export-and-sign && npm ci
-
-# Copy export source files and build
-COPY export-and-sign/src ./export-and-sign/src/
-COPY export-and-sign/webpack.config.js ./export-and-sign/
-COPY export-and-sign/babel.config.js ./export-and-sign/
-COPY export-and-sign/favicon.svg ./export-and-sign/
-RUN cd export-and-sign && npm run build
+# Copy export-and-sign module and build
+COPY export-and-sign ./export-and-sign/
+RUN cd export-and-sign && npm ci && npm run build
 
 # Second stage: nginx runtime
 # This is nginx 1.24.0 on bullseye.
