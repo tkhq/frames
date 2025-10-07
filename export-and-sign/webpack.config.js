@@ -43,7 +43,7 @@ module.exports = (env, argv) => {
         meta: {
           'Content-Security-Policy': {
             'http-equiv': 'Content-Security-Policy',
-            content: "default-src 'self';"
+            content: "default-src 'self'; script-src 'self'; style-src 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none';"
           }
         },
         minify: isProduction ? {

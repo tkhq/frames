@@ -1,4 +1,10 @@
 import { TKHQ } from './turnkey-core.js';
+import {
+  CipherSuite,
+  DhkemP256HkdfSha256,
+  HkdfSha256,
+  Aes256Gcm,
+} from '@hpke/core';
 
 /**
  * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
@@ -9,17 +15,17 @@ export async function HpkeDecrypt({
   encappedKeyBuf,
   receiverPrivJwk,
 }) {
-  const kemContext = new window.hpke.DhkemP256HkdfSha256();
+  const kemContext = new DhkemP256HkdfSha256();
   var receiverPriv = await kemContext.importKey(
     "jwk",
     { ...receiverPrivJwk },
     false
   );
 
-  var suite = new window.hpke.CipherSuite({
+  var suite = new CipherSuite({
     kem: kemContext,
-    kdf: new window.hpke.HkdfSha256(),
-    aead: new window.hpke.Aes256Gcm(),
+    kdf: new HkdfSha256(),
+    aead: new Aes256Gcm(),
   });
 
   var recipientCtx = await suite.createRecipientContext({
