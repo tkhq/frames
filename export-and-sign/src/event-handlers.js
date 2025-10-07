@@ -15,7 +15,7 @@ import naclUtil from 'tweetnacl-util';
 // persist the decrypted key in memory
 let decryptedKey = null;
 
-const DEFAULT_TTL = 24 * 60 * 60; // 24 hours
+const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
 /**
  * Hide every HTML element in <body> except any <script> elements.
@@ -180,7 +180,7 @@ async function onInjectKeyBundle(
   decryptedKey = {
     rawBytes: keyBytes,
     format: keyFormat,
-    expiry: new Date().getTime() + DEFAULT_TTL,
+    expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
   };
 
   // Send up BUNDLE_INJECTED message
@@ -244,6 +244,22 @@ async function onSignTransaction(serializedTransaction, requestId) {
       ).toString(),
       requestId
     );
+
+    return;
+  }
+
+  // Return error if key has expired
+  const now = new Date().getTime();
+  if (now >= decryptedKey.expiry) {
+    TKHQ.sendMessageUp(
+      "ERROR",
+      new Error(
+        "key has expired. Please re-inject export bundle into iframe."
+      ).toString(),
+      requestId
+    );
+
+    return;
   }
 
   // Create a keypair from the decrypted key bytes
@@ -297,6 +313,22 @@ async function onSignMessage(serializedMessage, requestId) {
       ).toString(),
       requestId
     );
+
+    return;
+  }
+
+  // Return error if key has expired
+  const now = new Date().getTime();
+  if (now >= decryptedKey.expiry) {
+    TKHQ.sendMessageUp(
+      "ERROR",
+      new Error(
+        "key has expired. Please re-inject export bundle into iframe."
+      ).toString(),
+      requestId
+    );
+    
+    return;
   }
 
   const messageWrapper = JSON.parse(serializedMessage);
@@ -334,7 +366,16 @@ async function onSignMessage(serializedMessage, requestId) {
  * @param {string} requestId
  */
 async function onClearEmbeddedPrivateKey(requestId) {
-  decryptedKey = {}; // blank out the in-memory key
+  // Clear reference and memory
+  if (decryptedKey && decryptedKey.rawBytes) {
+    if (decryptedKey.rawBytes instanceof ArrayBuffer) {
+      new Uint8Array(decryptedKey.rawBytes).fill(0);
+    } else if (ArrayBuffer.isView(decryptedKey.rawBytes)) {
+      decryptedKey.rawBytes.fill(0);
+    }
+  }
+
+  decryptedKey = null;
 
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
@@ -433,7 +474,7 @@ function addDOMEventListeners() {
 /**
  * Message Event Handlers to process messages from the parent frame
  */
-function createMessageEventListener(HpkeDecrypt) {
+function initMessageEventListener(HpkeDecrypt) {
   return async function messageEventListener(event) {
     if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
       TKHQ.logMessage(
@@ -519,8 +560,8 @@ function createMessageEventListener(HpkeDecrypt) {
  * Set up event handlers for both DOM and message events
  * @param {Function} HpkeDecrypt
  */
-export function setupEventHandlers(HpkeDecrypt) {
-  const messageEventListener = createMessageEventListener(HpkeDecrypt);
+export function initEventHandlers(HpkeDecrypt) {
+  const messageEventListener = initMessageEventListener(HpkeDecrypt);
 
   // controllers to remove event listeners
   const messageListenerController = new AbortController();

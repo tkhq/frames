@@ -3,6 +3,8 @@
  * Contains all the core cryptographic and utility functions
  */
 
+import * as ed25519 from "@noble/ed25519";
+
 /** constant for LocalStorage */
 const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
@@ -602,7 +604,7 @@ function encodeWallet(walletBytes) {
  * @param {string} privateKeyHex
  */
 function getEd25519PublicKey(privateKeyHex) {
-  return window.nobleEd25519.getPublicKey(privateKeyHex);
+  return ed25519.getPublicKey(privateKeyHex);
 }
 
 /**

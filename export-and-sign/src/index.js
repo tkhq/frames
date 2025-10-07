@@ -1,37 +1,23 @@
-// Import dependencies that will be managed by webpack
-import * as hpke from "@hpke/core";
-import { sha512 } from "@noble/hashes/sha512";
-import * as ed25519 from "@noble/ed25519";
+// This file is the main entrypoint of the webpack-bundled application
 
-// Import our modules
+// Import relevant modules
 import { TKHQ } from "./turnkey-core.js";
-import { setupEventHandlers } from "./event-handlers.js";
+import { initEventHandlers } from "./event-handlers.js";
 import { HpkeDecrypt } from "./crypto-utils.js";
 import "./styles.css";
 
-ed25519.etc.sha512Sync = (...m) => sha512(ed25519.etc.concatBytes(...m));
-
-// Make dependencies available globally for the TKHQ module
-
-window.hpke = hpke;
-window.nobleHashes = { sha512 };
-window.nobleEd25519 = ed25519;
+// Surface TKHQ for external access
 window.TKHQ = TKHQ;
 
-console.log("nobleHashes", window.nobleHashes);
-console.log("nobleEd25519", window.nobleEd25519);
-
-// Initialize the application
+// Init app
 document.addEventListener("DOMContentLoaded", async function () {
-
   await TKHQ.initEmbeddedKey();
   const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
   const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
   const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
   document.getElementById("embedded-key").value = targetPubHex;
 
-  // Set up event handlers
-  setupEventHandlers(HpkeDecrypt);
+  initEventHandlers(HpkeDecrypt);
 
   // If styles are saved in local storage, sanitize and apply them
   const styleSettings = TKHQ.getSettings();
@@ -42,7 +28,7 @@ document.addEventListener("DOMContentLoaded", async function () {
   TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 });
 
-// Handle MessageChannel initialization for iframe communication
+// Init MessageChannel for communication between iframe <> parent page
 window.addEventListener("message", async function (event) {
   if (
     event.data &&
@@ -51,7 +37,7 @@ window.addEventListener("message", async function (event) {
   ) {
     const iframeMessagePort = event.ports[0];
     iframeMessagePort.onmessage =
-      setupEventHandlers(HpkeDecrypt).messageEventListener;
+      initEventHandlers(HpkeDecrypt).messageEventListener;
 
     TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
 

@@ -126,6 +126,22 @@ Follow the README.md for the `email-auth` [example](https://github.com/tkhq/sdk/
 cd sdk/examples/email-auth
 ```
 
+## Export and Sign
+This iframe uses webpack for dependency management. You can run it in development mode with hot reload:
+```sh
+cd export-and-sign
+npm run dev
+```
+
+Or build and serve the production bundle:
+```sh
+cd export-and-sign
+npm run build
+npm start
+```
+
+By default, the development server runs on port 8080, and the production static server runs on port 3000.
+
 # Building and running in Docker
 
 To build:
