@@ -27,12 +27,8 @@ spec:
 
                 # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
                 if [ -d "export-and-sign" ]; then
-                  echo "Found export-and-sign directory, copying contents..."
                   cp -r export-and-sign/. templated/export-and-sign/;
                   ls -la templated/export-and-sign/
-                else
-                  echo "WARNING: export-and-sign directory not found! Skipping..."
-                  echo "You need to rebuild the Docker image with the updated Dockerfile."
                 fi
 
                 # Template the environment variable in the built JavaScript files
