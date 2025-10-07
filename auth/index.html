@@ -77,6 +77,33 @@
         display: none;
       }
     </style>
+    <script type="module">
+      import GrafanaFaroWebSdk from "./grafana-faro-web-sdk.js";
+      import GrafanaFaroWebTracing from "./grafana-faro-web-tracing.js";
+
+      // set environment based on the host
+      let environment = "development";
+      const host = window.location.host;
+      if (host === "auth.turnkey.com") {
+        environment = "production";
+      } else if (host === "auth.preprod.turnkey.engineering") {
+        environment = "preprod";
+      }
+
+      const faro = GrafanaFaroWebSdk.initializeFaro({
+        url: "https://faro-collector-prod-us-central-0.grafana.net/collect/208ef3024d71da6062bd867dbd1f8b34",
+        app: {
+          name: "email-auth",
+          version: "1.0.0",
+          environment: environment,
+        },
+        trackGeolocation: false,
+      });
+
+      const grafanaTracing = GrafanaFaroWebTracing({}, GrafanaFaroWebSdk);
+
+      faro.instrumentations.add(new grafanaTracing.TracingInstrumentation());
+    </script>
   </head>
 
   <body>
@@ -292,7 +319,9 @@
             hexString.length % 2 != 0 ||
             !hexRegex.test(hexString)
           ) {
-            throw new Error("cannot create uint8array from invalid hex string");
+            const errorMessage = `cannot create uint8array from invalid hex string: ${hexString}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           var buffer = new Uint8Array(
             hexString.match(/../g).map((h) => parseInt(h, 16))
@@ -365,9 +394,9 @@
          */
         async function base58checkDecode(s) {
           if (s.length < 5) {
-            throw new Error(
-              `cannot base58-decode a string of length < 5 (found length ${s.length})`
-            );
+            const errorMessage = `cannot base58-decode a string of length < 5 (found length ${s.length})`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           // See https://en.bitcoin.it/wiki/Base58Check_encoding
@@ -378,9 +407,9 @@
           var leadingZeros = [];
           for (var i = 0; i < s.length; i++) {
             if (alphabet.indexOf(s[i]) === -1) {
-              throw new Error(
-                `cannot base58-decode: ${s[i]} isn't a valid character`
-              );
+              const errorMessage = `cannot base58-decode: ${s[i]} isn't a valid character`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             var carry = alphabet.indexOf(s[i]);
 
@@ -430,9 +459,9 @@
           );
 
           if (computedChecksum.toString() != foundChecksum.toString()) {
-            throw new Error(
-              `unable to decode credential bundle. checksums do not match: computed ${computedChecksum} but found ${foundChecksum}`
-            );
+            const errorMessage = `unable to decode credential bundle. checksums do not match: computed ${computedChecksum} but found ${foundChecksum}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           return new Uint8Array(msg);
@@ -454,9 +483,9 @@
          */
         function convertEcdsaIeee1363ToDer(ieee) {
           if (ieee.length % 2 != 0 || ieee.length == 0 || ieee.length > 132) {
-            throw new Error(
-              "Invalid IEEE P1363 signature encoding. Length: " + ieee.length
-            );
+            const errorMessage = `Invalid IEEE P1363 signature encoding. Length: ${ieee.length}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           const r = toUnsignedBigNum(ieee.subarray(0, ieee.length / 2));
           const s = toUnsignedBigNum(
@@ -542,6 +571,15 @@
          * @param requestId serves as an idempotency key to match incoming requests. Backwards compatible: if not provided, it isn't passed in.
          */
         var sendMessageUp = function (type, value, requestId) {
+          if (type === "ERROR") {
+            window.faro?.api?.pushError([value], {
+              context: {
+                requestId: requestId,
+              },
+              level: "error",
+            });
+          }
+
           const message = {
             type: type,
             value: value,
@@ -574,6 +612,15 @@
           var message = document.createElement("p");
           message.innerText = content;
           messageLog.appendChild(message);
+        };
+
+        /**
+         * Function to report errors to Grafana Faro.
+         */
+        var reportError = function (errorMessage) {
+          window.faro?.api?.pushError([errorMessage], {
+            level: "error",
+          });
         };
 
         /**
@@ -658,9 +705,9 @@
         var bigIntToHex = function (num, length) {
           var hexString = num.toString(16);
           if (hexString.length > length) {
-            throw new Error(
-              "number cannot fit in a hex string of " + length + " characters"
-            );
+            const errorMessage = `number cannot fit in a hex string of ${length} characters`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           // Add an extra 0 to the start of the string to get to `length`
           return hexString.padStart(length, 0);
@@ -717,11 +764,15 @@
           }
 
           if (x < BigInt(0) || x >= p) {
-            throw new Error("x is out of range");
+            const errorMessage = "x is out of range";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           if (y < BigInt(0) || y >= p) {
-            throw new Error("y is out of range");
+            const errorMessage = "y is out of range";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           var uncompressedHexString =
@@ -734,7 +785,9 @@
          */
         function modSqrt(x, p) {
           if (p <= BigInt(0)) {
-            throw new Error("p must be positive");
+            const errorMessage = "p must be positive";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           const base = x % p;
           // The currently supported NIST curves P-256, P-384, and P-521 all satisfy
@@ -746,12 +799,16 @@
             const q = (p + BigInt(1)) >> BigInt(2);
             const squareRoot = modPow(base, q, p);
             if ((squareRoot * squareRoot) % p !== base) {
-              throw new Error("could not find a modular square root");
+              const errorMessage = "could not find a modular square root";
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             return squareRoot;
           }
           // Skipping other elliptic curve types that require Cipolla's algorithm.
-          throw new Error("unsupported modulus value");
+          const errorMessage = `unsupported modulus value: ${p}`;
+          reportError(errorMessage);
+          throw new Error(errorMessage);
         }
 
         /**
@@ -823,10 +880,9 @@
           } else if (other instanceof P256FieldElement) {
             coefficient = other.num;
           } else {
-            throw new Error(
-              "Cannot multiply element. Expected a BigInt, a Number or a P256FieldElement. Got: " +
-                other
-            );
+            const errorMessage = `Cannot multiply element. Expected a BigInt, a Number or a P256FieldElement. Got: ${other}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           num = (this.num * coefficient) % this.prime;
           return new P256FieldElement(num);
@@ -864,12 +920,16 @@
          */
         P256Point = function (x, y) {
           if (!x instanceof P256FieldElement) {
-            throw new Error("expected a P256FieldElement for x. Got: " + x);
+            const errorMessage = `expected a P256FieldElement for x. Got: ${x}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           this.x = x;
 
           if (!y instanceof P256FieldElement) {
-            throw new Error("expected a P256FieldElement for y. Got: " + y);
+            const errorMessage = `expected a P256FieldElement for y. Got: ${y}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           this.y = y;
           this.a = new P256FieldElement(
@@ -893,13 +953,9 @@
 
           if (left != right) {
             // y**2 = x**3 + 7 is the elliptic curve equation
-            throw new Error(
-              "Not on the P256 curve! y**2 (" +
-                left +
-                ") != x3 + ax + b (" +
-                right +
-                ")"
-            );
+            const errorMessage = `Not on the P256 curve! y**2 (${left}) != x3 + ax + b (${right})`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
         };
 
@@ -963,18 +1019,9 @@
             y = s.mul(this.x.sub(x)).sub(this.y);
             return new P256Point(x, y);
           }
-
-          throw new Error(
-            "cannot handle addition of (" +
-              this.x +
-              ", " +
-              this.y +
-              ") with (" +
-              other.x +
-              ", " +
-              other.y +
-              ")"
-          );
+          const errorMessage = `cannot handle addition of (${this.x}, ${this.y}) with (${other.x}, ${other.y})`;
+          reportError(errorMessage);
+          throw new Error(errorMessage);
         };
         /**
          * Multiplication uses addition. Nothing crazy here.
@@ -1035,6 +1082,7 @@
           sendMessageUp,
           setParentFrameMessageChannelPort,
           logMessage,
+          reportError,
           base64urlEncode,
           base64urlDecode,
           base58checkDecode,
@@ -1271,11 +1319,9 @@
         }
 
         if (bundleBytes.byteLength <= 33) {
-          throw new Error(
-            "bundle size " +
-              bundleBytes.byteLength +
-              " is too low. Expecting a compressed public key (33 bytes) and an encrypted credential"
-          );
+          const errorMessage = `bundle size ${bundleBytes.byteLength} is too low. Expecting a compressed public key (33 bytes) and an encrypted credential`;
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
 
         var compressedEncappedKeyBuf = bundleBytes.subarray(0, 33);
@@ -1346,9 +1392,10 @@
        */
       var onStampRequest = async function (payload, requestId) {
         if (CREDENTIAL_BYTES === null) {
-          throw new Error(
-            "cannot sign payload without credential. Credential bytes are null. Has a credential bundle been injected into the iframe?"
-          );
+          const errorMessage =
+            "cannot sign payload without credential. Credential bytes are null. Has a credential bundle been injected into the iframe?";
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
         var key = await TKHQ.importCredential(CREDENTIAL_BYTES);
         var signatureIeee1363 = await window.crypto.subtle.sign(
@@ -1420,10 +1467,9 @@
         try {
           res = await recipientCtx.open(ciphertextBuf, aad);
         } catch (e) {
-          throw new Error(
-            "unable to decrypt bundle using embedded key. the bundle may be incorrect. failed with error: " +
-              e.toString()
-          );
+          const errorMessage = `unable to decrypt bundle using embedded key. the bundle may be incorrect. failed with error: ${e.toString()}`;
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
         return res;
       };
