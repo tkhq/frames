@@ -488,6 +488,13 @@
               plaintextTextarea.style[key] = value;
             });
 
+            if (validStyles.backgroundColor) {
+              // Apply background color to document and body as well. 
+              document.documentElement.style.backgroundColor =
+                validStyles.backgroundColor;
+              document.body.style.backgroundColor = validStyles.backgroundColor;
+            }
+
             validSettings["styles"] = validStyles;
           }
 
@@ -636,6 +643,28 @@
             // In the case of import, this public key is not used because the client encrypts messages
             // to the server's public key.
             TKHQ.sendMessageUp("PUBLIC_KEY_READY", "");
+
+            const plaintextTextarea = document.getElementById("plaintext");
+            if (!plaintextTextarea) return;
+            // Clear clipboard after paste to avoid sensitive data lingering in clipboard.
+
+            plaintextTextarea.addEventListener("paste", async () => { 
+              // Let the paste happen first
+              try {
+                // Check clipboard-write permission first. In new versions of iframe-stamper, we add this permission when creating the iframe. In older versions, this permission is not added.
+                const permStatus = await navigator.permissions
+                  .query({ name: "clipboard-write" }) // This is required to avoid error on clipboard write
+                  .catch(() => null);
+
+                // Proceed only if granted or promptable
+                if (permStatus?.state === "granted" || permStatus?.state === "prompt") {
+                  await navigator.clipboard.writeText("");
+                }
+              } catch {
+                // Silently ignore any errors — no warnings or console noise
+              }
+
+            });
           }
         },
         false
