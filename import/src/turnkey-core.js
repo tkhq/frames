@@ -3,12 +3,66 @@ const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 
 var parentFrameMessageChannelPort = null;
+var cryptoProviderOverride = null;
+
+/*
+ * Returns a reference to the WebCrypto subtle interface regardless of the host environment.
+ */
+function getSubtleCrypto() {
+  if (
+    cryptoProviderOverride &&
+    cryptoProviderOverride.subtle
+  ) {
+    return cryptoProviderOverride.subtle;
+  }
+  if (
+    typeof globalThis !== "undefined" &&
+    globalThis.crypto &&
+    globalThis.crypto.subtle
+  ) {
+    return globalThis.crypto.subtle;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.crypto &&
+    window.crypto.subtle
+  ) {
+    return window.crypto.subtle;
+  }
+  if (
+    typeof global !== "undefined" &&
+    global.crypto &&
+    global.crypto.subtle
+  ) {
+    return global.crypto.subtle;
+  }
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    return crypto.subtle;
+  }
+
+  console.log('global', global.crypto)
+  console.log('window', window.crypto)
+
+  return null;
+}
+
+/*
+ * Allows tests to explicitly set the crypto provider (e.g. crypto.webcrypto) when the runtime
+ * environment does not expose one on the global/window objects.
+ */
+function setCryptoProvider(cryptoProvider) {
+  cryptoProviderOverride = cryptoProvider || null;
+}
 
 /*
  * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
  */
 async function loadTargetKey(targetPublic) {
-  const targetKey = await crypto.subtle.importKey(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  const targetKey = await subtle.importKey(
     "raw",
     targetPublic,
     {
@@ -19,14 +73,18 @@ async function loadTargetKey(targetPublic) {
     []
   );
 
-  return await crypto.subtle.exportKey("jwk", targetKey);
+  return await subtle.exportKey("jwk", targetKey);
 }
 
 /*
  * Loads the quorum public key as a CryptoKey.
  */
 async function loadQuorumKey(quorumPublic) {
-  return await crypto.subtle.importKey(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  return await subtle.importKey(
     "raw",
     quorumPublic,
     {
@@ -340,7 +398,11 @@ async function verifyEnclaveSignature(
   // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format
   const publicSignatureBuf = fromDerSignature(publicSignature);
   const signedDataBuf = uint8arrayFromHexString(signedData);
-  return await crypto.subtle.verify(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  return await subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     quorumKey,
     publicSignatureBuf,
@@ -495,6 +557,7 @@ function sendMessageUp(type, value, requestId) {
 }
 
 export {
+  setCryptoProvider,
   loadTargetKey,
   getTargetEmbeddedKey,
   setTargetEmbeddedKey,
