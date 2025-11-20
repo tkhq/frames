@@ -3,12 +3,66 @@ const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 
 var parentFrameMessageChannelPort = null;
+var cryptoProviderOverride = null;
+
+/*
+ * Returns a reference to the WebCrypto subtle interface regardless of the host environment.
+ */
+function getSubtleCrypto() {
+  if (
+    cryptoProviderOverride &&
+    cryptoProviderOverride.subtle
+  ) {
+    return cryptoProviderOverride.subtle;
+  }
+  if (
+    typeof globalThis !== "undefined" &&
+    globalThis.crypto &&
+    globalThis.crypto.subtle
+  ) {
+    return globalThis.crypto.subtle;
+  }
+  if (
+    typeof window !== "undefined" &&
+    window.crypto &&
+    window.crypto.subtle
+  ) {
+    return window.crypto.subtle;
+  }
+  if (
+    typeof global !== "undefined" &&
+    global.crypto &&
+    global.crypto.subtle
+  ) {
+    return global.crypto.subtle;
+  }
+  if (typeof crypto !== "undefined" && crypto.subtle) {
+    return crypto.subtle;
+  }
+
+  console.log('global', global.crypto)
+  console.log('window', window.crypto)
+
+  return null;
+}
+
+/*
+ * Allows tests to explicitly set the crypto provider (e.g. crypto.webcrypto) when the runtime
+ * environment does not expose one on the global/window objects.
+ */
+function setCryptoProvider(cryptoProvider) {
+  cryptoProviderOverride = cryptoProvider || null;
+}
 
 /*
  * Load a key to encrypt to as a CryptoKey and return it as a JSON Web Key.
  */
 async function loadTargetKey(targetPublic) {
-  const targetKey = await crypto.subtle.importKey(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  const targetKey = await subtle.importKey(
     "raw",
     targetPublic,
     {
@@ -19,14 +73,18 @@ async function loadTargetKey(targetPublic) {
     []
   );
 
-  return await crypto.subtle.exportKey("jwk", targetKey);
+  return await subtle.exportKey("jwk", targetKey);
 }
 
 /*
  * Loads the quorum public key as a CryptoKey.
  */
 async function loadQuorumKey(quorumPublic) {
-  return await crypto.subtle.importKey(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  return await subtle.importKey(
     "raw",
     quorumPublic,
     {
@@ -340,7 +398,11 @@ async function verifyEnclaveSignature(
   // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format
   const publicSignatureBuf = fromDerSignature(publicSignature);
   const signedDataBuf = uint8arrayFromHexString(signedData);
-  return await crypto.subtle.verify(
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+  return await subtle.verify(
     { name: "ECDSA", hash: "SHA-256" },
     quorumKey,
     publicSignatureBuf,
@@ -371,6 +433,8 @@ function validateStyles(styles, element) {
     fontWeight: "^(normal|bold|bolder|lighter|\\d{3})$",
     fontFamily: '^[^";<>]*$', // checks for the absence of some characters that could lead to CSS/HTML injection
     color:
+      "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+    labelColor:
       "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
     backgroundColor:
       "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
@@ -429,15 +493,47 @@ function validateStyles(styles, element) {
 function applySettings(settings) {
   const validSettings = {};
   const settingsObj = JSON.parse(settings);
-  if (settingsObj.styles) {
-    // Valid styles will be applied the "plaintext" textarea HTML element.
-    const plaintextTextarea = document.getElementById("plaintext");
-    if (!plaintextTextarea) {
-      throw new Error(
-        "no plaintext textarea HTML element found to apply settings to."
-      );
-    }
 
+  const passphraseLabel = document.getElementById(
+    "passphrase-label"
+  );
+  const mnemonicLabel = document.getElementById("mnemonic-label");
+  const passphraseTextarea = document.getElementById("passphrase");
+
+  if (!passphraseLabel || !passphraseTextarea) {
+    throw new Error(
+      "no passphrase HTML elements found to apply settings to."
+    );
+  }
+  const plaintextTextarea = document.getElementById("plaintext");
+  if (!plaintextTextarea) {
+    throw new Error(
+      "no plaintext textarea HTML element found to apply settings to."
+    );
+  }
+
+  // Apply enablePassphrase setting
+  if (settingsObj.enablePassphrase === true) {
+    passphraseLabel.style.display = "inline-block";
+    passphraseTextarea.style.display = "inline-block";
+    passphraseTextarea.style.border = "solid 1px #ccc";
+    passphraseTextarea.style.borderRadius = "4px";
+
+    mnemonicLabel.style.display = "inline-block";
+    plaintextTextarea.style.border = "solid 1px #ccc";
+    plaintextTextarea.style.borderRadius = "4px";
+
+    validSettings["enablePassphrase"] = true;
+  } else {
+    passphraseLabel.style.display = "none";
+    passphraseTextarea.style.display = "none";
+    mnemonicLabel.style.display = "none";
+
+    plaintextTextarea.style.border = "none";
+    validSettings["enablePassphrase"] = false;
+  }
+
+  if (settingsObj.styles) {
     // Validate, sanitize, and apply the styles to the "plaintext" textarea.
     const validStyles = validateStyles(settingsObj.styles);
     Object.entries(validStyles).forEach(([key, value]) => {
@@ -451,9 +547,29 @@ function applySettings(settings) {
       document.body.style.backgroundColor = validStyles.backgroundColor;
     }
 
+    if (validStyles.labelColor) {
+      document.getElementById("mnemonic-label").style.color =
+        validStyles.labelColor;
+    }
+
     validSettings["styles"] = validStyles;
   }
 
+  if (settingsObj.passphraseStyles) {
+    // Validate, sanitize, and apply the styles to the "passphrase" textarea.
+    const validStyles = TKHQ.validateStyles(settingsObj.passphraseStyles);
+    Object.entries(validStyles).forEach(([key, value]) => {
+      passphraseTextarea.style[key] = value;
+    });
+
+    if (validStyles.labelColor) {
+      document.getElementById("passphrase-label").style.color =
+        validStyles.labelColor;
+    }
+
+    validSettings["passphraseStyles"] = validStyles;
+  }
+  
   return JSON.stringify(validSettings);
 }
 
@@ -495,6 +611,7 @@ function sendMessageUp(type, value, requestId) {
 }
 
 export {
+  setCryptoProvider,
   loadTargetKey,
   getTargetEmbeddedKey,
   setTargetEmbeddedKey,
