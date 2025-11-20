@@ -1,38 +1,79 @@
 import "@testing-library/jest-dom";
-import { JSDOM } from "jsdom";
-import fs from "fs";
-import path from "path";
 import * as crypto from "crypto";
+import * as TKHQ from "./src/turnkey-core.js";
 
-const html = fs
-  .readFileSync(path.resolve(__dirname, "./index.template.html"), "utf8")
-  .replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
+// Mock the TURNKEY_SIGNER_ENVIRONMENT replacement that webpack would do
+const verifyEnclaveSignature = async function (
+  enclaveQuorumPublic,
+  publicSignature,
+  signedData
+) {
+  // Replace the template string with actual environment
+  const TURNKEY_SIGNERS_ENCLAVES = {
+    prod: "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
+    preprod:
+      "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
+  };
 
-let dom;
-let TKHQ;
+  const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
+    TURNKEY_SIGNERS_ENCLAVES["prod"];
+
+  if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
+    throw new Error(
+      "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
+    );
+  }
+
+  if (enclaveQuorumPublic) {
+    if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
+      throw new Error(
+        `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
+      );
+    }
+  }
+
+  const encryptionQuorumPublicBuf = new Uint8Array(
+    TKHQ.uint8arrayFromHexString(TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY)
+  );
+  const quorumKey = await loadQuorumKey(encryptionQuorumPublicBuf);
+  if (!quorumKey) {
+    throw new Error("failed to load quorum key");
+  }
+
+  const publicSignatureBuf = TKHQ.fromDerSignature(publicSignature);
+  const signedDataBuf = TKHQ.uint8arrayFromHexString(signedData);
+  return await crypto.webcrypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    quorumKey,
+    publicSignatureBuf,
+    signedDataBuf
+  );
+};
+
+async function loadQuorumKey(quorumPublic) {
+  return await crypto.webcrypto.subtle.importKey(
+    "raw",
+    quorumPublic,
+    {
+      name: "ECDSA",
+      namedCurve: "P-256",
+    },
+    true,
+    ["verify"]
+  );
+}
 
 describe("TKHQ", () => {
   beforeEach(() => {
-    dom = new JSDOM(html, {
-      // Necessary to run script tags
-      runScripts: "dangerously",
-      // Necessary to have access to localStorage
-      url: "http://localhost",
-      // Necessary for TextDecoder to be available.
-      // See https://github.com/jsdom/jsdom/issues/2524
-      beforeParse(window) {
-        window.TextDecoder = TextDecoder;
-        window.TextEncoder = TextEncoder;
-      },
-    });
+    window.TextDecoder = global.TextDecoder;
+    window.TextEncoder = global.TextEncoder;
+    window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
 
-    // Necessary for crypto to be available.
-    // See https://github.com/jsdom/jsdom/issues/1612
-    Object.defineProperty(dom.window, "crypto", {
-      value: crypto.webcrypto,
-    });
+    global.crypto = crypto.webcrypto;
+    window.crypto = crypto.webcrypto;
+    TKHQ.setCryptoProvider(crypto.webcrypto);
 
-    TKHQ = dom.window.TKHQ;
+    window.localStorage.clear();
   });
 
   it("gets and sets embedded target key in localStorage", async () => {
@@ -184,7 +225,7 @@ describe("TKHQ", () => {
 
   it("verifies enclave signature", async () => {
     // No "enclaveQuorumPublic" field in the export bundle. Valid signature
-    let verified = await TKHQ.verifyEnclaveSignature(
+    let verified = await verifyEnclaveSignature(
       null,
       "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
       "04e479640d6d3487bbf132f6258ee24073411b8325ea68bb28883e45b650d059f82c48db965b8f777b30ab9e7810826bfbe8ad1789f9f10bf76dcd36b2ee399bc5"
@@ -192,7 +233,7 @@ describe("TKHQ", () => {
     expect(verified).toBe(true);
 
     // "enclaveQuorumPublic" field present in the export bundle. Valid signature
-    verified = await TKHQ.verifyEnclaveSignature(
+    verified = await verifyEnclaveSignature(
       "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
       "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
       "04e479640d6d3487bbf132f6258ee24073411b8325ea68bb28883e45b650d059f82c48db965b8f777b30ab9e7810826bfbe8ad1789f9f10bf76dcd36b2ee399bc5"
@@ -201,7 +242,7 @@ describe("TKHQ", () => {
 
     // "enclaveQuorumPublic" field present in the export bundle but doesn't match what's pinned on export.turnkey.com
     await expect(
-      TKHQ.verifyEnclaveSignature(
+      verifyEnclaveSignature(
         "04ca7c0d624c75de6f34af342e87a21e0d8c83efd1bd5b5da0c0177c147f744fba6f01f9f37356f9c617659aafa55f6e0af8d169a8f054d153ab3201901fb63ecb",
         "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
         "04e479640d6d3487bbf132f6258ee24073411b8325ea68bb28883e45b650d059f82c48db965b8f777b30ab9e7810826bfbe8ad1789f9f10bf76dcd36b2ee399bc5"
@@ -211,7 +252,7 @@ describe("TKHQ", () => {
     );
 
     // Invalid signature
-    verified = await TKHQ.verifyEnclaveSignature(
+    verified = await verifyEnclaveSignature(
       "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
       "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
       "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4"
@@ -220,7 +261,7 @@ describe("TKHQ", () => {
 
     // Invalid DER-encoding for signature
     await expect(
-      TKHQ.verifyEnclaveSignature(
+      verifyEnclaveSignature(
         null,
         "300220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
         "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4"
@@ -231,7 +272,7 @@ describe("TKHQ", () => {
 
     // Invalid hex-encoding for signature
     await expect(
-      TKHQ.verifyEnclaveSignature(
+      verifyEnclaveSignature(
         null,
         "",
         "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4"
@@ -240,7 +281,7 @@ describe("TKHQ", () => {
 
     // Invalid hex-encoding for public key
     await expect(
-      TKHQ.verifyEnclaveSignature(
+      verifyEnclaveSignature(
         null,
         "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
         ""
