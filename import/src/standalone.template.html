@@ -1,0 +1,58 @@
+<!--
+  Standalone Mode is for testing purposes only. When updating any functions in
+  index.html, please make the same updates in standalone.html.
+-->
+<!DOCTYPE html>
+<html class="no-js" lang="">
+  <head>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta charset="utf-8" />
+    <title>Turnkey Import (Standalone Mode)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+
+  <body>
+    <h2>Initialize Import</h2>
+    <form>
+      <label>Import Bundle</label>
+      <input type="text" name="import-bundle" id="import-bundle" />
+      <button id="inject-import-bundle">Inject Bundle</button>
+      <br />
+      <label>Organization Id</label>
+      <input type="text" name="organization-id" id="organization-id" />
+      <br />
+      <label>User Id</label>
+      <input type="text" name="user-id" id="user-id" />
+    </form>
+    <br />
+    <h2>Import Wallet</h2>
+    <form>
+      <label>Mnemonic</label>
+      <input type="text" name="wallet-plaintext" id="wallet-plaintext" />
+      <button id="encrypt-wallet-bundle">Encrypt Bundle</button>
+    </form>
+    <br />
+    <h2>Import Private Key</h2>
+    <form>
+      <label>Private Key</label>
+      <input type="text" name="key-plaintext" id="key-plaintext" />
+      <button id="encrypt-key-bundle">Encrypt Bundle</button>
+      <label>Key Format</label>
+      <select id="key-import-format" name="key-import-format">
+        <option value="HEXADECIMAL">Hexadecimal (Default)</option>
+        <option value="SOLANA">Solana</option>
+      </select>
+    </form>
+    <br />
+    <br />
+    <h2>Message log</h2>
+    <p>
+      <em
+        >Below we display a log of the messages sent / received. The forms above
+        send messages, and the code communicates results by sending events via
+        the <code>postMessage</code> API.</em
+      >
+    </p>
+    <div id="message-log"></div>
+  </body>
+</html>
