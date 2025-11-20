@@ -146,6 +146,16 @@ window.addEventListener(
   { signal: turnkeyInitController.signal }
 );
 
+// make sure the mnemonic does not include our splitter (\n--PASS--\n) string or \n characters
+function validateMnemonic(mnemonic) {
+  if (mnemonic.includes("\n--PASS--\n")) {
+    throw new Error('mnemonic cannot include the string "\\n--PASS--\\n"');
+  }
+  if (mnemonic.includes("\n")) {
+    throw new Error("mnemonic cannot include newline characters");
+  }
+}
+
 /**
  * Function triggered when INJECT_IMPORT_BUNDLE event is received.
  * Parses the `import_bundle` and stores the target public key as a JWK
@@ -270,7 +280,13 @@ async function onExtractWalletEncryptedBundle(requestId) {
   if (!plaintext) {
     throw new Error("no wallet mnemonic entered");
   }
-  const plaintextBuf = new TextEncoder().encode(plaintext);
+  
+  const passphrase = document.getElementById("passphrase").value.trim();
+
+  validateMnemonic(plaintext);
+
+  const combined = passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
+  const plaintextBuf = new TextEncoder().encode(combined);
 
   // Encrypt the bundle using the enclave target public key
   const encryptedBundle = await HpkeEncrypt({
