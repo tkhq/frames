@@ -368,8 +368,12 @@ async function verifyEnclaveSignature(
       "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
   };
 
+  const environment =
+    (typeof window !== "undefined" &&
+      window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
+    "__TURNKEY_SIGNER_ENVIRONMENT__";
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
-    TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
+    TURNKEY_SIGNERS_ENCLAVES[environment];
   if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
     throw new Error(
       "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
