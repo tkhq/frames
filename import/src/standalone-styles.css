@@ -5,13 +5,17 @@ body {
   max-width: 1024px;
   margin: auto;
 }
+
 form {
   text-align: left;
+  margin-bottom: 2rem;
 }
+
 label {
   display: inline-block;
   width: 8em;
 }
+
 input[type="text"],
 select {
   width: 40em;
@@ -23,9 +27,11 @@ select {
   border: 1px rgb(217, 240, 221) solid;
   border-radius: 4px;
 }
+
 input:disabled {
   background-color: rgb(239, 243, 240);
 }
+
 #inject-import-bundle,
 #encrypt-wallet-bundle,
 #encrypt-key-bundle {
@@ -39,6 +45,7 @@ input:disabled {
   cursor: pointer;
   display: inline;
 }
+
 #message-log {
   border: 1px #2a2828 solid;
   padding: 0 0.7em;
@@ -48,11 +55,13 @@ input:disabled {
   margin: auto;
   display: block;
 }
+
 #message-log p {
   font-size: 0.9em;
   text-align: left;
   word-break: break-all;
 }
+
 .hidden {
   display: none;
 }

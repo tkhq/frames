@@ -74,7 +74,7 @@ module.exports = (env, argv) => {
         minify: isProduction ? {
           removeComments: true,
           collapseWhitespace: true,
-          removeRedundantAttributes: true,
+          removeRedundantAttributes: false,
           useShortDoctype: true,
           removeEmptyAttributes: true,
           removeStyleLinkTypeAttributes: true,
