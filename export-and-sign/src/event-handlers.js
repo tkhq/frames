@@ -1,16 +1,9 @@
 import { TKHQ } from './turnkey-core.js';
 import {
   Keypair,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  Connection,
-  sendAndConfirmTransaction,
   VersionedTransaction,
 } from '@solana/web3.js';
 import nacl from 'tweetnacl';
-import naclUtil from 'tweetnacl-util';
 
 // persist the decrypted key in memory
 let decryptedKey = null;
