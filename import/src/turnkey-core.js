@@ -40,9 +40,6 @@ function getSubtleCrypto() {
     return crypto.subtle;
   }
 
-  console.log('global', global.crypto)
-  console.log('window', window.crypto)
-
   return null;
 }
 
