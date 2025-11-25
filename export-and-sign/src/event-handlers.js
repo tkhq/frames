@@ -158,12 +158,10 @@ async function onInjectKeyBundle(
   // Decrypt the export bundle
   const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
-  // No longer reset after single decryption
-  // We should still enforce a TTL though
-
   // Parse the decrypted key bytes
-  var key;
+  let key;
   const privateKeyBytes = new Uint8Array(keyBytes);
+
   if (keyFormat === "SOLANA") {
     const privateKeyHex = TKHQ.uint8arrayToHexString(
       privateKeyBytes.subarray(0, 32)
@@ -179,7 +177,7 @@ async function onInjectKeyBundle(
   displayKey(key);
 
   // Set in memory
-  // Backwards compatibility: if no address provided, use a default key
+  // If no address provided, use a default key
   const keyAddress = address || "default";
   encryptedKeys = {
     ...encryptedKeys,
@@ -251,7 +249,7 @@ async function onApplySettings(settings, requestId) {
  * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
  */
 async function onSignTransaction(requestId, serializedTransaction, address) {
-  // Backwards compatibility: if no address provided, use "default"
+  // If no address provided, use "default"
   const keyAddress = address || "default";
   const key = encryptedKeys[keyAddress];
 
@@ -288,42 +286,30 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     HpkeDecrypt
   );
   const keypair = await createSolanaKeypair(
-    Array.from(new Uint8Array(decryptedKey.rawBytes))
+    Array.from(new Uint8Array(decryptedKey))
   );
 
   const transactionWrapper = JSON.parse(serializedTransaction);
   const transactionToSign = transactionWrapper.transaction;
   const transactionType = transactionWrapper.type;
 
-  var signedTransaction;
+  let signedTransaction;
 
   if (transactionType === "SOLANA") {
+    // Fetch the transaction and sign
     const transaction = VersionedTransaction.deserialize(
       TKHQ.uint8arrayFromHexString(transactionToSign)
     );
 
-    // Sign the transaction
     transaction.sign([keypair]);
 
-    // Serialize the signed transaction
     signedTransaction = transaction.serialize();
   } else {
-    // not yet supported
     throw new Error("unsupported transaction type");
   }
 
   const signedTransactionHex = TKHQ.uint8arrayToHexString(signedTransaction);
 
-  // Clear decrypted key from memory after use
-  if (decryptedKey && decryptedKey.rawBytes) {
-    if (decryptedKey.rawBytes instanceof ArrayBuffer) {
-      new Uint8Array(decryptedKey.rawBytes).fill(0);
-    } else if (ArrayBuffer.isView(decryptedKey.rawBytes)) {
-      decryptedKey.rawBytes.fill(0);
-    }
-  }
-
-  // Send up TRANSACTION_SIGNED message
   TKHQ.sendMessageUp("TRANSACTION_SIGNED", signedTransactionHex, requestId);
 }
 
@@ -369,7 +355,7 @@ async function onSignMessage(requestId, serializedMessage, address) {
   const messageType = messageWrapper.type;
   const messageBytes = new TextEncoder().encode(messageToSign);
 
-  var signatureHex;
+  let signatureHex;
 
   // Decrypt key and create a keypair
   const decryptedKey = await decryptBundle(
@@ -377,12 +363,13 @@ async function onSignMessage(requestId, serializedMessage, address) {
     key.organizationId,
     HpkeDecrypt
   );
+
   const keypair = await createSolanaKeypair(
-    Array.from(new Uint8Array(decryptedKey.rawBytes))
+    Array.from(new Uint8Array(decryptedKey))
   );
 
   if (messageType === "SOLANA") {
-    // Create a keypair from the decrypted key bytes
+    // Create a keypair from the decrypted key bytes, and sign
     const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
     const result = nacl.sign.detached.verify(
       messageBytes,
@@ -401,20 +388,9 @@ async function onSignMessage(requestId, serializedMessage, address) {
 
     signatureHex = TKHQ.uint8arrayToHexString(signature);
   } else {
-    // not yet supported
     throw new Error("unsupported message type");
   }
 
-  // Clear decrypted key from memory after use
-  if (decryptedKey && decryptedKey.rawBytes) {
-    if (decryptedKey.rawBytes instanceof ArrayBuffer) {
-      new Uint8Array(decryptedKey.rawBytes).fill(0);
-    } else if (ArrayBuffer.isView(decryptedKey.rawBytes)) {
-      decryptedKey.rawBytes.fill(0);
-    }
-  }
-
-  // Send up MESSAGE_SIGNED message
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);
 }
 
@@ -424,7 +400,7 @@ async function onSignMessage(requestId, serializedMessage, address) {
  * @param {string} address - Optional: The address of the key to clear (case-sensitive). If not provided, clears all keys.
  */
 async function onClearEmbeddedPrivateKey(requestId, address) {
-  // Backwards compatibility: if no address is provided, clear all keys
+  // If no address is provided, clear all keys
   if (!address) {
     encryptedKeys = {};
     TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
@@ -599,7 +575,7 @@ function initMessageEventListener(HpkeDecrypt) {
         await onSignTransaction(
           event.data["requestId"],
           event.data["value"],
-          event.data["address"] // signing address
+          event.data["address"] // signing address (case sensitive)
         );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
@@ -613,7 +589,7 @@ function initMessageEventListener(HpkeDecrypt) {
         await onSignMessage(
           event.data["requestId"],
           event.data["value"],
-          event.data["address"] // signing address
+          event.data["address"] // signing address (case sensitive)
         );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);

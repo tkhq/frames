@@ -1,17 +1,17 @@
-const path = require('path');
-const HtmlWebpackPlugin = require('html-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+const path = require("path");
+const HtmlWebpackPlugin = require("html-webpack-plugin");
+const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 
 module.exports = (env, argv) => {
-  const isProduction = argv.mode === 'production';
+  const isProduction = argv.mode === "production";
 
   return {
-    mode: isProduction ? 'production' : 'development',
-    entry: './src/index.js',
+    mode: isProduction ? "production" : "development",
+    entry: "./src/index.js",
     output: {
-      path: path.resolve(__dirname, 'dist'),
-      filename: 'bundle.[contenthash].js',
-      publicPath: '/',
+      path: path.resolve(__dirname, "dist"),
+      filename: "bundle.[contenthash].js",
+      publicPath: "/",
       clean: true,
     },
     module: {
@@ -20,69 +20,74 @@ module.exports = (env, argv) => {
           test: /\.js$/,
           exclude: /node_modules/,
           use: {
-            loader: 'babel-loader',
+            loader: "babel-loader",
             options: {
-              presets: ['@babel/preset-env'],
+              presets: ["@babel/preset-env"],
             },
           },
         },
         {
           test: /\.css$/,
           use: [
-            isProduction ? MiniCssExtractPlugin.loader : 'style-loader',
-            'css-loader'
+            isProduction ? MiniCssExtractPlugin.loader : "style-loader",
+            "css-loader",
           ],
         },
       ],
     },
     plugins: [
       new HtmlWebpackPlugin({
-        template: './src/index.template.html',
-        filename: 'index.html',
-        inject: 'body',
+        template: "./src/index.template.html",
+        filename: "index.html",
+        inject: "body",
         meta: {
-          'Content-Security-Policy': {
-            'http-equiv': 'Content-Security-Policy',
-            content: "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'"
-          }
+          "Content-Security-Policy": {
+            "http-equiv": "Content-Security-Policy",
+            content:
+              "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'",
+          },
         },
-        minify: isProduction ? {
-          removeComments: true,
-          collapseWhitespace: true,
-          removeRedundantAttributes: true,
-          useShortDoctype: true,
-          removeEmptyAttributes: true,
-          removeStyleLinkTypeAttributes: true,
-          keepClosingSlash: true,
-          minifyJS: true,
-          minifyCSS: true,
-          minifyURLs: true,
-        } : false,
+        minify: isProduction
+          ? {
+              removeComments: true,
+              collapseWhitespace: true,
+              removeRedundantAttributes: true,
+              useShortDoctype: true,
+              removeEmptyAttributes: true,
+              removeStyleLinkTypeAttributes: true,
+              keepClosingSlash: true,
+              minifyJS: true,
+              minifyCSS: true,
+              minifyURLs: true,
+            }
+          : false,
       }),
-      ...(isProduction ? [
-        new MiniCssExtractPlugin({
-          filename: 'styles.[contenthash].css',
-        })
-      ] : []),
+      ...(isProduction
+        ? [
+            new MiniCssExtractPlugin({
+              filename: "styles.[contenthash].css",
+            }),
+          ]
+        : []),
     ],
     resolve: {
-      extensions: ['.js'],
+      extensions: [".js"],
       fallback: {
-        "crypto": false
+        crypto: false,
       },
     },
     optimization: {
       splitChunks: {
-        chunks: 'all',
+        chunks: "all",
         cacheGroups: {
           vendor: {
             test: /[\\/]node_modules[\\/]/,
-            name: 'vendors',
-            chunks: 'all',
+            name: "vendors",
+            chunks: "all",
           },
         },
       },
     },
-    devtool: 'source-map',
+    devtool: "source-map",
   };
 };

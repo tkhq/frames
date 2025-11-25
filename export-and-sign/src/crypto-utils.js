@@ -1,10 +1,10 @@
-import { TKHQ } from './turnkey-core.js';
+import { TKHQ } from "./turnkey-core.js";
 import {
   CipherSuite,
   DhkemP256HkdfSha256,
   HkdfSha256,
   Aes256Gcm,
-} from '@hpke/core';
+} from "@hpke/core";
 
 /**
  * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
