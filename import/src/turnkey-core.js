@@ -9,10 +9,7 @@ var cryptoProviderOverride = null;
  * Returns a reference to the WebCrypto subtle interface regardless of the host environment.
  */
 function getSubtleCrypto() {
-  if (
-    cryptoProviderOverride &&
-    cryptoProviderOverride.subtle
-  ) {
+  if (cryptoProviderOverride && cryptoProviderOverride.subtle) {
     return cryptoProviderOverride.subtle;
   }
   if (
@@ -22,18 +19,10 @@ function getSubtleCrypto() {
   ) {
     return globalThis.crypto.subtle;
   }
-  if (
-    typeof window !== "undefined" &&
-    window.crypto &&
-    window.crypto.subtle
-  ) {
+  if (typeof window !== "undefined" && window.crypto && window.crypto.subtle) {
     return window.crypto.subtle;
   }
-  if (
-    typeof global !== "undefined" &&
-    global.crypto &&
-    global.crypto.subtle
-  ) {
+  if (typeof global !== "undefined" && global.crypto && global.crypto.subtle) {
     return global.crypto.subtle;
   }
   if (typeof crypto !== "undefined" && crypto.subtle) {
@@ -97,9 +86,7 @@ async function loadQuorumKey(quorumPublic) {
  * Gets the current target embedded private key JWK. Returns `null` if not found.
  */
 function getTargetEmbeddedKey() {
-  const jwtKey = window.localStorage.getItem(
-    TURNKEY_TARGET_EMBEDDED_KEY
-  );
+  const jwtKey = window.localStorage.getItem(TURNKEY_TARGET_EMBEDDED_KEY);
   return jwtKey ? JSON.parse(jwtKey) : null;
 }
 
@@ -134,10 +121,7 @@ function getSettings() {
  * @param {Object} settings
  */
 function setSettings(settings) {
-  window.localStorage.setItem(
-    TURNKEY_SETTINGS,
-    JSON.stringify(settings)
-  );
+  window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settings));
 }
 
 /**
@@ -147,16 +131,10 @@ function setSettings(settings) {
  */
 function uint8arrayFromHexString(hexString) {
   var hexRegex = /^[0-9A-Fa-f]+$/;
-  if (
-    !hexString ||
-    hexString.length % 2 != 0 ||
-    !hexRegex.test(hexString)
-  ) {
+  if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
     throw new Error("cannot create uint8array from invalid hex string");
   }
-  return new Uint8Array(
-    hexString.match(/../g).map((h) => parseInt(h, 16))
-  );
+  return new Uint8Array(hexString.match(/../g).map((h) => parseInt(h, 16)));
 }
 
 /**
@@ -165,9 +143,7 @@ function uint8arrayFromHexString(hexString) {
  * @return {string}
  */
 function uint8arrayToHexString(buffer) {
-  return [...buffer]
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("");
+  return [...buffer].map((x) => x.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -178,16 +154,13 @@ function uint8arrayToHexString(buffer) {
  */
 function base58Decode(s) {
   // See https://en.bitcoin.it/wiki/Base58Check_encoding
-  var alphabet =
-    "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
   var decoded = BigInt(0);
   var decodedBytes = [];
   var leadingZeros = [];
   for (var i = 0; i < s.length; i++) {
     if (alphabet.indexOf(s[i]) === -1) {
-      throw new Error(
-        `cannot base58-decode: ${s[i]} isn't a valid character`
-      );
+      throw new Error(`cannot base58-decode: ${s[i]} isn't a valid character`);
     }
     var carry = alphabet.indexOf(s[i]);
 
@@ -275,11 +248,7 @@ function normalizePadding(byteArray, targetLength) {
   if (paddingLength < 0) {
     const expectedZeroCount = paddingLength * -1;
     let zeroCount = 0;
-    for (
-      let i = 0;
-      i < expectedZeroCount && i < byteArray.length;
-      i++
-    ) {
+    for (let i = 0; i < expectedZeroCount && i < byteArray.length; i++) {
       if (byteArray[i] === 0) {
         zeroCount++;
       }
@@ -290,10 +259,7 @@ function normalizePadding(byteArray, targetLength) {
         `invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`
       );
     }
-    return byteArray.slice(
-      expectedZeroCount,
-      expectedZeroCount + targetLength
-    );
+    return byteArray.slice(expectedZeroCount, expectedZeroCount + targetLength);
   }
   return byteArray;
 }
@@ -366,8 +332,7 @@ async function verifyEnclaveSignature(
   };
 
   const environment =
-    (typeof window !== "undefined" &&
-      window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
+    (typeof window !== "undefined" && window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
     "__TURNKEY_SIGNER_ENVIRONMENT__";
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
     TURNKEY_SIGNERS_ENCLAVES[environment];
@@ -379,9 +344,7 @@ async function verifyEnclaveSignature(
 
   // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
   if (enclaveQuorumPublic) {
-    if (
-      enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY
-    ) {
+    if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
       throw new Error(
         `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
       );
@@ -429,8 +392,7 @@ function validateStyles(styles, element) {
     borderColor:
       "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
     borderRadius: "^(\\d+(px|em|%|rem) ?){1,4}$",
-    fontSize:
-      "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
+    fontSize: "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax))$",
     fontWeight: "^(normal|bold|bolder|lighter|\\d{3})$",
     fontFamily: '^[^";<>]*$', // checks for the absence of some characters that could lead to CSS/HTML injection
     color:
@@ -439,12 +401,9 @@ function validateStyles(styles, element) {
       "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
     backgroundColor:
       "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
-    width:
-      "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
-    height:
-      "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
-    maxWidth:
-      "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
+    width: "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+    height: "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|auto)$",
+    maxWidth: "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
     maxHeight:
       "^(\\d+(px|em|rem|%|vh|vw|in|cm|mm|pt|pc|ex|ch|vmin|vmax)|none)$",
     lineHeight:
