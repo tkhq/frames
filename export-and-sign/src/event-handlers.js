@@ -3,9 +3,7 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { HpkeDecrypt } from "./crypto-utils.js";
 
-// persist the encrypted keys in memory
-// or maybe local storage?
-// key, value store: address --> encrypted bundle
+// Persist the encrypted keys in memory via mapping of { address --> encrypted bundle }
 let encryptedKeys = {};
 
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
@@ -145,7 +143,7 @@ async function onGetPublicEmbeddedKey(requestId) {
  * @param {string} bundle
  * @param {string} keyFormat
  * @param {string} address
- * @param {Function} HpkeDecrypt // TODO: don't pass this in by reference
+ * @param {Function} HpkeDecrypt // TODO: import this directly (instead of passing around)
  */
 async function onInjectKeyBundle(
   requestId,
@@ -157,6 +155,10 @@ async function onInjectKeyBundle(
 ) {
   // Decrypt the export bundle
   const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+
+  // Reset embedded key after using for decryption.
+  // For subsequent decryptions, use `TKHQ.initEmbeddKey()`
+  TKHQ.onResetEmbeddedKey();
 
   // Parse the decrypted key bytes
   let key;
@@ -172,8 +174,7 @@ async function onInjectKeyBundle(
     key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
   }
 
-  // Display only the key --> this functionality should be deprecated at some point
-  // TODO: In debug mode, we also now need to be display multiple keys?
+  // TODO: In debug mode and only debug mode (aka standalone), support displaying multiple keys
   displayKey(key);
 
   // Set in memory
@@ -195,7 +196,7 @@ async function onInjectKeyBundle(
 
 /**
  * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
- * Unclear if this needs to be maintained.
+ * TODO: remove
  * @param {string} bundle
  * @param {string} organizationId
  * @param {string} requestId

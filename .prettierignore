@@ -2,3 +2,14 @@
 noble-hashes.js
 noble-ed25519.js
 hpke-core.js
+
+# Built
+dist/
+build/
+out/
+*.min.js
+*.min.css
+*.bundle.js
+coverage/
+.next/
+.cache/
