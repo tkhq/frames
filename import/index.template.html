@@ -564,7 +564,6 @@
             const validStyles = TKHQ.validateStyles(settingsObj.styles);
             Object.entries(validStyles).forEach(([key, value]) => {
               plaintextTextarea.style[key] = value;
-              passphraseTextarea.style[key] = value;
             });
 
             if (validStyles.backgroundColor) {
@@ -577,11 +576,24 @@
             if (validStyles.labelColor) {
               document.getElementById("mnemonic-label").style.color =
                 validStyles.labelColor;
+            }
+
+            validSettings["styles"] = validStyles;
+          }
+
+          if (settingsObj.passphraseStyles) {
+            // Validate, sanitize, and apply the styles to the "passphrase" textarea.
+            const validStyles = TKHQ.validateStyles(settingsObj.styles);
+            Object.entries(validStyles).forEach(([key, value]) => {
+              passphraseTextarea.style[key] = value;
+            });
+
+            if (validStyles.labelColor) {
               document.getElementById("passphrase-label").style.color =
                 validStyles.labelColor;
             }
 
-            validSettings["styles"] = validStyles;
+            validSettings["passphraseStyles"] = validStyles;
           }
 
           return JSON.stringify(validSettings);
