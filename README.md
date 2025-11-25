@@ -183,7 +183,25 @@ For iframes that utilize webpack, the development flows change a bit. Each chang
 
 Furthermore, the trickier part is ensuring that built files (most of the time persisted in `/dist`) are accessible. See `Dockerfile`, `nginx.conf`, and `kustomize/base/resources.yaml` to see some example configurations.
 
-Finally, when iterating on an iframe and rebuilding, you may want to test locally with Docker + k8s. If you do so, you may need to add `imagePullPolicy: IfNotPresent` to both the `initContainers` and `containers` within `kustomize/base/resources.yaml`, and `newName: frames` + `newTag: latest` to `kustomize/base/kustomization.yaml`. This helps ensure you're using non-stale artifacts. In total, here's what you might do:
+Finally, when iterating on an iframe and rebuilding, you may want to test locally with Docker + k8s. If you do so, you may need to add `imagePullPolicy: IfNotPresent` to both the `initContainers` and `containers` within `kustomize/base/resources.yaml`, and `newName: frames` + `newTag: latest` to `kustomize/base/kustomization.yaml`. This helps ensure you're using non-stale artifacts. 
+
+Example diff for `kustomize/base/kustomization.yaml`:
+
+```bash
+diff --git a/kustomize/base/kustomization.yaml b/kustomize/base/kustomization.yaml
+index a18fe46..7ef92e7 100644
+--- a/kustomize/base/kustomization.yaml
++++ b/kustomize/base/kustomization.yaml
+@@ -6,3 +6,5 @@ resources:
+   - resources.yaml
+ images:
+   - name: ghcr.io/tkhq/frames
++    newName: frames
++    newTag: latest
+```
+
+
+Overall, here's what you might do:
 
 ```bash
 # (Re)-Build image

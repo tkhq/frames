@@ -1,6 +1,6 @@
-import './standalone-styles.css';
-import * as hpke from '@hpke/core';
-import * as TKHQ from './turnkey-core.js';
+import "./standalone-styles.css";
+import * as hpke from "@hpke/core";
+import * as TKHQ from "./turnkey-core.js";
 
 // Make TKHQ available globally
 window.TKHQ = TKHQ;
@@ -106,8 +106,7 @@ document.addEventListener(
         window.postMessage({
           type: "INJECT_IMPORT_BUNDLE",
           value: document.getElementById("import-bundle").value,
-          organizationId:
-            document.getElementById("organization-id").value,
+          organizationId: document.getElementById("organization-id").value,
           userId: document.getElementById("user-id").value,
         });
       },
@@ -184,9 +183,7 @@ async function onInjectImportBundle(bundle, organizationId, userId) {
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
       const signedData = JSON.parse(
-        new TextDecoder().decode(
-          TKHQ.uint8arrayFromHexString(bundleObj.data)
-        )
+        new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
       );
 
       // Validate fields match
@@ -219,9 +216,7 @@ async function onInjectImportBundle(bundle, organizationId, userId) {
       }
 
       // Load target public key generated from enclave and set in local storage
-      targetPublicBuf = TKHQ.uint8arrayFromHexString(
-        signedData.targetPublic
-      );
+      targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
       break;
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
@@ -345,10 +340,7 @@ async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
 
   const encappedKeyBuf = new Uint8Array(senderCtx.enc);
 
-  const aad = TKHQ.additionalAssociatedData(
-    encappedKeyBuf,
-    receiverPubBuf
-  );
+  const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
 
   var ciphertextBuf;
   try {
