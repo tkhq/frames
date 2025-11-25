@@ -125,6 +125,20 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 }
 
 /**
+ * Function triggered when GET_EMBEDDED_PUBLIC_KEY event is received.
+ * @param {string} requestId
+ */
+async function onGetPublicEmbeddedKey(requestId) {
+  const embeddedKeyJwk = TKHQ.getEmbeddedKey();
+
+  const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+  const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+
+  // Send up EMBEDDED_PUBLIC_KEY message
+  TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
+}
+
+/**
  * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
  * @param {string} requestId
  * @param {string} organizationId
@@ -612,6 +626,14 @@ function initMessageEventListener(HpkeDecrypt) {
           event.data["requestId"],
           event.data["address"]
         );
+      } catch (e) {
+        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+      }
+    }
+    if (event.data && event.data["type"] == "GET_EMBEDDED_PUBLIC_KEY") {
+      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+      try {
+        await onGetPublicEmbeddedKey(event.data["requestId"]);
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
