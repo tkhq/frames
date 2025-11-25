@@ -1,6 +1,6 @@
-import './styles.css';
-import * as hpke from '@hpke/core';
-import * as TKHQ from './turnkey-core.js';
+import "./styles.css";
+import * as hpke from "@hpke/core";
+import * as TKHQ from "./turnkey-core.js";
 
 // Make TKHQ available globally for backwards compatibility
 window.TKHQ = TKHQ;
@@ -28,20 +28,14 @@ var messageEventListener = async function (event) {
       TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
     }
   }
-  if (
-    event.data &&
-    event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE"
-  ) {
+  if (event.data && event.data["type"] == "EXTRACT_WALLET_ENCRYPTED_BUNDLE") {
     try {
       await onExtractWalletEncryptedBundle(event.data["requestId"]);
     } catch (e) {
       TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
     }
   }
-  if (
-    event.data &&
-    event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE"
-  ) {
+  if (event.data && event.data["type"] == "EXTRACT_KEY_ENCRYPTED_BUNDLE") {
     try {
       await onExtractKeyEncryptedBundle(
         event.data["keyFormat"],
@@ -97,13 +91,15 @@ document.addEventListener(
             .catch(() => null);
 
           // Proceed only if granted or promptable
-          if (permStatus?.state === "granted" || permStatus?.state === "prompt") {
+          if (
+            permStatus?.state === "granted" ||
+            permStatus?.state === "prompt"
+          ) {
             await navigator.clipboard.writeText("");
           }
         } catch {
           // Silently ignore any errors — no warnings or console noise
         }
-
       });
     }
   },
@@ -166,12 +162,7 @@ function validateMnemonic(mnemonic) {
  * @param {string} userId
  * @param {string} requestId
  */
-async function onInjectImportBundle(
-  bundle,
-  organizationId,
-  userId,
-  requestId
-) {
+async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
   let targetPublicBuf;
   let verified;
 
@@ -206,9 +197,7 @@ async function onInjectImportBundle(
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
       const signedData = JSON.parse(
-        new TextDecoder().decode(
-          TKHQ.uint8arrayFromHexString(bundleObj.data)
-        )
+        new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
       );
 
       // Validate fields match
@@ -241,9 +230,7 @@ async function onInjectImportBundle(
       }
 
       // Load target public key generated from enclave and set in local storage
-      targetPublicBuf = TKHQ.uint8arrayFromHexString(
-        signedData.targetPublic
-      );
+      targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
       break;
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
@@ -298,11 +285,7 @@ async function onExtractWalletEncryptedBundle(requestId) {
   TKHQ.resetTargetEmbeddedKey();
 
   // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-  TKHQ.sendMessageUp(
-    "ENCRYPTED_BUNDLE_EXTRACTED",
-    encryptedBundle,
-    requestId
-  );
+  TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
 }
 
 /**
@@ -340,11 +323,7 @@ async function onExtractKeyEncryptedBundle(keyFormat, requestId) {
   TKHQ.resetTargetEmbeddedKey();
 
   // Send up ENCRYPTED_BUNDLE_EXTRACTED message
-  TKHQ.sendMessageUp(
-    "ENCRYPTED_BUNDLE_EXTRACTED",
-    encryptedBundle,
-    requestId
-  );
+  TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle, requestId);
 }
 
 /**
@@ -405,10 +384,7 @@ async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
 
   const encappedKeyBuf = new Uint8Array(senderCtx.enc);
 
-  const aad = TKHQ.additionalAssociatedData(
-    encappedKeyBuf,
-    receiverPubBuf
-  );
+  const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
 
   var ciphertextBuf;
   try {
