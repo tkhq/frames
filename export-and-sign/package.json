@@ -16,7 +16,7 @@
   "description": "export-and-sign iframe with webpack-managed dependencies",
   "license": "MIT",
   "dependencies": {
-    "@hpke/core": "1.2.7",
+    "@hpke/core": "1.7.5",
     "@noble/ed25519": "2.0.0",
     "@noble/hashes": "1.3.2",
     "@solana/web3.js": "1.98.4",
