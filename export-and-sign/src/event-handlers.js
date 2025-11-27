@@ -3,8 +3,8 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import nacl from "tweetnacl";
 import { HpkeDecrypt } from "./crypto-utils.js";
 
-// Persist the encrypted keys in memory via mapping of { address --> encrypted bundle }
-let encryptedKeys = {};
+// Persist keys in memory via mapping of { address --> pk }
+let inMemoryKeys = {};
 
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
@@ -87,9 +87,8 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 
       // Validate fields match
       if (!organizationId) {
-        // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+        throw new Error(
+          `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
         );
       } else if (
         !signedData.organizationId ||
@@ -129,6 +128,10 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 async function onGetPublicEmbeddedKey(requestId) {
   const embeddedKeyJwk = TKHQ.getEmbeddedKey();
 
+  if (!embeddedKeyJwk) {
+    TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId); // no key == empty string
+  }
+
   const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
   const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
 
@@ -157,7 +160,7 @@ async function onInjectKeyBundle(
   const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
   // Reset embedded key after using for decryption.
-  // For subsequent decryptions, use `TKHQ.initEmbeddKey()`
+  // For subsequent uses and decryptions, use `TKHQ.initEmbeddedKey()`
   TKHQ.onResetEmbeddedKey();
 
   // Parse the decrypted key bytes
@@ -180,11 +183,11 @@ async function onInjectKeyBundle(
   // Set in memory
   // If no address provided, use a default key
   const keyAddress = address || "default";
-  encryptedKeys = {
-    ...encryptedKeys,
+  inMemoryKeys = {
+    ...inMemoryKeys,
     [keyAddress]: {
       organizationId,
-      bundle,
+      privateKey: key,
       format: keyFormat,
       expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
     },
@@ -252,7 +255,7 @@ async function onApplySettings(settings, requestId) {
 async function onSignTransaction(requestId, serializedTransaction, address) {
   // If no address provided, use "default"
   const keyAddress = address || "default";
-  const key = encryptedKeys[keyAddress];
+  const key = inMemoryKeys[keyAddress];
 
   if (!key) {
     TKHQ.sendMessageUp(
@@ -280,14 +283,10 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     return;
   }
 
-  // Decrypt key and create a keypair
-  const decryptedKey = await decryptBundle(
-    key.bundle,
-    key.organizationId,
-    HpkeDecrypt
-  );
   const keypair = await createSolanaKeypair(
-    Array.from(new Uint8Array(decryptedKey))
+    Array.from(
+      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
+    )
   );
 
   const transactionWrapper = JSON.parse(serializedTransaction);
@@ -323,7 +322,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
 async function onSignMessage(requestId, serializedMessage, address) {
   // Backwards compatibility: if no address provided, use "default"
   const keyAddress = address || "default";
-  const key = encryptedKeys[keyAddress];
+  const key = inMemoryKeys[keyAddress];
 
   if (!key) {
     TKHQ.sendMessageUp(
@@ -358,15 +357,10 @@ async function onSignMessage(requestId, serializedMessage, address) {
 
   let signatureHex;
 
-  // Decrypt key and create a keypair
-  const decryptedKey = await decryptBundle(
-    key.bundle,
-    key.organizationId,
-    HpkeDecrypt
-  );
-
   const keypair = await createSolanaKeypair(
-    Array.from(new Uint8Array(decryptedKey))
+    Array.from(
+      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
+    )
   );
 
   if (messageType === "SOLANA") {
@@ -403,13 +397,13 @@ async function onSignMessage(requestId, serializedMessage, address) {
 async function onClearEmbeddedPrivateKey(requestId, address) {
   // If no address is provided, clear all keys
   if (!address) {
-    encryptedKeys = {};
+    inMemoryKeys = {};
     TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
     return;
   }
 
   // Check if key exists for the specific address
-  if (!encryptedKeys[address]) {
+  if (!inMemoryKeys[address]) {
     TKHQ.sendMessageUp(
       "ERROR",
       new Error(
@@ -420,8 +414,8 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
     return;
   }
 
-  // Clear the specific encrypted key from memory
-  delete encryptedKeys[address];
+  // Clear the specific key from memory
+  delete inMemoryKeys[address];
 
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
