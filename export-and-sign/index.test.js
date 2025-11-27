@@ -272,16 +272,8 @@ describe("TKHQ", () => {
   });
 
   it("verifies enclave signature", async () => {
-    // No "enclaveQuorumPublic" field in the export bundle. Valid signature
-    let verified = await TKHQ.verifyEnclaveSignature(
-      null,
-      "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
-      "04e479640d6d3487bbf132f6258ee24073411b8325ea68bb28883e45b650d059f82c48db965b8f777b30ab9e7810826bfbe8ad1789f9f10bf76dcd36b2ee399bc5"
-    );
-    expect(verified).toBe(true);
-
     // "enclaveQuorumPublic" field present in the export bundle. Valid signature
-    verified = await TKHQ.verifyEnclaveSignature(
+    let verified = await TKHQ.verifyEnclaveSignature(
       "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
       "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
       "04e479640d6d3487bbf132f6258ee24073411b8325ea68bb28883e45b650d059f82c48db965b8f777b30ab9e7810826bfbe8ad1789f9f10bf76dcd36b2ee399bc5"
@@ -310,7 +302,7 @@ describe("TKHQ", () => {
     // Invalid DER-encoding for signature
     await expect(
       TKHQ.verifyEnclaveSignature(
-        null,
+        "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
         "300220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
         "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4"
       )
@@ -321,7 +313,7 @@ describe("TKHQ", () => {
     // Invalid hex-encoding for signature
     await expect(
       TKHQ.verifyEnclaveSignature(
-        null,
+        "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
         "",
         "04d32d8e0fe5a401a717971fabfabe02ddb6bea39b72a18a415fc0273579b394650aae97f75b0462ffa8880a1899c7a930569974519685a995d2e74e372e105bf4"
       )
@@ -330,7 +322,7 @@ describe("TKHQ", () => {
     // Invalid hex-encoding for public key
     await expect(
       TKHQ.verifyEnclaveSignature(
-        null,
+        "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
         "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
         ""
       )

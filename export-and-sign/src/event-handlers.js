@@ -1,19 +1,10 @@
-import { TKHQ } from './turnkey-core.js';
-import {
-  Keypair,
-  Transaction,
-  SystemProgram,
-  LAMPORTS_PER_SOL,
-  PublicKey,
-  Connection,
-  sendAndConfirmTransaction,
-  VersionedTransaction,
-} from '@solana/web3.js';
-import nacl from 'tweetnacl';
-import naclUtil from 'tweetnacl-util';
+import { TKHQ } from "./turnkey-core.js";
+import { Keypair, VersionedTransaction } from "@solana/web3.js";
+import nacl from "tweetnacl";
+import { HpkeDecrypt } from "./crypto-utils.js";
 
-// persist the decrypted key in memory
-let decryptedKey = null;
+// Persist keys in memory via mapping of { address --> pk }
+let inMemoryKeys = {};
 
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
@@ -91,16 +82,13 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
       const signedData = JSON.parse(
-        new TextDecoder().decode(
-          TKHQ.uint8arrayFromHexString(bundleObj.data)
-        )
+        new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
       );
 
       // Validate fields match
       if (!organizationId) {
-        // todo: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+        throw new Error(
+          `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
         );
       } else if (
         !signedData.organizationId ||
@@ -117,9 +105,7 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
       if (!signedData.ciphertext) {
         throw new Error('missing "ciphertext" in bundle signed data');
       }
-      encappedKeyBuf = TKHQ.uint8arrayFromHexString(
-        signedData.encappedPublic
-      );
+      encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
       ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       break;
     default:
@@ -136,51 +122,71 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 }
 
 /**
+ * Function triggered when GET_EMBEDDED_PUBLIC_KEY event is received.
+ * @param {string} requestId
+ */
+async function onGetPublicEmbeddedKey(requestId) {
+  const embeddedKeyJwk = TKHQ.getEmbeddedKey();
+
+  if (!embeddedKeyJwk) {
+    TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId); // no key == empty string
+  }
+
+  const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+  const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+
+  // Send up EMBEDDED_PUBLIC_KEY message
+  TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", targetPubHex, requestId);
+}
+
+/**
  * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+ * @param {string} requestId
+ * @param {string} organizationId
  * @param {string} bundle
  * @param {string} keyFormat
- * @param {string} organizationId
- * @param {string} requestId
- * @param {Function} HpkeDecrypt
+ * @param {string} address
+ * @param {Function} HpkeDecrypt // TODO: import this directly (instead of passing around)
  */
 async function onInjectKeyBundle(
+  requestId,
+  organizationId,
   bundle,
   keyFormat,
-  organizationId,
-  requestId,
+  address,
   HpkeDecrypt
 ) {
   // Decrypt the export bundle
   const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
-  // Reset embedded key after using for decryption
-  TKHQ.onResetEmbeddedKey();
-
   // Parse the decrypted key bytes
-  var key;
+  let key;
   const privateKeyBytes = new Uint8Array(keyBytes);
+
   if (keyFormat === "SOLANA") {
     const privateKeyHex = TKHQ.uint8arrayToHexString(
       privateKeyBytes.subarray(0, 32)
     );
     const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
-    key = await TKHQ.encodeKey(
-      privateKeyBytes,
-      keyFormat,
-      publicKeyBytes
-    );
+    key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
   } else {
     key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
   }
 
-  // Display only the key
+  // TODO: In debug mode and only debug mode (aka standalone), support displaying multiple keys
   displayKey(key);
 
   // Set in memory
-  decryptedKey = {
-    rawBytes: keyBytes,
-    format: keyFormat,
-    expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
+  // If no address provided, use a default key
+  const keyAddress = address || "default";
+  inMemoryKeys = {
+    ...inMemoryKeys,
+    [keyAddress]: {
+      organizationId,
+      privateKey: key,
+      format: keyFormat,
+      expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
+    },
   };
 
   // Send up BUNDLE_INJECTED message
@@ -189,12 +195,18 @@ async function onInjectKeyBundle(
 
 /**
  * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
+ * TODO: remove
  * @param {string} bundle
  * @param {string} organizationId
  * @param {string} requestId
  * @param {Function} HpkeDecrypt
  */
-async function onInjectWalletBundle(bundle, organizationId, requestId, HpkeDecrypt) {
+async function onInjectWalletBundle(
+  bundle,
+  organizationId,
+  requestId,
+  HpkeDecrypt
+) {
   // Decrypt the export bundle
   const walletBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
@@ -232,15 +244,20 @@ async function onApplySettings(settings, requestId) {
 
 /**
  * Function triggered when SIGN_TRANSACTION event is received.
- * @param {string} transaction (serialized)
  * @param {string} requestId
+ * @param {string} transaction (serialized)
+ * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
  */
-async function onSignTransaction(serializedTransaction, requestId) {
-  if (!decryptedKey) {
+async function onSignTransaction(requestId, serializedTransaction, address) {
+  // If no address provided, use "default"
+  const keyAddress = address || "default";
+  const key = inMemoryKeys[keyAddress];
+
+  if (!key) {
     TKHQ.sendMessageUp(
       "ERROR",
       new Error(
-        "key bytes not found. Please re-inject export bundle into iframe."
+        `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
       ).toString(),
       requestId
     );
@@ -250,11 +267,11 @@ async function onSignTransaction(serializedTransaction, requestId) {
 
   // Return error if key has expired
   const now = new Date().getTime();
-  if (now >= decryptedKey.expiry) {
+  if (now >= key.expiry) {
     TKHQ.sendMessageUp(
       "ERROR",
       new Error(
-        "key has expired. Please re-inject export bundle into iframe."
+        `key has expired. Please re-inject export bundle for ${keyAddress} into iframe. Note that address is case sensitive.`
       ).toString(),
       requestId
     );
@@ -262,54 +279,52 @@ async function onSignTransaction(serializedTransaction, requestId) {
     return;
   }
 
-  // Create a keypair from the decrypted key bytes
   const keypair = await createSolanaKeypair(
-    Array.from(new Uint8Array(decryptedKey.rawBytes))
+    Array.from(
+      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
+    )
   );
 
   const transactionWrapper = JSON.parse(serializedTransaction);
   const transactionToSign = transactionWrapper.transaction;
   const transactionType = transactionWrapper.type;
 
-  var signedTransaction;
+  let signedTransaction;
 
   if (transactionType === "SOLANA") {
+    // Fetch the transaction and sign
     const transaction = VersionedTransaction.deserialize(
       TKHQ.uint8arrayFromHexString(transactionToSign)
     );
 
-    // Sign the transaction
     transaction.sign([keypair]);
 
-    // Serialize the signed transaction
     signedTransaction = transaction.serialize();
   } else {
-    // not yet supported
     throw new Error("unsupported transaction type");
   }
 
-  const signedTransactionHex =
-    TKHQ.uint8arrayToHexString(signedTransaction);
+  const signedTransactionHex = TKHQ.uint8arrayToHexString(signedTransaction);
 
-  // Send up TRANSACTION_SIGNED message
-  TKHQ.sendMessageUp(
-    "TRANSACTION_SIGNED",
-    signedTransactionHex,
-    requestId
-  );
+  TKHQ.sendMessageUp("TRANSACTION_SIGNED", signedTransactionHex, requestId);
 }
 
 /**
  * Function triggered when SIGN_MESSAGE event is received.
- * @param {string} message (serialized, JSON-stringified)
  * @param {string} requestId
+ * @param {string} message (serialized, JSON-stringified)
+ * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
  */
-async function onSignMessage(serializedMessage, requestId) {
-  if (!decryptedKey) {
+async function onSignMessage(requestId, serializedMessage, address) {
+  // Backwards compatibility: if no address provided, use "default"
+  const keyAddress = address || "default";
+  const key = inMemoryKeys[keyAddress];
+
+  if (!key) {
     TKHQ.sendMessageUp(
       "ERROR",
       new Error(
-        "key bytes not found. Please re-inject export bundle into iframe."
+        `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
       ).toString(),
       requestId
     );
@@ -319,15 +334,15 @@ async function onSignMessage(serializedMessage, requestId) {
 
   // Return error if key has expired
   const now = new Date().getTime();
-  if (now >= decryptedKey.expiry) {
+  if (now >= key.expiry) {
     TKHQ.sendMessageUp(
       "ERROR",
       new Error(
-        "key has expired. Please re-inject export bundle into iframe."
+        `key has expired. Please re-inject export bundle for ${keyAddress} into iframe. Note that address is case sensitive.`
       ).toString(),
       requestId
     );
-    
+
     return;
   }
 
@@ -336,14 +351,16 @@ async function onSignMessage(serializedMessage, requestId) {
   const messageType = messageWrapper.type;
   const messageBytes = new TextEncoder().encode(messageToSign);
 
-  var signatureHex;
+  let signatureHex;
+
+  const keypair = await createSolanaKeypair(
+    Array.from(
+      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
+    )
+  );
 
   if (messageType === "SOLANA") {
-    // Create a keypair from the decrypted key bytes
-    const keypair = await createSolanaKeypair(
-      Array.from(new Uint8Array(decryptedKey.rawBytes))
-    );
-
+    // Create a keypair from the decrypted key bytes, and sign
     const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
     const result = nacl.sign.detached.verify(
       messageBytes,
@@ -351,31 +368,50 @@ async function onSignMessage(serializedMessage, requestId) {
       keypair.publicKey.toBytes()
     );
 
+    if (!result) {
+      TKHQ.sendMessageUp(
+        "ERROR",
+        new Error(`unable to verify signed message`).toString(),
+        requestId
+      );
+      return;
+    }
+
     signatureHex = TKHQ.uint8arrayToHexString(signature);
   } else {
-    // not yet supported
     throw new Error("unsupported message type");
   }
 
-  // Send up MESSAGE_SIGNED message
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);
 }
 
 /**
  * Function triggered when CLEAR_EMBEDDED_PRIVATE_KEY event is received.
  * @param {string} requestId
+ * @param {string} address - Optional: The address of the key to clear (case-sensitive). If not provided, clears all keys.
  */
-async function onClearEmbeddedPrivateKey(requestId) {
-  // Clear reference and memory
-  if (decryptedKey && decryptedKey.rawBytes) {
-    if (decryptedKey.rawBytes instanceof ArrayBuffer) {
-      new Uint8Array(decryptedKey.rawBytes).fill(0);
-    } else if (ArrayBuffer.isView(decryptedKey.rawBytes)) {
-      decryptedKey.rawBytes.fill(0);
-    }
+async function onClearEmbeddedPrivateKey(requestId, address) {
+  // If no address is provided, clear all keys
+  if (!address) {
+    inMemoryKeys = {};
+    TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
+    return;
   }
 
-  decryptedKey = null;
+  // Check if key exists for the specific address
+  if (!inMemoryKeys[address]) {
+    TKHQ.sendMessageUp(
+      "ERROR",
+      new Error(
+        `key not found for address ${address}. Note that address is case sensitive.`
+      ).toString(),
+      requestId
+    );
+    return;
+  }
+
+  // Clear the specific key from memory
+  delete inMemoryKeys[address];
 
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
@@ -415,8 +451,7 @@ function addDOMEventListeners() {
         type: "INJECT_KEY_EXPORT_BUNDLE",
         value: document.getElementById("key-export-bundle").value,
         keyFormat: document.getElementById("key-export-format").value,
-        organizationId: document.getElementById("key-organization-id")
-          .value,
+        organizationId: document.getElementById("key-organization-id").value,
       });
     },
     false
@@ -482,10 +517,11 @@ function initMessageEventListener(HpkeDecrypt) {
       );
       try {
         await onInjectKeyBundle(
-          event.data["value"],
-          event.data["keyFormat"],
-          event.data["organizationId"],
           event.data["requestId"],
+          event.data["organizationId"],
+          event.data["value"], // bundle
+          event.data["keyFormat"],
+          event.data["address"],
           HpkeDecrypt
         );
       } catch (e) {
@@ -528,8 +564,9 @@ function initMessageEventListener(HpkeDecrypt) {
       );
       try {
         await onSignTransaction(
+          event.data["requestId"],
           event.data["value"],
-          event.data["requestId"]
+          event.data["address"] // signing address (case sensitive)
         );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
@@ -540,7 +577,11 @@ function initMessageEventListener(HpkeDecrypt) {
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
       );
       try {
-        await onSignMessage(event.data["value"], event.data["requestId"]);
+        await onSignMessage(
+          event.data["requestId"],
+          event.data["value"],
+          event.data["address"] // signing address (case sensitive)
+        );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
@@ -548,7 +589,18 @@ function initMessageEventListener(HpkeDecrypt) {
     if (event.data && event.data["type"] == "CLEAR_EMBEDDED_PRIVATE_KEY") {
       TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
-        await onClearEmbeddedPrivateKey(event.data["requestId"]);
+        await onClearEmbeddedPrivateKey(
+          event.data["requestId"],
+          event.data["address"]
+        );
+      } catch (e) {
+        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+      }
+    }
+    if (event.data && event.data["type"] == "GET_EMBEDDED_PUBLIC_KEY") {
+      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+      try {
+        await onGetPublicEmbeddedKey(event.data["requestId"]);
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
@@ -601,9 +653,7 @@ export function initEventHandlers(HpkeDecrypt) {
 
         await TKHQ.initEmbeddedKey(event.origin);
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-        var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
-          embeddedKeyJwk
-        );
+        var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
         var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
         document.getElementById("embedded-key").value = targetPubHex;
 
