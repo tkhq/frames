@@ -159,10 +159,6 @@ async function onInjectKeyBundle(
   // Decrypt the export bundle
   const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
-  // Reset embedded key after using for decryption.
-  // For subsequent uses and decryptions, use `TKHQ.initEmbeddedKey()`
-  TKHQ.onResetEmbeddedKey();
-
   // Parse the decrypted key bytes
   let key;
   const privateKeyBytes = new Uint8Array(keyBytes);
