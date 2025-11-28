@@ -8,64 +8,9 @@ let inMemoryKeys = {};
 
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
-// Cache TextEncoder/TextDecoder instances for performance
+// Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-/**
- * Validates that a key exists and has not expired.
- * Sends error message if validation fails.
- * @param {Object} key - The key object from inMemoryKeys
- * @param {string} keyAddress - The address of the key
- * @param {string} requestId - The request ID for error messaging
- * @returns {boolean} - True if key is valid, false otherwise
- */
-function validateKey(key, keyAddress, requestId) {
-  if (!key) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-    return false;
-  }
-
-  const now = new Date().getTime();
-  if (now >= key.expiry) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key has expired. Please re-inject export bundle for ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-    return false;
-  }
-
-  return true;
-}
-
-/**
- * Gets or creates a keypair from a key object.
- * Uses cached keypair if available, otherwise creates a new one.
- * @param {Object} key - The key object containing format and privateKey
- * @returns {Promise<Keypair>} - The Solana keypair
- */
-async function getOrCreateKeypair(key) {
-  if (key.keypair) {
-    return key.keypair;
-  }
-
-  if (key.format === "SOLANA") {
-    return Keypair.fromSecretKey(TKHQ.base58Decode(key.privateKey));
-  } else {
-    return await createSolanaKeypair(
-      Array.from(TKHQ.uint8arrayFromHexString(key.privateKey))
-    );
-  }
-}
 
 /**
  * Hide every HTML element in <body> except any <script> elements.
@@ -189,6 +134,8 @@ async function onGetPublicEmbeddedKey(requestId) {
 
   if (!embeddedKeyJwk) {
     TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId); // no key == empty string
+
+    return;
   }
 
   const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -294,7 +241,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
   const keyAddress = address || "default";
   const key = inMemoryKeys[keyAddress];
 
-  // Validate key exists and has not expired
+  // Validate key exists and is valid/non-expired
   if (!validateKey(key, keyAddress, requestId)) {
     return;
   }
@@ -309,6 +256,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
   let signedTransaction;
 
   if (transactionType === "SOLANA") {
+    // Fetch the transaction and sign
     const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
     const transaction = VersionedTransaction.deserialize(transactionBytes);
     transaction.sign([keypair]);
@@ -376,6 +324,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
   if (!address) {
     inMemoryKeys = {};
     TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
+
     return;
   }
 
@@ -388,6 +337,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
       ).toString(),
       requestId
     );
+
     return;
   }
 
@@ -397,7 +347,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
 
-// Solana utility functions
+// Utility functions
 async function createSolanaKeypair(privateKey) {
   const privateKeyBytes = TKHQ.parsePrivateKey(privateKey);
 
@@ -415,6 +365,50 @@ async function createSolanaKeypair(privateKey) {
   }
 
   return keypair;
+}
+
+/**
+ * Validates that a key exists and has not expired.
+ * Throws error if validation fails (and caller will send message up back to parent).
+ * @param {Object} key - The key object from inMemoryKeys
+ * @param {string} keyAddress - The address of the key
+ * @returns {boolean} - True if key is valid, false otherwise
+ */
+function validateKey(key, keyAddress) {
+  if (!key) {
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
+  }
+
+  const now = new Date().getTime();
+  if (now >= key.expiry) {
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
+  }
+
+  return true;
+}
+
+/**
+ * Gets or creates a Solana keypair from a key object.
+ * Uses cached keypair if available, otherwise creates a new one.
+ * @param {Object} key - The key object containing format and privateKey
+ * @returns {Promise<Keypair>} - The Solana keypair
+ */
+async function getOrCreateKeypair(key) {
+  if (key.keypair) {
+    return key.keypair;
+  }
+
+  if (key.format === "SOLANA") {
+    return Keypair.fromSecretKey(TKHQ.base58Decode(key.privateKey));
+  } else {
+    return await createSolanaKeypair(
+      Array.from(TKHQ.uint8arrayFromHexString(key.privateKey))
+    );
+  }
 }
 
 /**

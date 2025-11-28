@@ -6,7 +6,7 @@ import {
   Aes256Gcm,
 } from "@hpke/core";
 
-// Pre-compute constant values for performance
+// Pre-compute const (for perf)
 const TURNKEY_HPKE_INFO = new TextEncoder().encode("turnkey_hpke");
 
 /**

@@ -27,8 +27,8 @@ function isDoublyIframed() {
   }
 }
 
-// Helper to parse a private key into a Solana base58 private key
-// This shouldn't be needed in the case that a Turnkey wallet account is exported with the address format "SOLANA"
+// Helper to parse a private key into a Solana base58 private key.
+// To be used if a wallet account is exported without the `SOLANA` address format.
 function parsePrivateKey(privateKey) {
   if (Array.isArray(privateKey)) {
     return new Uint8Array(privateKey);
@@ -40,13 +40,12 @@ function parsePrivateKey(privateKey) {
       privateKey = privateKey.slice(2);
     }
 
-    // Check if it's hex format (64 characters, only hex chars)
+    // Check if it's hex-formatted correctly (i.e. 64 hex chars)
     if (privateKey.length === 64 && /^[0-9a-fA-F]+$/.test(privateKey)) {
-      // Hex format
       return uint8arrayFromHexString(privateKey);
     }
 
-    // Assume it's base58 format
+    // Otherwise assume it's base58 format (for Solana)
     try {
       return base58Decode(privateKey);
     } catch (error) {
@@ -204,16 +203,18 @@ function uint8arrayFromHexString(hexString) {
   }
 
   // Remove 0x prefix if present
-  const cleanHex =
+  const hexWithoutPrefix =
     hexString.startsWith("0x") || hexString.startsWith("0X")
       ? hexString.slice(2)
       : hexString;
 
   var hexRegex = /^[0-9A-Fa-f]+$/;
-  if (cleanHex.length % 2 != 0 || !hexRegex.test(cleanHex)) {
+  if (hexWithoutPrefix.length % 2 != 0 || !hexRegex.test(hexWithoutPrefix)) {
     throw new Error("cannot create uint8array from invalid hex string");
   }
-  return new Uint8Array(cleanHex.match(/../g).map((h) => parseInt(h, 16)));
+  return new Uint8Array(
+    hexWithoutPrefix.match(/../g).map((h) => parseInt(h, 16))
+  );
 }
 
 /**
@@ -329,7 +330,7 @@ async function verifyEnclaveSignature(
     (typeof window !== "undefined" && window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
     "__TURNKEY_SIGNER_ENVIRONMENT__";
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
-    TURNKEY_SIGNERS_ENCLAVES["prod"];
+    TURNKEY_SIGNERS_ENCLAVES[environment];
 
   if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
     throw new Error(
