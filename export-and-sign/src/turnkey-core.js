@@ -555,31 +555,6 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
 }
 
 /**
- * Returns a UTF-8 encoded wallet mnemonic + newline optional passphrase
- * from wallet bytes.
- * @param {Uint8Array} walletBytes
- */
-function encodeWallet(walletBytes) {
-  const decoder = new TextDecoder("utf-8");
-  const wallet = decoder.decode(walletBytes);
-  let mnemonic;
-  let passphrase = null;
-
-  if (wallet.includes("\n")) {
-    const parts = wallet.split("\n");
-    mnemonic = parts[0];
-    passphrase = parts[1];
-  } else {
-    mnemonic = wallet;
-  }
-
-  return {
-    mnemonic: mnemonic,
-    passphrase: passphrase,
-  };
-}
-
-/**
  * Returns the public key bytes for a hex-encoded Ed25519 private key.
  * @param {string} privateKeyHex
  */
@@ -700,7 +675,6 @@ export const TKHQ = {
   base58Encode,
   base58Decode,
   encodeKey,
-  encodeWallet,
   sendMessageUp,
   logMessage,
   uint8arrayFromHexString,

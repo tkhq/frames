@@ -15,16 +15,15 @@ let TKHQModule;
 describe("TKHQ", () => {
   beforeEach(async () => {
     dom = new JSDOM(html, {
-      // Necessary to run script tags
-      runScripts: "dangerously",
-      // Necessary to have access to localStorage
-      url: "http://localhost",
+      runScripts: "dangerously", // For script tags
+      url: "http://localhost", // For local storage
+
       // Necessary for TextDecoder to be available.
       // See https://github.com/jsdom/jsdom/issues/2524
       beforeParse(window) {
         window.TextDecoder = TextDecoder;
         window.TextEncoder = TextEncoder;
-        window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
+        window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod"; // Hardcode for testing
       },
     });
 
@@ -34,18 +33,16 @@ describe("TKHQ", () => {
       value: crypto.webcrypto,
     });
 
-    // Create a script element and inject the bundled TKHQ code
-    // For now, we'll expose the module directly but need to ensure it uses dom.window
+    // Create a script element and inject the bundled TKHQ utilities
     global.window = dom.window;
     global.document = dom.window.document;
     global.localStorage = dom.window.localStorage;
     global.crypto = crypto.webcrypto;
 
-    // Now import the module after setting up the global window
     const module = await import("./src/turnkey-core.js");
     TKHQModule = module.TKHQ;
 
-    // Expose TKHQ module to the window for testing
+    // Expose TKHQ module via DOM window for testing
     dom.window.TKHQ = TKHQModule;
     TKHQ = dom.window.TKHQ;
   });
@@ -148,30 +145,7 @@ describe("TKHQ", () => {
     });
   });
 
-  describe("Wallet encoding", () => {
-    it("encodes wallet with only mnemonic correctly", async () => {
-      const mnemonic =
-        "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-      const encodedWallet = TKHQ.encodeWallet(
-        new TextEncoder("utf-8").encode(mnemonic)
-      );
-      expect(encodedWallet.mnemonic).toEqual(mnemonic);
-      expect(encodedWallet.passphrase).toBeNull();
-    });
-
-    it("encodes wallet mnemonic and passphrase correctly", async () => {
-      const mnemonic =
-        "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-      const passphrase = "secret!";
-      const encodedWallet = TKHQ.encodeWallet(
-        new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase)
-      );
-      expect(encodedWallet.mnemonic).toEqual(mnemonic);
-      expect(encodedWallet.passphrase).toEqual(passphrase);
-    });
-  });
-
-  describe("Utility functions", () => {
+  describe("Misc util functions", () => {
     it("contains additionalAssociatedData", async () => {
       // This is a trivial helper; concatenates the 2 arrays!
       expect(
