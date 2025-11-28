@@ -50,164 +50,234 @@ describe("TKHQ", () => {
     TKHQ = dom.window.TKHQ;
   });
 
-  it("gets and sets items with expiry localStorage", async () => {
-    // Set a TTL of 1000ms
-    TKHQ.setItemWithExpiry("k", "v", 1000);
-    let item = JSON.parse(dom.window.localStorage.getItem("k"));
-    expect(item.value).toBe("v");
-    expect(item.expiry).toBeTruthy();
+  describe("LocalStorage with expiry", () => {
 
-    // Get item that has not expired yet
-    item = TKHQ.getItemWithExpiry("k");
-    expect(item).toBe("v");
+    it("gets and sets items with expiry localStorage", async () => {
+      // Set a TTL of 1000ms
+      TKHQ.setItemWithExpiry("k", "v", 1000);
+      let item = JSON.parse(dom.window.localStorage.getItem("k"));
+      expect(item.value).toBe("v");
+      expect(item.expiry).toBeTruthy();
 
-    // Set a TTL of 500ms
-    TKHQ.setItemWithExpiry("a", "b", 500);
-    setTimeout(() => {
-      const expiredItem = TKHQ.getItemWithExpiry("a");
-      expect(expiredItem).toBeNull();
-    }, 600); // Wait for 600ms to ensure the item has expired
+      // Get item that has not expired yet
+      item = TKHQ.getItemWithExpiry("k");
+      expect(item).toBe("v");
 
-    // Returns null if getItemWithExpiry is called for item without expiry
-    dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
-    item = TKHQ.getItemWithExpiry("k");
-    expect(item).toBeNull();
+      // Set a TTL of 500ms
+      TKHQ.setItemWithExpiry("a", "b", 500);
+      setTimeout(() => {
+        const expiredItem = TKHQ.getItemWithExpiry("a");
+        expect(expiredItem).toBeNull();
+      }, 600); // Wait for 600ms to ensure the item has expired
+
+      // Returns null if getItemWithExpiry is called for item without expiry
+      dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+      item = TKHQ.getItemWithExpiry("k");
+      expect(item).toBeNull();
+    });
   });
 
-  it("gets and sets embedded key in localStorage", async () => {
-    expect(TKHQ.getEmbeddedKey()).toBe(null);
+  describe("Embedded key management", () => {
+    it("gets and sets embedded key in localStorage", async () => {
+      expect(TKHQ.getEmbeddedKey()).toBe(null);
 
-    // Set a dummy "key"
-    TKHQ.setEmbeddedKey({ foo: "bar" });
-    expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" });
+      // Set a dummy "key"
+      TKHQ.setEmbeddedKey({ foo: "bar" });
+      expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" });
+    });
+
+    it("inits embedded key and is idempotent", async () => {
+      expect(TKHQ.getEmbeddedKey()).toBe(null);
+      await TKHQ.initEmbeddedKey();
+      const generatedKey = TKHQ.getEmbeddedKey();
+      expect(generatedKey).not.toBeNull();
+
+      // This should have no effect; generated key should stay the same
+      await TKHQ.initEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
+    });
   });
 
-  it("inits embedded key and is idempotent", async () => {
-    expect(TKHQ.getEmbeddedKey()).toBe(null);
-    await TKHQ.initEmbeddedKey();
-    const generatedKey = TKHQ.getEmbeddedKey();
-    expect(generatedKey).not.toBeNull();
+  describe("Key generation and cryptography", () => {
 
-    // This should have no effect; generated key should stay the same
-    await TKHQ.initEmbeddedKey();
-    expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
+    it("generates P256 keys", async () => {
+      let key = await TKHQ.generateTargetKey();
+      expect(key.kty).toEqual("EC");
+      expect(key.ext).toBe(true);
+      expect(key.crv).toBe("P-256");
+      expect(key.key_ops).toContain("deriveBits");
+    });
+
+    it("contains p256JWKPrivateToPublic", async () => {
+      // TODO: test this
+      expect(true).toBe(true);
+    });
   });
 
-  it("generates P256 keys", async () => {
-    let key = await TKHQ.generateTargetKey();
-    expect(key.kty).toEqual("EC");
-    expect(key.ext).toBe(true);
-    expect(key.crv).toBe("P-256");
-    expect(key.key_ops).toContain("deriveBits");
+  describe("Key encoding and formats", () => {
+
+    it("encodes hex-encoded private key correctly by default", async () => {
+      const keyHex =
+        "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+      const encodedKey = await TKHQ.encodeKey(
+        TKHQ.uint8arrayFromHexString(keyHex.slice(2))
+      );
+      expect(encodedKey).toEqual(keyHex);
+    });
+
+    it("encodes hex-encoded private key correctly", async () => {
+      const keyHex =
+        "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+      const encodedKey = await TKHQ.encodeKey(
+        TKHQ.uint8arrayFromHexString(keyHex.slice(2)),
+        "HEXADECIMAL"
+      );
+      expect(encodedKey).toEqual(keyHex);
+    });
+
+    it("encodes solana private key correctly", async () => {
+      const keySol =
+        "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+      const keySolBytes = TKHQ.base58Decode(keySol);
+      expect(keySolBytes.length).toEqual(64);
+      const keyPrivBytes = keySolBytes.subarray(0, 32);
+      const keyPubBytes = keySolBytes.subarray(32, 64);
+      const encodedKey = await TKHQ.encodeKey(
+        keyPrivBytes,
+        "SOLANA",
+        keyPubBytes
+      );
+      expect(encodedKey).toEqual(keySol);
+    });
   });
 
-  it("encodes hex-encoded private key correctly by default", async () => {
-    const keyHex =
-      "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const encodedKey = await TKHQ.encodeKey(
-      TKHQ.uint8arrayFromHexString(keyHex.slice(2))
-    );
-    expect(encodedKey).toEqual(keyHex);
+  describe("Wallet encoding", () => {
+    it("encodes wallet with only mnemonic correctly", async () => {
+      const mnemonic =
+        "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
+      const encodedWallet = TKHQ.encodeWallet(
+        new TextEncoder("utf-8").encode(mnemonic)
+      );
+      expect(encodedWallet.mnemonic).toEqual(mnemonic);
+      expect(encodedWallet.passphrase).toBeNull();
+    });
+
+    it("encodes wallet mnemonic and passphrase correctly", async () => {
+      const mnemonic =
+        "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
+      const passphrase = "secret!";
+      const encodedWallet = TKHQ.encodeWallet(
+        new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase)
+      );
+      expect(encodedWallet.mnemonic).toEqual(mnemonic);
+      expect(encodedWallet.passphrase).toEqual(passphrase);
+    });
   });
 
-  it("encodes hex-encoded private key correctly", async () => {
-    const keyHex =
-      "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
-    const encodedKey = await TKHQ.encodeKey(
-      TKHQ.uint8arrayFromHexString(keyHex.slice(2)),
-      "HEXADECIMAL"
-    );
-    expect(encodedKey).toEqual(keyHex);
-  });
+  describe("Utility functions", () => {
 
-  it("encodes solana private key correctly", async () => {
-    const keySol =
-      "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
-    const keySolBytes = TKHQ.base58Decode(keySol);
-    expect(keySolBytes.length).toEqual(64);
-    const keyPrivBytes = keySolBytes.subarray(0, 32);
-    const keyPubBytes = keySolBytes.subarray(32, 64);
-    const encodedKey = await TKHQ.encodeKey(
-      keyPrivBytes,
-      "SOLANA",
-      keyPubBytes
-    );
-    expect(encodedKey).toEqual(keySol);
-  });
+    it("contains additionalAssociatedData", async () => {
+      // This is a trivial helper; concatenates the 2 arrays!
+      expect(
+        TKHQ.additionalAssociatedData(
+          new Uint8Array([1, 2]),
+          new Uint8Array([3, 4])
+        ).buffer
+      ).toEqual(new Uint8Array([1, 2, 3, 4]).buffer);
+    });
 
-  it("encodes wallet with only mnemonic correctly", async () => {
-    const mnemonic =
-      "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-    const encodedWallet = TKHQ.encodeWallet(
-      new TextEncoder("utf-8").encode(mnemonic)
-    );
-    expect(encodedWallet.mnemonic).toEqual(mnemonic);
-    expect(encodedWallet.passphrase).toBeNull();
-  });
+    it("contains uint8arrayToHexString", () => {
+      expect(
+        TKHQ.uint8arrayToHexString(
+          new Uint8Array([0x62, 0x75, 0x66, 0x66, 0x65, 0x72])
+        )
+      ).toEqual("627566666572");
+    });
 
-  it("encodes wallet mnemonic and passphrase correctly", async () => {
-    const mnemonic =
-      "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
-    const passphrase = "secret!";
-    const encodedWallet = TKHQ.encodeWallet(
-      new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase)
-    );
-    expect(encodedWallet.mnemonic).toEqual(mnemonic);
-    expect(encodedWallet.passphrase).toEqual(passphrase);
-  });
+    it("contains uint8arrayFromHexString", () => {
+      expect(TKHQ.uint8arrayFromHexString("627566666572").toString()).toEqual(
+        "98,117,102,102,101,114"
+      );
 
-  it("contains p256JWKPrivateToPublic", async () => {
-    // TODO: test this
-    expect(true).toBe(true);
-  });
+      // Error case: bad value
+      expect(() => {
+        TKHQ.uint8arrayFromHexString({});
+      }).toThrow("cannot create uint8array from invalid hex string");
+      // Error case: empty string
+      expect(() => {
+        TKHQ.uint8arrayFromHexString("");
+      }).toThrow("cannot create uint8array from invalid hex string");
+      // Error case: odd number of characters
+      expect(() => {
+        TKHQ.uint8arrayFromHexString("123");
+      }).toThrow("cannot create uint8array from invalid hex string");
+      // Error case: bad characters outside of hex range
+      expect(() => {
+        TKHQ.uint8arrayFromHexString("oops");
+      }).toThrow("cannot create uint8array from invalid hex string");
+    });
 
-  it("contains additionalAssociatedData", async () => {
-    // This is a trivial helper; concatenates the 2 arrays!
-    expect(
-      TKHQ.additionalAssociatedData(
-        new Uint8Array([1, 2]),
-        new Uint8Array([3, 4])
-      ).buffer
-    ).toEqual(new Uint8Array([1, 2, 3, 4]).buffer);
-  });
+    it("handles hex strings with 0x prefix in uint8arrayFromHexString", () => {
+      // With 0x prefix (lowercase)
+      expect(TKHQ.uint8arrayFromHexString("0x627566666572").toString()).toEqual(
+        "98,117,102,102,101,114"
+      );
 
-  it("contains uint8arrayToHexString", () => {
-    expect(
-      TKHQ.uint8arrayToHexString(
-        new Uint8Array([0x62, 0x75, 0x66, 0x66, 0x65, 0x72])
-      )
-    ).toEqual("627566666572");
-  });
+      // With 0X prefix (uppercase)
+      expect(TKHQ.uint8arrayFromHexString("0X627566666572").toString()).toEqual(
+        "98,117,102,102,101,114"
+      );
 
-  it("contains uint8arrayFromHexString", () => {
-    expect(TKHQ.uint8arrayFromHexString("627566666572").toString()).toEqual(
-      "98,117,102,102,101,114"
-    );
+      // Without prefix (backward compatibility)
+      expect(TKHQ.uint8arrayFromHexString("627566666572").toString()).toEqual(
+        "98,117,102,102,101,114"
+      );
 
-    // Error case: bad value
-    expect(() => {
-      TKHQ.uint8arrayFromHexString({});
-    }).toThrow("cannot create uint8array from invalid hex string");
-    // Error case: empty string
-    expect(() => {
-      TKHQ.uint8arrayFromHexString("");
-    }).toThrow("cannot create uint8array from invalid hex string");
-    // Error case: odd number of characters
-    expect(() => {
-      TKHQ.uint8arrayFromHexString("123");
-    }).toThrow("cannot create uint8array from invalid hex string");
-    // Error case: bad characters outside of hex range
-    expect(() => {
-      TKHQ.uint8arrayFromHexString("oops");
-    }).toThrow("cannot create uint8array from invalid hex string");
-  });
+      // Real private key with 0x prefix
+      const keyHex = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+      const keyBytes = TKHQ.uint8arrayFromHexString(keyHex);
+      expect(keyBytes.length).toBe(32);
 
-  it("logs messages and sends messages up", async () => {
-    // TODO: test logMessage / sendMessageUp
-    expect(true).toBe(true);
-  });
+      // Same key without 0x prefix should give same result
+      const keyBytesWithoutPrefix = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
+      expect(keyBytes.toString()).toEqual(keyBytesWithoutPrefix.toString());
+    });
 
-  it("normalizes padding in a byte array", () => {
+    it("parsePrivateKey handles different formats", () => {
+      // Hex format without 0x prefix
+      const hexKey = "13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+      const parsedHex = TKHQ.parsePrivateKey(hexKey);
+      expect(parsedHex.length).toBe(32);
+
+      // Hex format with 0x prefix
+      const hexKeyWithPrefix = "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
+      const parsedHexWithPrefix = TKHQ.parsePrivateKey(hexKeyWithPrefix);
+      expect(parsedHexWithPrefix.length).toBe(32);
+      expect(parsedHex.toString()).toEqual(parsedHexWithPrefix.toString());
+
+      // Array format
+      const arrayKey = Array.from(TKHQ.uint8arrayFromHexString(hexKey));
+      const parsedArray = TKHQ.parsePrivateKey(arrayKey);
+      expect(parsedArray.length).toBe(32);
+      expect(parsedArray.toString()).toEqual(parsedHex.toString());
+
+      // Error case: invalid string format
+      expect(() => {
+        TKHQ.parsePrivateKey("invalid-key");
+      }).toThrow("Invalid private key format");
+
+      // Error case: invalid type
+      expect(() => {
+        TKHQ.parsePrivateKey(12345);
+      }).toThrow("Private key must be a string");
+    });
+
+    it("logs messages and sends messages up", async () => {
+      // TODO: test logMessage / sendMessageUp
+      expect(true).toBe(true);
+    });
+
+    it("normalizes padding in a byte array", () => {
     // Array with no leading 0's and a valid target length
     const arr = new Uint8Array(32).fill(1);
     expect(TKHQ.normalizePadding(arr, 32).length).toBe(32);
@@ -228,13 +298,15 @@ describe("TKHQ", () => {
       Array.from(TKHQ.normalizePadding(zeroesMissingArr, 32))
     ).toStrictEqual(Array.from(paddedArr));
 
-    // Array with an extra leading 0 and invalid zero count
-    expect(() => TKHQ.normalizePadding(zeroesLeadingArr, 31)).toThrow(
-      "invalid number of starting zeroes. Expected number of zeroes: 2. Found: 1."
-    );
+      // Array with an extra leading 0 and invalid zero count
+      expect(() => TKHQ.normalizePadding(zeroesLeadingArr, 31)).toThrow(
+        "invalid number of starting zeroes. Expected number of zeroes: 2. Found: 1."
+      );
+    });
   });
 
-  it("decodes a ASN.1 DER-encoded signature to raw format", () => {
+  describe("ASN.1 DER signature handling", () => {
+    it("decodes a ASN.1 DER-encoded signature to raw format", () => {
     // Valid signature where r and s don't need padding
     expect(
       TKHQ.fromDerSignature(
@@ -263,15 +335,17 @@ describe("TKHQ", () => {
       )
     ).toThrow("failed to convert DER-encoded signature: invalid tag for r");
 
-    // Invalid signature. Wrong integer tag for s
-    expect(() =>
-      TKHQ.fromDerSignature(
-        "304502210088f4f3b59e277f30cb16c05541551eca702ce925002dbc3de3a7c0a7f76b23f903202a0f272c3e5724848dc5232c3409918277d65fd7e8c6eb1630bf6eb2eeb472e3"
-      )
-    ).toThrow("failed to convert DER-encoded signature: invalid tag for s");
+      // Invalid signature. Wrong integer tag for s
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "304502210088f4f3b59e277f30cb16c05541551eca702ce925002dbc3de3a7c0a7f76b23f903202a0f272c3e5724848dc5232c3409918277d65fd7e8c6eb1630bf6eb2eeb472e3"
+        )
+      ).toThrow("failed to convert DER-encoded signature: invalid tag for s");
+    });
   });
 
-  it("verifies enclave signature", async () => {
+  describe("Enclave signature verification", () => {
+    it("verifies enclave signature", async () => {
     // "enclaveQuorumPublic" field present in the export bundle. Valid signature
     let verified = await TKHQ.verifyEnclaveSignature(
       "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
@@ -319,77 +393,80 @@ describe("TKHQ", () => {
       )
     ).rejects.toThrow("cannot create uint8array from invalid hex string");
 
-    // Invalid hex-encoding for public key
-    await expect(
-      TKHQ.verifyEnclaveSignature(
-        "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
-        "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
-        ""
-      )
-    ).rejects.toThrow("cannot create uint8array from invalid hex string");
+      // Invalid hex-encoding for public key
+      await expect(
+        TKHQ.verifyEnclaveSignature(
+          "04cf288fe433cc4e1aa0ce1632feac4ea26bf2f5a09dcfe5a42c398e06898710330f0572882f4dbdf0f5304b8fc8703acd69adca9a4bbf7f5d00d20a5e364b2569",
+          "30440220773382ac39085f58a584fd5ad8c8b91b50993ad480af2c5eaefe0b09447b6dca02205201c8e20a92bce524caac08a956b0c2e7447de9c68f91ab1e09fd58988041b5",
+          ""
+        )
+      ).rejects.toThrow("cannot create uint8array from invalid hex string");
+    });
   });
 
-  it("validates styles", async () => {
-    let simpleValid = { padding: "10px" };
-    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+  describe("Settings and styles validation", () => {
+    it("validates styles", async () => {
+      let simpleValid = { padding: "10px" };
+      expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
 
-    simpleValid = { padding: "10px", margin: "10px", fontSize: "16px" };
-    expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
+      simpleValid = { padding: "10px", margin: "10px", fontSize: "16px" };
+      expect(TKHQ.validateStyles(simpleValid)).toEqual(simpleValid);
 
-    let simpleValidPadding = {
-      "padding  ": "10px",
-      margin: "10px",
-      fontSize: "16px",
-    };
-    expect(TKHQ.validateStyles(simpleValidPadding)).toEqual(simpleValid);
+      let simpleValidPadding = {
+        "padding  ": "10px",
+        margin: "10px",
+        fontSize: "16px",
+      };
+      expect(TKHQ.validateStyles(simpleValidPadding)).toEqual(simpleValid);
 
-    let simpleInvalidCase = {
-      padding: "10px",
-      margin: "10px",
-      "font-size": "16px",
-    };
-    expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(
-      `invalid or unsupported css style property: "font-size"`
-    );
+      let simpleInvalidCase = {
+        padding: "10px",
+        margin: "10px",
+        "font-size": "16px",
+      };
+      expect(() => TKHQ.validateStyles(simpleInvalidCase)).toThrow(
+        `invalid or unsupported css style property: "font-size"`
+      );
 
-    let fontFamilyInvalid = { fontFamily: "<script>malicious</script>" };
-    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
-      `invalid css style value for property "fontFamily"`
-    );
+      let fontFamilyInvalid = { fontFamily: "<script>malicious</script>" };
+      expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+        `invalid css style value for property "fontFamily"`
+      );
 
-    fontFamilyInvalid = { fontFamily: '"Courier"' };
-    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
-      `invalid css style value for property "fontFamily"`
-    );
+      fontFamilyInvalid = { fontFamily: '"Courier"' };
+      expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+        `invalid css style value for property "fontFamily"`
+      );
 
-    fontFamilyInvalid = { fontFamily: "San Serif;" };
-    expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
-      `invalid css style value for property "fontFamily"`
-    );
+      fontFamilyInvalid = { fontFamily: "San Serif;" };
+      expect(() => TKHQ.validateStyles(fontFamilyInvalid)).toThrow(
+        `invalid css style value for property "fontFamily"`
+      );
 
-    let allStylesValid = {
-      padding: "10px",
-      margin: "10px",
-      borderWidth: "1px",
-      borderStyle: "solid",
-      borderColor: "transparent",
-      borderRadius: "5px",
-      fontSize: "16px",
-      fontWeight: "bold",
-      fontFamily: "SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-      color: "#000000",
-      backgroundColor: "rgb(128, 0, 128)",
-      width: "100%",
-      height: "auto",
-      maxWidth: "100%",
-      maxHeight: "100%",
-      lineHeight: "1.25rem",
-      boxShadow: "0px 0px 10px #aaa",
-      textAlign: "center",
-      overflowWrap: "break-word",
-      wordWrap: "break-word",
-      resize: "none",
-    };
-    expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
+      let allStylesValid = {
+        padding: "10px",
+        margin: "10px",
+        borderWidth: "1px",
+        borderStyle: "solid",
+        borderColor: "transparent",
+        borderRadius: "5px",
+        fontSize: "16px",
+        fontWeight: "bold",
+        fontFamily: "SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        color: "#000000",
+        backgroundColor: "rgb(128, 0, 128)",
+        width: "100%",
+        height: "auto",
+        maxWidth: "100%",
+        maxHeight: "100%",
+        lineHeight: "1.25rem",
+        boxShadow: "0px 0px 10px #aaa",
+        textAlign: "center",
+        overflowWrap: "break-word",
+        wordWrap: "break-word",
+        resize: "none",
+      };
+      expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
+    });
   });
 });

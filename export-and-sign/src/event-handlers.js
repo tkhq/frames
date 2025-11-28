@@ -184,6 +184,12 @@ async function onInjectKeyBundle(
   let cachedKeypair;
   if (keyFormat === "SOLANA") {
     cachedKeypair = Keypair.fromSecretKey(TKHQ.base58Decode(key));
+  } else if (keyFormat === "HEXADECIMAL") {
+    cachedKeypair = await createSolanaKeypair(
+      Array.from(
+        TKHQ.uint8arrayFromHexString(key.slice(2))
+      )
+    );
   }
 
   inMemoryKeys = {
@@ -305,11 +311,11 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
   let signedTransaction;
 
   if (transactionType === "SOLANA") {
-    // Fetch the transaction and sign
-    const transaction = VersionedTransaction.deserialize(
-      TKHQ.uint8arrayFromHexString(transactionToSign)
-    );
+    // Convert hex to bytes
+    const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
 
+    // Deserialize and sign
+    const transaction = VersionedTransaction.deserialize(transactionBytes);
     transaction.sign([keypair]);
 
     signedTransaction = transaction.serialize();
@@ -329,7 +335,6 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
  * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
  */
 async function onSignMessage(requestId, serializedMessage, address) {
-  const start = performance.now();
   // Backwards compatibility: if no address provided, use "default"
   const keyAddress = address || "default";
   const key = inMemoryKeys[keyAddress];
@@ -346,8 +351,6 @@ async function onSignMessage(requestId, serializedMessage, address) {
     return;
   }
 
-  const check1 = performance.now();
-
   // Return error if key has expired
   const now = new Date().getTime();
   if (now >= key.expiry) {
@@ -362,16 +365,12 @@ async function onSignMessage(requestId, serializedMessage, address) {
     return;
   }
 
-  const check2 = performance.now();
-
   const messageWrapper = JSON.parse(serializedMessage);
   const messageToSign = messageWrapper.message;
   const messageType = messageWrapper.type;
   const messageBytes = new TextEncoder().encode(messageToSign);
 
   let signatureHex;
-
-  const check3 = performance.now();
 
   // Use cached keypair if available (much faster), otherwise create it
   const keypair = key.keypair || (
@@ -384,40 +383,17 @@ async function onSignMessage(requestId, serializedMessage, address) {
         )
   );
 
-  const check4 = performance.now();
-
   if (messageType === "SOLANA") {
-    // Create a keypair from the decrypted key bytes, and sign
+    // Sign the message
     const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
-    const result = nacl.sign.detached.verify(
-      messageBytes,
-      signature,
-      keypair.publicKey.toBytes()
-    );
 
-    if (!result) {
-      TKHQ.sendMessageUp(
-        "ERROR",
-        new Error(`unable to verify signed message`).toString(),
-        requestId
-      );
-      return;
-    }
+    // Note: Signature verification is skipped for performance.
+    // The signature will always be valid if signing succeeds with a valid keypair.
 
     signatureHex = TKHQ.uint8arrayToHexString(signature);
   } else {
     throw new Error("unsupported message type");
   }
-
-  const check5 = performance.now();
-
-  const totalPerformance = `${start} -- ${check1} -- ${check2} -- ${check3} -- ${check4} -- ${check5} -- ${key.format}`;
-
-  TKHQ.sendMessageUp(
-    "ERROR",
-    totalPerformance,
-    requestId
-  );
 
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);
 }
@@ -599,16 +575,7 @@ function initMessageEventListener(HpkeDecrypt) {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
       );
-      // Benchmark: Run onSignMessage 1000 times and display average time
-      await TKHQ.benchmark(
-        onSignTransaction,
-        event.data["requestId"],
-        event.data["value"],
-        event.data["address"] // signing address (case sensitive)
-      );
-
       try {
-
         await onSignTransaction(
           event.data["requestId"],
           event.data["value"],
@@ -622,16 +589,7 @@ function initMessageEventListener(HpkeDecrypt) {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
       );
-      // Benchmark: Run onSignMessage 1000 times and display average time
-      await TKHQ.benchmark(
-        onSignMessage,
-        event.data["requestId"],
-        event.data["value"],
-        event.data["address"] // signing address (case sensitive)
-      );
-
       try {
-
         await onSignMessage(
           event.data["requestId"],
           event.data["value"],

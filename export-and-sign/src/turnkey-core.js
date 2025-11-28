@@ -678,38 +678,6 @@ function applySettings(settings) {
   return JSON.stringify(validSettings);
 }
 
-/**
- * Benchmarks a function by running it 1000 times and calculating the average execution time
- * @param {Function} fn The function to benchmark
- * @param {...any} args Arguments to pass to the function
- * @returns {Promise<{averageTime: number, totalTime: number, runs: number}>}
- */
-async function benchmark(fn, ...args) {
-  const runs = 1;
-  const times = [];
-
-  for (let i = 0; i < runs; i++) {
-    const start = performance.now();
-    await fn(...args);
-    const end = performance.now();
-    times.push(end - start);
-  }
-
-  const totalTime = times.reduce((sum, time) => sum + time, 0);
-  const averageTime = totalTime / runs;
-
-  const result = {
-    averageTime: averageTime,
-    totalTime: totalTime,
-    runs: runs
-  };
-
-  // Display alert with results
-  throw new Error(`Benchmark Results:\nFunction: ${fn.name || 'anonymous'}\nRuns: ${runs}\nAverage Time: ${averageTime.toFixed(4)} ms\nTotal Time: ${totalTime.toFixed(4)} ms`);
-
-  return result;
-}
-
 export const TKHQ = {
   initEmbeddedKey,
   generateTargetKey,
@@ -738,5 +706,4 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
-  benchmark,
 };
