@@ -29,6 +29,33 @@
         border: none;
       }
     </style>
+    <script type="module">
+      import GrafanaFaroWebSdk from "./grafana-faro-web-sdk.js";
+      import GrafanaFaroWebTracing from "./grafana-faro-web-tracing.js";
+
+      // set environment based on the host
+      let environment = "development";
+      const host = window.location.host;
+      if (host === "import.turnkey.com") {
+        environment = "production";
+      } else if (host === "import.preprod.turnkey.engineering") {
+        environment = "preprod";
+      }
+
+      const faro = GrafanaFaroWebSdk.initializeFaro({
+        url: "https://faro-collector-prod-us-central-0.grafana.net/collect/12e3db23aad500e66e877f9cdeff541c",
+        app: {
+          name: "wallet-import",
+          version: "1.0.0",
+          environment: environment,
+        },
+        trackGeolocation: false,
+      });
+
+      const grafanaTracing = GrafanaFaroWebTracing({}, GrafanaFaroWebSdk);
+
+      faro.instrumentations.add(new grafanaTracing.TracingInstrumentation());
+    </script>
   </head>
 
   <body>
@@ -141,7 +168,9 @@
             hexString.length % 2 != 0 ||
             !hexRegex.test(hexString)
           ) {
-            throw new Error("cannot create uint8array from invalid hex string");
+            const errorMessage = `cannot create uint8array from invalid hex string: ${hexString}`;
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           return new Uint8Array(
             hexString.match(/../g).map((h) => parseInt(h, 16))
@@ -174,9 +203,9 @@
           var leadingZeros = [];
           for (var i = 0; i < s.length; i++) {
             if (alphabet.indexOf(s[i]) === -1) {
-              throw new Error(
-                `cannot base58-decode: ${s[i]} isn't a valid character`
-              );
+              const errorMessage = `cannot base58-decode: ${s[i]} isn't a valid character`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             var carry = alphabet.indexOf(s[i]);
 
@@ -223,9 +252,9 @@
             case "SOLANA":
               const decodedKeyBytes = base58Decode(privateKey);
               if (decodedKeyBytes.length !== 64) {
-                throw new Error(
-                  `invalid key length. Expected 64 bytes. Got ${decodedKeyBytes.length()}.`
-                );
+                const errorMessage = `invalid key length. Expected 64 bytes. Got ${decodedKeyBytes.length()}.`;
+                reportError(errorMessage);
+                throw new Error(errorMessage);
               }
               return decodedKeyBytes.subarray(0, 32);
             case "HEXADECIMAL":
@@ -275,9 +304,9 @@
             }
             // Check if the number of zeros found equals the number of zeroes expected
             if (zeroCount !== expectedZeroCount) {
-              throw new Error(
-                `invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`
-              );
+              const errorMessage = `invalid number of starting zeroes. Expected number of zeroes: ${expectedZeroCount}. Found: ${zeroCount}.`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             return byteArray.slice(
               expectedZeroCount,
@@ -307,9 +336,10 @@
 
           // Parse 'r' and check for integer tag (0x02)
           if (derSignatureBuf[index] !== 0x02) {
-            throw new Error(
-              "failed to convert DER-encoded signature: invalid tag for r"
-            );
+            const errorMessage =
+              "failed to convert DER-encoded signature: invalid tag for r";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           index++; // Move past the INTEGER tag
           const rLength = derSignatureBuf[index];
@@ -319,9 +349,10 @@
 
           // Parse 's' and check for integer tag (0x02)
           if (derSignatureBuf[index] !== 0x02) {
-            throw new Error(
-              "failed to convert DER-encoded signature: invalid tag for s"
-            );
+            const errorMessage =
+              "failed to convert DER-encoded signature: invalid tag for s";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
           index++; // Move past the INTEGER tag
           const sLength = derSignatureBuf[index];
@@ -357,9 +388,10 @@
           const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
             TURNKEY_SIGNERS_ENCLAVES["${TURNKEY_SIGNER_ENVIRONMENT}"];
           if (TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY === undefined) {
-            throw new Error(
-              "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined"
-            );
+            const errorMessage =
+              "Configuration error: TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY is undefined";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
@@ -367,9 +399,9 @@
             if (
               enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY
             ) {
-              throw new Error(
-                `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
-              );
+              const errorMessage = `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
           }
 
@@ -378,7 +410,9 @@
           );
           const quorumKey = await loadQuorumKey(encryptionQuorumPublicBuf);
           if (!quorumKey) {
-            throw new Error("failed to load quorum key");
+            const errorMessage = "failed to load quorum key";
+            reportError(errorMessage);
+            throw new Error(errorMessage);
           }
 
           // The ECDSA signature is ASN.1 DER encoded but WebCrypto uses raw format
@@ -439,24 +473,28 @@
           Object.entries(styles).forEach(([property, value]) => {
             const styleProperty = property.trim();
             if (styleProperty.length === 0) {
-              throw new Error("css style property cannot be empty");
+              const errorMessage = "css style property cannot be empty";
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             const styleRegexStr = cssValidationRegex[styleProperty];
             if (!styleRegexStr) {
-              throw new Error(
-                `invalid or unsupported css style property: "${styleProperty}"`
-              );
+              const errorMessage = `invalid or unsupported css style property: "${styleProperty}"`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             const styleRegex = new RegExp(styleRegexStr);
             const styleValue = value.trim();
             if (styleValue.length == 0) {
-              throw new Error(`css style for "${styleProperty}" is empty`);
+              const errorMessage = `css style for "${styleProperty}" is empty`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             const isValidStyle = styleRegex.test(styleValue);
             if (!isValidStyle) {
-              throw new Error(
-                `invalid css style value for property "${styleProperty}"`
-              );
+              const errorMessage = `invalid css style value for property "${styleProperty}"`;
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
             validStyles[styleProperty] = styleValue;
           });
@@ -477,9 +515,10 @@
             // Valid styles will be applied the "plaintext" textarea HTML element.
             const plaintextTextarea = document.getElementById("plaintext");
             if (!plaintextTextarea) {
-              throw new Error(
-                "no plaintext textarea HTML element found to apply settings to."
-              );
+              const errorMessage =
+                "no plaintext textarea HTML element found to apply settings to.";
+              reportError(errorMessage);
+              throw new Error(errorMessage);
             }
 
             // Validate, sanitize, and apply the styles to the "plaintext" textarea.
@@ -515,6 +554,15 @@
          * @param requestId serves as an idempotency key to match incoming requests. Backwards compatible: if not provided, it isn't passed in.
          */
         function sendMessageUp(type, value, requestId) {
+          if (type === "ERROR") {
+            window.faro?.api?.pushError([value], {
+              context: {
+                requestId: requestId,
+              },
+              level: "error",
+            });
+          }
+
           const message = {
             type: type,
             value: value,
@@ -537,6 +585,15 @@
             );
           }
         }
+
+        /**
+         * Function to report errors to Grafana Faro.
+         */
+        var reportError = function (errorMessage) {
+          window.faro?.api?.pushError([errorMessage], {
+            level: "error",
+          });
+        };
 
         return {
           loadTargetKey,
@@ -722,90 +779,98 @@
         userId,
         requestId
       ) {
-        let targetPublicBuf;
-        let verified;
+        try {
+          let targetPublicBuf;
+          let verified;
 
-        // Parse the import bundle
-        const bundleObj = JSON.parse(bundle);
+          // Parse the import bundle
+          const bundleObj = JSON.parse(bundle);
 
-        switch (bundleObj.version) {
-          case "v1.0.0":
-            // Validate fields exist
-            if (!bundleObj.data) {
-              throw new Error('missing "data" in bundle');
-            }
-            if (!bundleObj.dataSignature) {
-              throw new Error('missing "dataSignature" in bundle');
-            }
-            if (!bundleObj.enclaveQuorumPublic) {
-              throw new Error('missing "enclaveQuorumPublic" in bundle');
-            }
+          switch (bundleObj.version) {
+            case "v1.0.0":
+              // Validate fields exist
+              if (!bundleObj.data) {
+                throw new Error('missing "data" in bundle');
+              }
+              if (!bundleObj.dataSignature) {
+                throw new Error('missing "dataSignature" in bundle');
+              }
+              if (!bundleObj.enclaveQuorumPublic) {
+                throw new Error('missing "enclaveQuorumPublic" in bundle');
+              }
 
-            // Verify enclave signature
-            if (!TKHQ.verifyEnclaveSignature) {
-              throw new Error("method not loaded");
-            }
-            verified = await TKHQ.verifyEnclaveSignature(
-              bundleObj.enclaveQuorumPublic,
-              bundleObj.dataSignature,
-              bundleObj.data
-            );
-            if (!verified) {
-              throw new Error(`failed to verify enclave signature: ${bundle}`);
-            }
-
-            // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-            const signedData = JSON.parse(
-              new TextDecoder().decode(
-                TKHQ.uint8arrayFromHexString(bundleObj.data)
-              )
-            );
-
-            // Validate fields match
-            if (!organizationId) {
-              // TODO: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-              console.warn(
-                'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+              // Verify enclave signature
+              if (!TKHQ.verifyEnclaveSignature) {
+                throw new Error("method not loaded");
+              }
+              verified = await TKHQ.verifyEnclaveSignature(
+                bundleObj.enclaveQuorumPublic,
+                bundleObj.dataSignature,
+                bundleObj.data
               );
-            } else if (
-              !signedData.organizationId ||
-              signedData.organizationId !== organizationId
-            ) {
-              throw new Error(
-                `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
-              );
-            }
-            if (!userId) {
-              // TODO: throw error if user id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-              console.warn(
-                'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "userId" for security purposes.'
-              );
-            } else if (!signedData.userId || signedData.userId !== userId) {
-              throw new Error(
-                `user id does not match expected value. Expected: ${userId}. Found: ${signedData.userId}.`
-              );
-            }
+              if (!verified) {
+                throw new Error(
+                  `failed to verify enclave signature: ${bundle}`
+                );
+              }
 
-            if (!signedData.targetPublic) {
-              throw new Error('missing "targetPublic" in bundle signed data');
-            }
+              // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
+              const signedData = JSON.parse(
+                new TextDecoder().decode(
+                  TKHQ.uint8arrayFromHexString(bundleObj.data)
+                )
+              );
 
-            // Load target public key generated from enclave and set in local storage
-            targetPublicBuf = TKHQ.uint8arrayFromHexString(
-              signedData.targetPublic
-            );
-            break;
-          default:
-            throw new Error(`unsupported version: ${bundleObj.version}`);
+              // Validate fields match
+              if (!organizationId) {
+                // TODO: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+                console.warn(
+                  'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+                );
+              } else if (
+                !signedData.organizationId ||
+                signedData.organizationId !== organizationId
+              ) {
+                throw new Error(
+                  `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
+                );
+              }
+              if (!userId) {
+                // TODO: throw error if user id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
+                console.warn(
+                  'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "userId" for security purposes.'
+                );
+              } else if (!signedData.userId || signedData.userId !== userId) {
+                throw new Error(
+                  `user id does not match expected value. Expected: ${userId}. Found: ${signedData.userId}.`
+                );
+              }
+
+              if (!signedData.targetPublic) {
+                throw new Error('missing "targetPublic" in bundle signed data');
+              }
+
+              // Load target public key generated from enclave and set in local storage
+              targetPublicBuf = TKHQ.uint8arrayFromHexString(
+                signedData.targetPublic
+              );
+              break;
+            default:
+              throw new Error(`unsupported version: ${bundleObj.version}`);
+          }
+
+          const targetPublicKeyJwk = await TKHQ.loadTargetKey(
+            new Uint8Array(targetPublicBuf)
+          );
+          TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
+
+          // Send up BUNDLE_INJECTED message
+          TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
+        } catch (e) {
+          const errorMessage = `failed to inject bundle: ${e.toString()}`;
+          reportError(e?.message || errorMessage);
+          throw new Error(e?.message || errorMessage);
         }
-
-        const targetPublicKeyJwk = await TKHQ.loadTargetKey(
-          new Uint8Array(targetPublicBuf)
-        );
-        TKHQ.setTargetEmbeddedKey(targetPublicKeyJwk);
-
-        // Send up BUNDLE_INJECTED message
-        TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
       }
 
       /**
@@ -822,13 +887,17 @@
         // Get target embedded key from previous step (onInjectImportBundle)
         const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
         if (targetPublicKeyJwk == null) {
-          throw new Error("no target key found");
+          const errorMessage = "no target key found";
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
 
         // Get plaintext wallet mnemonic
         const plaintext = document.getElementById("plaintext").value.trim();
         if (!plaintext) {
-          throw new Error("no wallet mnemonic entered");
+          const errorMessage = "no wallet mnemonic entered";
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
         const plaintextBuf = new TextEncoder().encode(plaintext);
 
@@ -864,13 +933,17 @@
         // Get target embedded key from previous step (onInjectImportBundle)
         const targetPublicKeyJwk = TKHQ.getTargetEmbeddedKey();
         if (targetPublicKeyJwk == null) {
-          throw new Error("no target key found");
+          const errorMessage = "no target key found";
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
 
         // Get plaintext private key
         const plaintext = document.getElementById("plaintext").value.trim();
         if (!plaintext) {
-          throw new Error("no private key entered");
+          const errorMessage = "no private key entered";
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
         const plaintextBuf = TKHQ.decodeKey(plaintext, keyFormat);
 
@@ -958,7 +1031,9 @@
         try {
           ciphertextBuf = await senderCtx.seal(plaintextBuf, aad);
         } catch (e) {
-          throw new Error("failed to encrypt import bundle: " + e.toString());
+          const errorMessage = `failed to encrypt import bundle: ${e.toString()}`;
+          TKHQ.reportError(errorMessage);
+          throw new Error(errorMessage);
         }
 
         const ciphertextHex = TKHQ.uint8arrayToHexString(
