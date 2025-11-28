@@ -180,15 +180,13 @@ async function onInjectKeyBundle(
   // If no address provided, use a default key
   const keyAddress = address || "default";
 
-  // Pre-create the keypair to cache it for faster signing
+  // Cache keypair for improved signing perf
   let cachedKeypair;
   if (keyFormat === "SOLANA") {
     cachedKeypair = Keypair.fromSecretKey(TKHQ.base58Decode(key));
   } else if (keyFormat === "HEXADECIMAL") {
     cachedKeypair = await createSolanaKeypair(
-      Array.from(
-        TKHQ.uint8arrayFromHexString(key.slice(2))
-      )
+      Array.from(TKHQ.uint8arrayFromHexString(key.slice(2)))
     );
   }
 
@@ -199,39 +197,9 @@ async function onInjectKeyBundle(
       privateKey: key,
       format: keyFormat,
       expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
-      keypair: cachedKeypair, // Cache the keypair for performance
+      keypair: cachedKeypair,
     },
   };
-
-  // Send up BUNDLE_INJECTED message
-  TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
-}
-
-/**
- * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
- * TODO: remove
- * @param {string} bundle
- * @param {string} organizationId
- * @param {string} requestId
- * @param {Function} HpkeDecrypt
- */
-async function onInjectWalletBundle(
-  bundle,
-  organizationId,
-  requestId,
-  HpkeDecrypt
-) {
-  // Decrypt the export bundle
-  const walletBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
-
-  // Reset embedded key after using for decryption
-  TKHQ.onResetEmbeddedKey();
-
-  // Parse the decrypted wallet bytes
-  const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
-
-  // Display only the wallet's mnemonic
-  displayKey(wallet.mnemonic);
 
   // Send up BUNDLE_INJECTED message
   TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
@@ -293,16 +261,14 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     return;
   }
 
-  // Use cached keypair if available (much faster), otherwise create it
-  const keypair = key.keypair || (
-    key.format === "SOLANA"
+  // Use cached keypair if available. Otherwise create it
+  const keypair =
+    key.keypair ||
+    (key.format === "SOLANA"
       ? Keypair.fromSecretKey(TKHQ.base58Decode(key["privateKey"]))
       : await createSolanaKeypair(
-          Array.from(
-            TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2))
-          )
-        )
-  );
+          Array.from(TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2)))
+        ));
 
   const transactionWrapper = JSON.parse(serializedTransaction);
   const transactionToSign = transactionWrapper.transaction;
@@ -372,27 +338,27 @@ async function onSignMessage(requestId, serializedMessage, address) {
 
   let signatureHex;
 
-  // Use cached keypair if available (much faster), otherwise create it
-  const keypair = key.keypair || (
-    key.format === "SOLANA"
+  // Use cached keypair if available. Otherwise, create it
+  const keypair =
+    key.keypair ||
+    (key.format === "SOLANA"
       ? Keypair.fromSecretKey(TKHQ.base58Decode(key["privateKey"]))
       : await createSolanaKeypair(
-          Array.from(
-            TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2))
-          )
-        )
-  );
+          Array.from(TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2)))
+        ));
 
   if (messageType === "SOLANA") {
     // Sign the message
     const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
 
-    // Note: Signature verification is skipped for performance.
-    // The signature will always be valid if signing succeeds with a valid keypair.
+    // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
+    // Clients can verify the signature returned.
 
     signatureHex = TKHQ.uint8arrayToHexString(signature);
   } else {
-    throw new Error("unsupported message type");
+    TKHQ.sendMessageUp("ERROR", "unsupported message type", requestId);
+
+    return;
   }
 
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);

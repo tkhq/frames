@@ -194,16 +194,26 @@ function getItemWithExpiry(key) {
 }
 
 /**
- * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
- * @param {string} hexString
+ * Takes a hex string (e.g. "e4567ab" or "0xe4567ab") and returns an array buffer (Uint8Array)
+ * @param {string} hexString - Hex string with or without "0x" prefix
  * @returns {Uint8Array}
  */
 function uint8arrayFromHexString(hexString) {
-  var hexRegex = /^[0-9A-Fa-f]+$/;
-  if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
+  if (!hexString || typeof hexString !== "string") {
     throw new Error("cannot create uint8array from invalid hex string");
   }
-  return new Uint8Array(hexString.match(/../g).map((h) => parseInt(h, 16)));
+
+  // Remove 0x prefix if present
+  const cleanHex =
+    hexString.startsWith("0x") || hexString.startsWith("0X")
+      ? hexString.slice(2)
+      : hexString;
+
+  var hexRegex = /^[0-9A-Fa-f]+$/;
+  if (cleanHex.length % 2 != 0 || !hexRegex.test(cleanHex)) {
+    throw new Error("cannot create uint8array from invalid hex string");
+  }
+  return new Uint8Array(cleanHex.match(/../g).map((h) => parseInt(h, 16)));
 }
 
 /**
