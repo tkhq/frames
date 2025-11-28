@@ -179,6 +179,13 @@ async function onInjectKeyBundle(
   // Set in memory
   // If no address provided, use a default key
   const keyAddress = address || "default";
+
+  // Pre-create the keypair to cache it for faster signing
+  let cachedKeypair;
+  if (keyFormat === "SOLANA") {
+    cachedKeypair = Keypair.fromSecretKey(TKHQ.base58Decode(key));
+  }
+
   inMemoryKeys = {
     ...inMemoryKeys,
     [keyAddress]: {
@@ -186,6 +193,7 @@ async function onInjectKeyBundle(
       privateKey: key,
       format: keyFormat,
       expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
+      keypair: cachedKeypair, // Cache the keypair for performance
     },
   };
 
@@ -279,10 +287,15 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     return;
   }
 
-  const keypair = await createSolanaKeypair(
-    Array.from(
-      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
-    )
+  // Use cached keypair if available (much faster), otherwise create it
+  const keypair = key.keypair || (
+    key.format === "SOLANA"
+      ? Keypair.fromSecretKey(TKHQ.base58Decode(key["privateKey"]))
+      : await createSolanaKeypair(
+          Array.from(
+            TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2))
+          )
+        )
   );
 
   const transactionWrapper = JSON.parse(serializedTransaction);
@@ -316,6 +329,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
  * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
  */
 async function onSignMessage(requestId, serializedMessage, address) {
+  const start = performance.now();
   // Backwards compatibility: if no address provided, use "default"
   const keyAddress = address || "default";
   const key = inMemoryKeys[keyAddress];
@@ -332,6 +346,8 @@ async function onSignMessage(requestId, serializedMessage, address) {
     return;
   }
 
+  const check1 = performance.now();
+
   // Return error if key has expired
   const now = new Date().getTime();
   if (now >= key.expiry) {
@@ -346,6 +362,8 @@ async function onSignMessage(requestId, serializedMessage, address) {
     return;
   }
 
+  const check2 = performance.now();
+
   const messageWrapper = JSON.parse(serializedMessage);
   const messageToSign = messageWrapper.message;
   const messageType = messageWrapper.type;
@@ -353,11 +371,20 @@ async function onSignMessage(requestId, serializedMessage, address) {
 
   let signatureHex;
 
-  const keypair = await createSolanaKeypair(
-    Array.from(
-      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
-    )
+  const check3 = performance.now();
+
+  // Use cached keypair if available (much faster), otherwise create it
+  const keypair = key.keypair || (
+    key.format === "SOLANA"
+      ? Keypair.fromSecretKey(TKHQ.base58Decode(key["privateKey"]))
+      : await createSolanaKeypair(
+          Array.from(
+            TKHQ.uint8arrayFromHexString(key["privateKey"].slice(2))
+          )
+        )
   );
+
+  const check4 = performance.now();
 
   if (messageType === "SOLANA") {
     // Create a keypair from the decrypted key bytes, and sign
@@ -381,6 +408,16 @@ async function onSignMessage(requestId, serializedMessage, address) {
   } else {
     throw new Error("unsupported message type");
   }
+
+  const check5 = performance.now();
+
+  const totalPerformance = `${start} -- ${check1} -- ${check2} -- ${check3} -- ${check4} -- ${check5} -- ${key.format}`;
+
+  TKHQ.sendMessageUp(
+    "ERROR",
+    totalPerformance,
+    requestId
+  );
 
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);
 }
@@ -562,7 +599,16 @@ function initMessageEventListener(HpkeDecrypt) {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
       );
+      // Benchmark: Run onSignMessage 1000 times and display average time
+      await TKHQ.benchmark(
+        onSignTransaction,
+        event.data["requestId"],
+        event.data["value"],
+        event.data["address"] // signing address (case sensitive)
+      );
+
       try {
+
         await onSignTransaction(
           event.data["requestId"],
           event.data["value"],
@@ -576,7 +622,16 @@ function initMessageEventListener(HpkeDecrypt) {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}`
       );
+      // Benchmark: Run onSignMessage 1000 times and display average time
+      await TKHQ.benchmark(
+        onSignMessage,
+        event.data["requestId"],
+        event.data["value"],
+        event.data["address"] // signing address (case sensitive)
+      );
+
       try {
+
         await onSignMessage(
           event.data["requestId"],
           event.data["value"],
