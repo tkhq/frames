@@ -4,6 +4,7 @@
  */
 
 import * as nobleEd25519 from "@noble/ed25519";
+import * as nobleHashes from "@noble/hashes/sha512";
 
 /** constant for LocalStorage */
 const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
@@ -26,8 +27,8 @@ function isDoublyIframed() {
   }
 }
 
-// Helper to parse a private key into a Solana base58 private key
-// This shouldn't be needed in the case that a Turnkey wallet account is exported with the address format "SOLANA"
+// Helper to parse a private key into a Solana base58 private key.
+// To be used if a wallet account is exported without the `SOLANA` address format.
 function parsePrivateKey(privateKey) {
   if (Array.isArray(privateKey)) {
     return new Uint8Array(privateKey);
@@ -39,13 +40,12 @@ function parsePrivateKey(privateKey) {
       privateKey = privateKey.slice(2);
     }
 
-    // Check if it's hex format (64 characters, only hex chars)
+    // Check if it's hex-formatted correctly (i.e. 64 hex chars)
     if (privateKey.length === 64 && /^[0-9a-fA-F]+$/.test(privateKey)) {
-      // Hex format
       return uint8arrayFromHexString(privateKey);
     }
 
-    // Assume it's base58 format
+    // Otherwise assume it's base58 format (for Solana)
     try {
       return base58Decode(privateKey);
     } catch (error) {
@@ -193,16 +193,28 @@ function getItemWithExpiry(key) {
 }
 
 /**
- * Takes a hex string (e.g. "e4567ab") and returns an array buffer (Uint8Array)
- * @param {string} hexString
+ * Takes a hex string (e.g. "e4567ab" or "0xe4567ab") and returns an array buffer (Uint8Array)
+ * @param {string} hexString - Hex string with or without "0x" prefix
  * @returns {Uint8Array}
  */
 function uint8arrayFromHexString(hexString) {
-  var hexRegex = /^[0-9A-Fa-f]+$/;
-  if (!hexString || hexString.length % 2 != 0 || !hexRegex.test(hexString)) {
+  if (!hexString || typeof hexString !== "string") {
     throw new Error("cannot create uint8array from invalid hex string");
   }
-  return new Uint8Array(hexString.match(/../g).map((h) => parseInt(h, 16)));
+
+  // Remove 0x prefix if present
+  const hexWithoutPrefix =
+    hexString.startsWith("0x") || hexString.startsWith("0X")
+      ? hexString.slice(2)
+      : hexString;
+
+  var hexRegex = /^[0-9A-Fa-f]+$/;
+  if (hexWithoutPrefix.length % 2 != 0 || !hexRegex.test(hexWithoutPrefix)) {
+    throw new Error("cannot create uint8array from invalid hex string");
+  }
+  return new Uint8Array(
+    hexWithoutPrefix.match(/../g).map((h) => parseInt(h, 16))
+  );
 }
 
 /**
@@ -544,31 +556,6 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
 }
 
 /**
- * Returns a UTF-8 encoded wallet mnemonic + newline optional passphrase
- * from wallet bytes.
- * @param {Uint8Array} walletBytes
- */
-function encodeWallet(walletBytes) {
-  const decoder = new TextDecoder("utf-8");
-  const wallet = decoder.decode(walletBytes);
-  let mnemonic;
-  let passphrase = null;
-
-  if (wallet.includes("\n")) {
-    const parts = wallet.split("\n");
-    mnemonic = parts[0];
-    passphrase = parts[1];
-  } else {
-    mnemonic = wallet;
-  }
-
-  return {
-    mnemonic: mnemonic,
-    passphrase: passphrase,
-  };
-}
-
-/**
  * Returns the public key bytes for a hex-encoded Ed25519 private key.
  * @param {string} privateKeyHex
  */
@@ -689,7 +676,6 @@ export const TKHQ = {
   base58Encode,
   base58Decode,
   encodeKey,
-  encodeWallet,
   sendMessageUp,
   logMessage,
   uint8arrayFromHexString,

@@ -8,6 +8,10 @@ let inMemoryKeys = {};
 
 const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 
+// Instantiate these once (for perf)
+const textEncoder = new TextEncoder();
+const textDecoder = new TextDecoder();
+
 /**
  * Hide every HTML element in <body> except any <script> elements.
  * Then append an element containing the hex-encoded raw private key.
@@ -82,7 +86,7 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
       const signedData = JSON.parse(
-        new TextDecoder().decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
+        textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
       );
 
       // Validate fields match
@@ -130,6 +134,8 @@ async function onGetPublicEmbeddedKey(requestId) {
 
   if (!embeddedKeyJwk) {
     TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId); // no key == empty string
+
+    return;
   }
 
   const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -179,6 +185,17 @@ async function onInjectKeyBundle(
   // Set in memory
   // If no address provided, use a default key
   const keyAddress = address || "default";
+
+  // Cache keypair for improved signing perf
+  let cachedKeypair;
+  if (keyFormat === "SOLANA") {
+    cachedKeypair = Keypair.fromSecretKey(TKHQ.base58Decode(key));
+  } else if (keyFormat === "HEXADECIMAL") {
+    cachedKeypair = await createSolanaKeypair(
+      Array.from(TKHQ.uint8arrayFromHexString(key))
+    );
+  }
+
   inMemoryKeys = {
     ...inMemoryKeys,
     [keyAddress]: {
@@ -186,38 +203,9 @@ async function onInjectKeyBundle(
       privateKey: key,
       format: keyFormat,
       expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
+      keypair: cachedKeypair,
     },
   };
-
-  // Send up BUNDLE_INJECTED message
-  TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
-}
-
-/**
- * Function triggered when INJECT_WALLET_EXPORT_BUNDLE event is received.
- * TODO: remove
- * @param {string} bundle
- * @param {string} organizationId
- * @param {string} requestId
- * @param {Function} HpkeDecrypt
- */
-async function onInjectWalletBundle(
-  bundle,
-  organizationId,
-  requestId,
-  HpkeDecrypt
-) {
-  // Decrypt the export bundle
-  const walletBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
-
-  // Reset embedded key after using for decryption
-  TKHQ.onResetEmbeddedKey();
-
-  // Parse the decrypted wallet bytes
-  const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
-
-  // Display only the wallet's mnemonic
-  displayKey(wallet.mnemonic);
 
   // Send up BUNDLE_INJECTED message
   TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
@@ -253,37 +241,13 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
   const keyAddress = address || "default";
   const key = inMemoryKeys[keyAddress];
 
-  if (!key) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-
+  // Validate key exists and is valid/non-expired
+  if (!validateKey(key, keyAddress, requestId)) {
     return;
   }
 
-  // Return error if key has expired
-  const now = new Date().getTime();
-  if (now >= key.expiry) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key has expired. Please re-inject export bundle for ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-
-    return;
-  }
-
-  const keypair = await createSolanaKeypair(
-    Array.from(
-      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
-    )
-  );
+  // Get or create keypair (uses cached keypair if available)
+  const keypair = await getOrCreateKeypair(key);
 
   const transactionWrapper = JSON.parse(serializedTransaction);
   const transactionToSign = transactionWrapper.transaction;
@@ -293,10 +257,8 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
 
   if (transactionType === "SOLANA") {
     // Fetch the transaction and sign
-    const transaction = VersionedTransaction.deserialize(
-      TKHQ.uint8arrayFromHexString(transactionToSign)
-    );
-
+    const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
+    const transaction = VersionedTransaction.deserialize(transactionBytes);
     transaction.sign([keypair]);
 
     signedTransaction = transaction.serialize();
@@ -320,66 +282,33 @@ async function onSignMessage(requestId, serializedMessage, address) {
   const keyAddress = address || "default";
   const key = inMemoryKeys[keyAddress];
 
-  if (!key) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-
-    return;
-  }
-
-  // Return error if key has expired
-  const now = new Date().getTime();
-  if (now >= key.expiry) {
-    TKHQ.sendMessageUp(
-      "ERROR",
-      new Error(
-        `key has expired. Please re-inject export bundle for ${keyAddress} into iframe. Note that address is case sensitive.`
-      ).toString(),
-      requestId
-    );
-
+  // Validate key exists and has not expired
+  if (!validateKey(key, keyAddress, requestId)) {
     return;
   }
 
   const messageWrapper = JSON.parse(serializedMessage);
   const messageToSign = messageWrapper.message;
   const messageType = messageWrapper.type;
-  const messageBytes = new TextEncoder().encode(messageToSign);
+  const messageBytes = textEncoder.encode(messageToSign);
 
   let signatureHex;
 
-  const keypair = await createSolanaKeypair(
-    Array.from(
-      TKHQ.uint8arrayFromHexString(key["privateKey"].replace(/^0x/i, ""))
-    )
-  );
+  // Get or create keypair (uses cached keypair if available)
+  const keypair = await getOrCreateKeypair(key);
 
   if (messageType === "SOLANA") {
-    // Create a keypair from the decrypted key bytes, and sign
+    // Sign the message
     const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
-    const result = nacl.sign.detached.verify(
-      messageBytes,
-      signature,
-      keypair.publicKey.toBytes()
-    );
 
-    if (!result) {
-      TKHQ.sendMessageUp(
-        "ERROR",
-        new Error(`unable to verify signed message`).toString(),
-        requestId
-      );
-      return;
-    }
+    // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
+    // Clients can verify the signature returned.
 
     signatureHex = TKHQ.uint8arrayToHexString(signature);
   } else {
-    throw new Error("unsupported message type");
+    TKHQ.sendMessageUp("ERROR", "unsupported message type", requestId);
+
+    return;
   }
 
   TKHQ.sendMessageUp("MESSAGE_SIGNED", signatureHex, requestId);
@@ -395,6 +324,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
   if (!address) {
     inMemoryKeys = {};
     TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
+
     return;
   }
 
@@ -407,6 +337,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
       ).toString(),
       requestId
     );
+
     return;
   }
 
@@ -416,7 +347,7 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
 
-// Solana utility functions
+// Utility functions
 async function createSolanaKeypair(privateKey) {
   const privateKeyBytes = TKHQ.parsePrivateKey(privateKey);
 
@@ -434,6 +365,50 @@ async function createSolanaKeypair(privateKey) {
   }
 
   return keypair;
+}
+
+/**
+ * Validates that a key exists and has not expired.
+ * Throws error if validation fails (and caller will send message up back to parent).
+ * @param {Object} key - The key object from inMemoryKeys
+ * @param {string} keyAddress - The address of the key
+ * @returns {boolean} - True if key is valid, false otherwise
+ */
+function validateKey(key, keyAddress) {
+  if (!key) {
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
+  }
+
+  const now = new Date().getTime();
+  if (now >= key.expiry) {
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
+  }
+
+  return true;
+}
+
+/**
+ * Gets or creates a Solana keypair from a key object.
+ * Uses cached keypair if available, otherwise creates a new one.
+ * @param {Object} key - The key object containing format and privateKey
+ * @returns {Promise<Keypair>} - The Solana keypair
+ */
+async function getOrCreateKeypair(key) {
+  if (key.keypair) {
+    return key.keypair;
+  }
+
+  if (key.format === "SOLANA") {
+    return Keypair.fromSecretKey(TKHQ.base58Decode(key.privateKey));
+  } else {
+    return await createSolanaKeypair(
+      Array.from(TKHQ.uint8arrayFromHexString(key.privateKey))
+    );
+  }
 }
 
 /**

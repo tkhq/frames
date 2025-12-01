@@ -6,6 +6,9 @@ import {
   Aes256Gcm,
 } from "@hpke/core";
 
+// Pre-compute const (for perf)
+const TURNKEY_HPKE_INFO = new TextEncoder().encode("turnkey_hpke");
+
 /**
  * Decrypt the ciphertext (ArrayBuffer) given an encapsulation key (ArrayBuffer)
  * and the receivers private key (JSON Web Key).
@@ -31,7 +34,7 @@ export async function HpkeDecrypt({
   var recipientCtx = await suite.createRecipientContext({
     recipientKey: receiverPriv,
     enc: encappedKeyBuf,
-    info: new TextEncoder().encode("turnkey_hpke"),
+    info: TURNKEY_HPKE_INFO,
   });
 
   var receiverPubBuf = await TKHQ.p256JWKPrivateToPublic(receiverPrivJwk);
