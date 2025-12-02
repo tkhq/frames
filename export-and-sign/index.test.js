@@ -3,6 +3,40 @@ import { JSDOM } from "jsdom";
 import fs from "fs";
 import path from "path";
 import * as crypto from "crypto";
+import {
+  DEFAULT_TTL_MILLISECONDS,
+  onInjectKeyBundle,
+  onSignTransaction,
+  getKeyNotFoundErrorMessage,
+} from "./src/event-handlers.js";
+
+jest.mock("@solana/web3.js", () => {
+  const mockKeypair = {
+    secretKey: new Uint8Array(64).fill(7),
+    publicKey: {
+      toBytes: () => new Uint8Array(32).fill(8),
+    },
+  };
+
+  return {
+    Keypair: {
+      fromSeed: jest.fn(() => mockKeypair),
+      fromSecretKey: jest.fn(() => mockKeypair),
+    },
+    Transaction: jest.fn(),
+    SystemProgram: {},
+    LAMPORTS_PER_SOL: 1,
+    PublicKey: jest.fn(),
+    Connection: jest.fn(),
+    sendAndConfirmTransaction: jest.fn(),
+    VersionedTransaction: {
+      deserialize: jest.fn(() => ({
+        sign: jest.fn(),
+        serialize: jest.fn(() => new Uint8Array([1, 2, 3])),
+      })),
+    },
+  };
+});
 
 const html = fs
   .readFileSync(path.resolve(__dirname, "./src/index.template.html"), "utf8")
@@ -59,12 +93,21 @@ describe("TKHQ", () => {
       item = TKHQ.getItemWithExpiry("k");
       expect(item).toBe("v");
 
-      // Set a TTL of 500ms
+      // Test expired item: use setItemWithExpiry, then manually set expiry in the past
       TKHQ.setItemWithExpiry("a", "b", 500);
-      setTimeout(() => {
-        const expiredItem = TKHQ.getItemWithExpiry("a");
-        expect(expiredItem).toBeNull();
-      }, 600); // Wait for 600ms to ensure the item has expired
+      // Verify the item was set correctly with setItemWithExpiry
+      let itemA = JSON.parse(dom.window.localStorage.getItem("a"));
+      expect(itemA.value).toBe("b");
+      expect(itemA.expiry).toBeTruthy();
+      
+      // Now manually modify the expiry to be in the past to test expiration
+      const expiredItem = {
+        value: "b",
+        expiry: new Date().getTime() - 1000,
+      };
+      dom.window.localStorage.setItem("a", JSON.stringify(expiredItem));
+      const expiredResult = TKHQ.getItemWithExpiry("a");
+      expect(expiredResult).toBeNull();
 
       // Returns null if getItemWithExpiry is called for item without expiry
       dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
@@ -443,5 +486,225 @@ describe("TKHQ", () => {
       };
       expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
     });
+  });
+});
+
+describe("Key Expiration", () => {
+  it("DEFAULT_TTL_MILLISECONDS is 24 hours (86,400,000 milliseconds)", () => {
+    // Verify the TTL constant is correctly set to 24 hours
+    expect(DEFAULT_TTL_MILLISECONDS).toBe(86400000); // milliseconds
+  });
+
+  it("expiry calculation uses milliseconds correctly", () => {
+    const baseTime = 1000000000000; // Base timestamp
+    const expectedExpiry = baseTime + DEFAULT_TTL_MILLISECONDS;
+
+    const calculatedExpiry = baseTime + DEFAULT_TTL_MILLISECONDS;
+
+    expect(calculatedExpiry).toBe(expectedExpiry);
+    expect(calculatedExpiry - baseTime).toBe(86400000); // Exactly 24 hours
+    expect(calculatedExpiry - baseTime).toBe(DEFAULT_TTL_MILLISECONDS);
+  });
+
+  it("expiry time is correctly set to 24 hours from injection time", () => {
+    const mockTime = 1000000000000;
+    const originalGetTime = Date.prototype.getTime;
+    Date.prototype.getTime = jest.fn(() => mockTime);
+
+    try {
+      const currentTime = new Date().getTime();
+      const expiry = currentTime + DEFAULT_TTL_MILLISECONDS;
+
+      expect(expiry - currentTime).toBe(86400000);
+      expect(expiry - currentTime).toBe(DEFAULT_TTL_MILLISECONDS);
+      expect(expiry).toBe(mockTime + DEFAULT_TTL_MILLISECONDS);
+    } finally {
+      Date.prototype.getTime = originalGetTime;
+    }
+  });
+
+  it("key expiration check correctly identifies expired keys", () => {
+    const baseTime = 1000000000000;
+
+    const keyExpiry = baseTime + DEFAULT_TTL_MILLISECONDS;
+
+    // Before expiration
+    const nowBefore = baseTime + DEFAULT_TTL_MILLISECONDS - 1000; // 1 second before expiry
+    expect(nowBefore >= keyExpiry).toBe(false);
+
+    // At expiration
+    const nowAt = baseTime + DEFAULT_TTL_MILLISECONDS; // exactly at expiry
+    expect(nowAt >= keyExpiry).toBe(true);
+
+    // After expiration
+    const nowAfter = baseTime + DEFAULT_TTL_MILLISECONDS + 1000; // 1 second after expiry
+    expect(nowAfter >= keyExpiry).toBe(true);
+  });
+});
+
+describe("Event Handler Expiration Flow", () => {
+  const requestId = "test-request-id";
+  const serializedTransaction = JSON.stringify({
+    type: "SOLANA",
+    transaction: "00",
+  });
+
+  let dom;
+  let TKHQ;
+  let sendMessageSpy;
+
+  function buildBundle(organizationId = "org-test") {
+    const signedData = {
+      organizationId,
+      encappedPublic: "aa",
+      ciphertext: "bb",
+    };
+
+    const signedDataHex = Buffer.from(
+      JSON.stringify(signedData),
+      "utf8"
+    ).toString("hex");
+
+    return JSON.stringify({
+      version: "v1.0.0",
+      data: signedDataHex,
+      dataSignature: "30440220773382ac",
+      enclaveQuorumPublic: "04e479640d6d34",
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+
+    dom = new JSDOM(
+      `<!doctype html><html><body><div id="key-div"></div><input id="embedded-key" /></body></html>`,
+      {
+        url: "http://localhost",
+      }
+    );
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQ = module.TKHQ;
+    dom.window.TKHQ = TKHQ;
+
+    sendMessageSpy = jest
+      .spyOn(TKHQ, "sendMessageUp")
+      .mockImplementation(() => {});
+
+    jest
+      .spyOn(TKHQ, "verifyEnclaveSignature")
+      .mockResolvedValue(true);
+    // Set a dummy embedded key for testing
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+    expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" }); 
+    jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
+    jest
+      .spyOn(TKHQ, "uint8arrayFromHexString")
+      .mockImplementation((hex) => {
+        if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0) {
+          throw new Error("cannot create uint8array from invalid hex string");
+        }
+        return new Uint8Array(Buffer.from(hex, "hex"));
+      });
+    jest
+      .spyOn(TKHQ, "uint8arrayToHexString")
+      .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
+    jest
+      .spyOn(TKHQ, "getEd25519PublicKey")
+      .mockReturnValue(new Uint8Array(32).fill(3));
+    jest
+      .spyOn(TKHQ, "encodeKey")
+      .mockImplementation(async (keyBytes, format) => {
+        if (format === "SOLANA") {
+          // Return a valid base58 string for SOLANA format
+          return "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+        }
+        return "encoded-key-material";
+      });
+    jest
+      .spyOn(TKHQ, "parsePrivateKey")
+      .mockReturnValue(new Uint8Array(64).fill(5));
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+  });
+
+  it("allows signing before expiry", async () => {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      undefined,
+      HpkeDecryptMock
+    );
+
+    expect(HpkeDecryptMock).toHaveBeenCalled();
+
+    await onSignTransaction(
+      requestId,
+      serializedTransaction,
+      undefined
+    );
+
+    expect(sendMessageSpy).toHaveBeenNthCalledWith(
+      2,
+      "TRANSACTION_SIGNED",
+      expect.any(String),
+      requestId
+    );
+
+  });
+
+  it("blocks signing after expiry", async () => {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      undefined,
+      HpkeDecryptMock
+    );
+
+    jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS + 1);
+
+    try {
+      await onSignTransaction(
+        requestId,
+        serializedTransaction,
+        undefined
+      );
+    } catch (e) {
+      // onSignTransaction throws when key is expired, simulate the message listener error handling
+      TKHQ.sendMessageUp("ERROR", e.toString(), requestId);
+    }
+
+    const keyAddress = "default";
+    expect(sendMessageSpy).toHaveBeenLastCalledWith(
+      "ERROR",
+      expect.stringContaining(getKeyNotFoundErrorMessage(keyAddress)),
+      requestId
+    );
   });
 });

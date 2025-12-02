@@ -6,7 +6,7 @@ import { HpkeDecrypt } from "./crypto-utils.js";
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
-const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
@@ -202,8 +202,8 @@ async function onInjectKeyBundle(
       organizationId,
       privateKey: key,
       format: keyFormat,
-      expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
-      keypair: cachedKeypair,
+      expiry: new Date().getTime() + DEFAULT_TTL_MILLISECONDS,
+      keypair: cachedKeypair, // Cache the keypair for performance
     },
   };
 
@@ -368,6 +368,15 @@ async function createSolanaKeypair(privateKey) {
 }
 
 /**
+ * Generates the error message for missing or expired keys.
+ * @param {string} keyAddress - The address of the key
+ * @returns {string} - The error message string
+ */
+export function getKeyNotFoundErrorMessage(keyAddress) {
+  return `key bytes have expired. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`;
+}
+
+/**
  * Validates that a key exists and has not expired.
  * Throws error if validation fails (and caller will send message up back to parent).
  * @param {Object} key - The key object from inMemoryKeys
@@ -376,16 +385,12 @@ async function createSolanaKeypair(privateKey) {
  */
 function validateKey(key, keyAddress) {
   if (!key) {
-    throw new Error(
-      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-    ).toString();
+    throw new Error( `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`).toString();
   }
 
   const now = new Date().getTime();
   if (now >= key.expiry) {
-    throw new Error(
-      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-    ).toString();
+    throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
   }
 
   return true;
@@ -643,3 +648,12 @@ export function initEventHandlers(HpkeDecrypt) {
 
   return { messageEventListener };
 }
+/**
+ * Expose internal handlers for targeted testing.
+ */
+export {
+  onInjectKeyBundle,
+  onSignTransaction,
+  onSignMessage,
+  onClearEmbeddedPrivateKey,
+};
