@@ -13,37 +13,6 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 /**
- * Hide every HTML element in <body> except any <script> elements.
- * Then append an element containing the hex-encoded raw private key.
- * @param {string} key
- */
-function displayKey(key) {
-  Array.from(document.body.children).forEach((child) => {
-    if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
-      child.style.display = "none";
-    }
-  });
-
-  const style = {
-    border: "none",
-    color: "#555b64",
-    fontSize: ".875rem",
-    lineHeight: "1.25rem",
-    overflowWrap: "break-word",
-    textAlign: "left",
-  };
-
-  // Create a new div with the key material and append the new div to the body
-  const keyDiv = document.getElementById("key-div");
-  keyDiv.innerText = key;
-  for (let styleKey in style) {
-    keyDiv.style[styleKey] = style[styleKey];
-  }
-  document.body.appendChild(keyDiv);
-  TKHQ.applySettings(TKHQ.getSettings());
-}
-
-/**
  * Parse and decrypt the export bundle.
  * The `bundle` param is a JSON string of the encapsulated public
  * key, encapsulated public key signature, and the ciphertext.
@@ -178,9 +147,6 @@ async function onInjectKeyBundle(
   } else {
     key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
   }
-
-  // TODO: In debug mode and only debug mode (aka standalone), support displaying multiple keys
-  displayKey(key);
 
   // Set in memory
   // If no address provided, use a default key
