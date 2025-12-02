@@ -700,7 +700,7 @@ describe("Event Handler Expiration Flow", () => {
       TKHQ.sendMessageUp("ERROR", e.toString(), requestId);
     }
 
-    const keyAddress = "default"; // Default address when undefined is passed to onSignTransaction
+    const keyAddress = "default";
     expect(sendMessageSpy).toHaveBeenLastCalledWith(
       "ERROR",
       expect.stringContaining(getKeyNotFoundErrorMessage(keyAddress)),

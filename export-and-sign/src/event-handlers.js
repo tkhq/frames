@@ -373,7 +373,7 @@ async function createSolanaKeypair(privateKey) {
  * @returns {string} - The error message string
  */
 export function getKeyNotFoundErrorMessage(keyAddress) {
-  return `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`;
+  return `key bytes have expired. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`;
 }
 
 /**
@@ -385,7 +385,7 @@ export function getKeyNotFoundErrorMessage(keyAddress) {
  */
 function validateKey(key, keyAddress) {
   if (!key) {
-    throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
+    throw new Error( `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`).toString();
   }
 
   const now = new Date().getTime();
