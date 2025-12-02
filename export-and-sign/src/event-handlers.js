@@ -368,6 +368,15 @@ async function createSolanaKeypair(privateKey) {
 }
 
 /**
+ * Generates the error message for missing or expired keys.
+ * @param {string} keyAddress - The address of the key
+ * @returns {string} - The error message string
+ */
+export function getKeyNotFoundErrorMessage(keyAddress) {
+  return `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`;
+}
+
+/**
  * Validates that a key exists and has not expired.
  * Throws error if validation fails (and caller will send message up back to parent).
  * @param {Object} key - The key object from inMemoryKeys
@@ -376,16 +385,12 @@ async function createSolanaKeypair(privateKey) {
  */
 function validateKey(key, keyAddress) {
   if (!key) {
-    throw new Error(
-      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-    ).toString();
+    throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
   }
 
   const now = new Date().getTime();
   if (now >= key.expiry) {
-    throw new Error(
-      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
-    ).toString();
+    throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
   }
 
   return true;
@@ -643,19 +648,12 @@ export function initEventHandlers(HpkeDecrypt) {
 
   return { messageEventListener };
 }
-
 /**
  * Expose internal handlers for targeted testing.
  */
-export const __testHooks__ = {
+export {
   onInjectKeyBundle,
   onSignTransaction,
   onSignMessage,
   onClearEmbeddedPrivateKey,
-  resetDecryptedKey() {
-    decryptedKey = null;
-  },
-  getDecryptedKey() {
-    return decryptedKey;
-  },
 };

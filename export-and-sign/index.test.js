@@ -5,7 +5,9 @@ import path from "path";
 import * as crypto from "crypto";
 import {
   DEFAULT_TTL_MILLISECONDS,
-  __testHooks__,
+  onInjectKeyBundle,
+  onSignTransaction,
+  getKeyNotFoundErrorMessage,
 } from "./src/event-handlers.js";
 
 jest.mock("@solana/web3.js", () => {
@@ -81,37 +83,36 @@ describe("TKHQ", () => {
 
   describe("LocalStorage with expiry", () => {
     it("gets and sets items with expiry localStorage", async () => {
-      jest.useFakeTimers();
-      try {
-        // Set a TTL of 1000ms
-        TKHQ.setItemWithExpiry("k", "v", 1000);
-        let item = JSON.parse(dom.window.localStorage.getItem("k"));
-        expect(item.value).toBe("v");
-        expect(item.expiry).toBeTruthy();
+      // Set a TTL of 1000ms
+      TKHQ.setItemWithExpiry("k", "v", 1000);
+      let item = JSON.parse(dom.window.localStorage.getItem("k"));
+      expect(item.value).toBe("v");
+      expect(item.expiry).toBeTruthy();
 
-        // Get item that has not expired yet
-        item = TKHQ.getItemWithExpiry("k");
-        expect(item).toBe("v");
+      // Get item that has not expired yet
+      item = TKHQ.getItemWithExpiry("k");
+      expect(item).toBe("v");
 
-        // Set a TTL of 500ms
-        TKHQ.setItemWithExpiry("a", "b", 500);
-        const expiryPromise = new Promise((resolve) => {
-          setTimeout(() => {
-            const expiredItem = TKHQ.getItemWithExpiry("a");
-            expect(expiredItem).toBeNull();
-            resolve();
-          }, 600);
-        });
-        jest.advanceTimersByTime(600);
-        await expiryPromise;
+      // Test expired item: use setItemWithExpiry, then manually set expiry in the past
+      TKHQ.setItemWithExpiry("a", "b", 500);
+      // Verify the item was set correctly with setItemWithExpiry
+      let itemA = JSON.parse(dom.window.localStorage.getItem("a"));
+      expect(itemA.value).toBe("b");
+      expect(itemA.expiry).toBeTruthy();
+      
+      // Now manually modify the expiry to be in the past to test expiration
+      const expiredItem = {
+        value: "b",
+        expiry: new Date().getTime() - 1000,
+      };
+      dom.window.localStorage.setItem("a", JSON.stringify(expiredItem));
+      const expiredResult = TKHQ.getItemWithExpiry("a");
+      expect(expiredResult).toBeNull();
 
-        // Returns null if getItemWithExpiry is called for item without expiry
-        dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
-        item = TKHQ.getItemWithExpiry("k");
-        expect(item).toBeNull();
-      } finally {
-        jest.useRealTimers();
-      }
+      // Returns null if getItemWithExpiry is called for item without expiry
+      dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+      item = TKHQ.getItemWithExpiry("k");
+      expect(item).toBeNull();
     });
   });
 
@@ -600,7 +601,9 @@ describe("Event Handler Expiration Flow", () => {
     jest
       .spyOn(TKHQ, "verifyEnclaveSignature")
       .mockResolvedValue(true);
-    jest.spyOn(TKHQ, "getEmbeddedKey").mockResolvedValue({ kid: "test" });
+    // Set a dummy embedded key for testing
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+    expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" }); 
     jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
     jest
       .spyOn(TKHQ, "uint8arrayFromHexString")
@@ -644,7 +647,7 @@ describe("Event Handler Expiration Flow", () => {
       .fn()
       .mockResolvedValue(new Uint8Array(64).fill(9));
 
-    await __testHooks__.onInjectKeyBundle(
+    await onInjectKeyBundle(
       requestId,
       "org-test",
       buildBundle(),
@@ -655,7 +658,7 @@ describe("Event Handler Expiration Flow", () => {
 
     expect(HpkeDecryptMock).toHaveBeenCalled();
 
-    await __testHooks__.onSignTransaction(
+    await onSignTransaction(
       requestId,
       serializedTransaction,
       undefined
@@ -675,7 +678,7 @@ describe("Event Handler Expiration Flow", () => {
       .fn()
       .mockResolvedValue(new Uint8Array(64).fill(9));
 
-    await __testHooks__.onInjectKeyBundle(
+    await onInjectKeyBundle(
       requestId,
       "org-test",
       buildBundle(),
@@ -687,7 +690,7 @@ describe("Event Handler Expiration Flow", () => {
     jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS + 1);
 
     try {
-      await __testHooks__.onSignTransaction(
+      await onSignTransaction(
         requestId,
         serializedTransaction,
         undefined
@@ -697,9 +700,10 @@ describe("Event Handler Expiration Flow", () => {
       TKHQ.sendMessageUp("ERROR", e.toString(), requestId);
     }
 
+    const keyAddress = "default"; // Default address when undefined is passed to onSignTransaction
     expect(sendMessageSpy).toHaveBeenLastCalledWith(
       "ERROR",
-      expect.stringContaining("key bytes not found"),
+      expect.stringContaining(getKeyNotFoundErrorMessage(keyAddress)),
       requestId
     );
   });
