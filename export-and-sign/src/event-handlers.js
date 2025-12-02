@@ -6,7 +6,7 @@ import { HpkeDecrypt } from "./crypto-utils.js";
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
-const DEFAULT_TTL_SECONDS = 24 * 60 * 60; // 24 hours
+export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
@@ -202,8 +202,8 @@ async function onInjectKeyBundle(
       organizationId,
       privateKey: key,
       format: keyFormat,
-      expiry: new Date().getTime() + DEFAULT_TTL_SECONDS,
-      keypair: cachedKeypair,
+      expiry: new Date().getTime() + DEFAULT_TTL_MILLISECONDS,
+      keypair: cachedKeypair, // Cache the keypair for performance
     },
   };
 
@@ -643,3 +643,19 @@ export function initEventHandlers(HpkeDecrypt) {
 
   return { messageEventListener };
 }
+
+/**
+ * Expose internal handlers for targeted testing.
+ */
+export const __testHooks__ = {
+  onInjectKeyBundle,
+  onSignTransaction,
+  onSignMessage,
+  onClearEmbeddedPrivateKey,
+  resetDecryptedKey() {
+    decryptedKey = null;
+  },
+  getDecryptedKey() {
+    return decryptedKey;
+  },
+};
