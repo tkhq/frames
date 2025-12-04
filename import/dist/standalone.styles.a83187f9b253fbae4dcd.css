@@ -1,0 +1,70 @@
+body {
+  text-align: center;
+  font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+    "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+  max-width: 1024px;
+  margin: auto;
+}
+
+form {
+  text-align: left;
+  margin-bottom: 2rem;
+}
+
+label {
+  display: inline-block;
+  width: 8em;
+}
+
+input[type="text"],
+select {
+  width: 40em;
+  margin: 0.5em;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 1em;
+  height: 1.8em;
+  color: rgb(18, 87, 18);
+  border: 1px rgb(217, 240, 221) solid;
+  border-radius: 4px;
+}
+
+input:disabled {
+  background-color: rgb(239, 243, 240);
+}
+
+#inject-import-bundle,
+#encrypt-wallet-bundle,
+#encrypt-key-bundle {
+  color: white;
+  width: 10em;
+  font-size: 1em;
+  padding: 0.38em;
+  border-radius: 4px;
+  background-color: rgb(50, 44, 44);
+  border: 1px rgb(33, 33, 33) solid;
+  cursor: pointer;
+  display: inline;
+}
+
+#message-log {
+  border: 1px #2a2828 solid;
+  padding: 0 0.7em;
+  border-radius: 4px;
+  margin-top: 2em;
+  max-width: 800px;
+  margin: auto;
+  display: block;
+}
+
+#message-log p {
+  font-size: 0.9em;
+  text-align: left;
+  word-break: break-all;
+}
+
+.hidden {
+  display: none;
+}
+
+
+/*# sourceMappingURL=standalone.styles.a83187f9b253fbae4dcd.css.map*/
