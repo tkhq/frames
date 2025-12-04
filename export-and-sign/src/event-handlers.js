@@ -8,6 +8,9 @@ let inMemoryKeys = {};
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
+// Interval ID for expired key cleanup task
+let expiredKeyCleanupIntervalId = null;
+
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -343,7 +346,38 @@ export function getKeyNotFoundErrorMessage(keyAddress) {
 }
 
 /**
+ * Clears an expired key from memory. This is an internal helper function
+ * that clears the key without sending messages to the parent frame.
+ * @param {string} keyAddress - The address of the key to clear
+ */
+function clearExpiredKey(keyAddress) {
+  if (inMemoryKeys[keyAddress]) {
+    delete inMemoryKeys[keyAddress];
+  }
+}
+
+/**
+ * Clears all expired keys from memory.
+ * This function iterates through all keys and removes any that have expired.
+ */
+function clearAllExpiredKeys() {
+  const now = new Date().getTime();
+  const addressesToRemove = [];
+
+  for (const [address, key] of Object.entries(inMemoryKeys)) {
+    if (key.expiry && now >= key.expiry) {
+      addressesToRemove.push(address);
+    }
+  }
+
+  for (const address of addressesToRemove) {
+    delete inMemoryKeys[address];
+  }
+}
+
+/**
  * Validates that a key exists and has not expired.
+ * Clears the key from memory if it has expired.
  * Throws error if validation fails (and caller will send message up back to parent).
  * @param {Object} key - The key object from inMemoryKeys
  * @param {string} keyAddress - The address of the key
@@ -356,6 +390,8 @@ function validateKey(key, keyAddress) {
 
   const now = new Date().getTime();
   if (now >= key.expiry) {
+    // Clear the expired key from memory before throwing error
+    clearExpiredKey(keyAddress);
     throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
   }
 
@@ -564,6 +600,16 @@ export function initEventHandlers(HpkeDecrypt) {
   // controllers to remove event listeners
   const messageListenerController = new AbortController();
   const turnkeyInitController = new AbortController();
+
+  // Set up periodic cleanup task to remove expired keys
+  // Clear expired keys once per day (matches the key expiration TTL)
+  const CLEANUP_INTERVAL_MS = DEFAULT_TTL_MILLISECONDS; // 24 hours
+  if (expiredKeyCleanupIntervalId) {
+    clearInterval(expiredKeyCleanupIntervalId);
+  }
+  expiredKeyCleanupIntervalId = setInterval(() => {
+    clearAllExpiredKeys();
+  }, CLEANUP_INTERVAL_MS);
 
   // Add DOM event listeners for standalone mode
   addDOMEventListeners();
