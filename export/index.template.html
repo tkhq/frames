@@ -178,6 +178,99 @@
         /** 48 hours in milliseconds */
         const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 
+        const BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l";
+
+        function bech32Polymod(values) {
+          let chk = 1;
+          const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
+          for (let p = 0; p < values.length; p++) {
+            const v = values[p];
+            const top = chk >>> 25;
+            chk = ((chk & 0x1ffffff) << 5) ^ v;
+            for (let i = 0; i < 5; i++) {
+              if (((top >>> i) & 1) !== 0) {
+                chk ^= GEN[i];
+              }
+            }
+          }
+          return chk;
+        }
+
+        function bech32HrpExpand(hrp) {
+          const ret = [];
+          for (let i = 0; i < hrp.length; i++) {
+            const c = hrp.charCodeAt(i);
+            ret.push(c >> 5);
+          }
+          ret.push(0);
+          for (let i = 0; i < hrp.length; i++) {
+            const c = hrp.charCodeAt(i);
+            ret.push(c & 31);
+          }
+          return ret;
+        }
+
+        function bech32CreateChecksum(hrp, data) {
+          const values = bech32HrpExpand(hrp).concat(data);
+          const polymod = bech32Polymod(values.concat([0, 0, 0, 0, 0, 0])) ^ 1; // bech32 const = 1
+          const checksum = [];
+          for (let i = 0; i < 6; i++) {
+            checksum.push((polymod >> (5 * (5 - i))) & 31);
+          }
+          return checksum;
+        }
+
+        function bech32ToWords(bytes) {
+          const fromBits = 8;
+          const toBits = 5;
+          const pad = true;
+
+          let acc = 0;
+          let bits = 0;
+          const maxv = (1 << toBits) - 1;
+          const result = [];
+
+          for (let i = 0; i < bytes.length; i++) {
+            const value = bytes[i];
+            if (value < 0 || value > 255) {
+              throw new Error("invalid byte value for bech32");
+            }
+            acc = (acc << fromBits) | value;
+            bits += fromBits;
+            while (bits >= toBits) {
+              bits -= toBits;
+              result.push((acc >> bits) & maxv);
+            }
+          }
+
+          if (pad) {
+            if (bits > 0) {
+              result.push((acc << (toBits - bits)) & maxv);
+            }
+          } else {
+            if (bits >= fromBits) {
+              throw new Error("excess padding in bech32 data");
+            }
+            if ((acc & ((1 << bits) - 1)) !== 0) {
+              throw new Error("non-zero padding in bech32 data");
+            }
+          }
+
+          return result;
+        }
+
+        function encodeBech32(hrp, bytes) {
+          const words = bech32ToWords(bytes);
+          const checksum = bech32CreateChecksum(hrp, words);
+          const combined = words.concat(checksum);
+
+          let out = hrp + "1";
+          for (let i = 0; i < combined.length; i++) {
+            out += BECH32_CHARSET[combined[i]];
+          }
+          return out;
+        }
+
         var parentFrameMessageChannelPort = null;
 
         /*
@@ -594,6 +687,29 @@
         }
 
         /**
+         * Decodes a base58-check-encoded string into a buffer
+         * This function throws an error when the string contains invalid characters
+         * or the checksum is invalid.
+         * @param {string} s The base58-check-encoded string.
+         * @return {Uint8Array} The decoded buffer.
+         */
+        async function base58CheckEncode(payload) {
+          const hash1Buf = await crypto.subtle.digest("SHA-256", payload);
+          const hash1 = new Uint8Array(hash1Buf);
+
+          const hash2Buf = await crypto.subtle.digest("SHA-256", hash1);
+          const hash2 = new Uint8Array(hash2Buf);
+
+          const checksum = hash2.slice(0, 4);
+
+          const full = new Uint8Array(payload.length + 4);
+          full.set(payload, 0);
+          full.set(checksum, payload.length);
+
+          return base58Encode(full);
+        }
+
+        /**
          * Decodes a base58-encoded string into a buffer
          * This function throws an error when the string contains invalid characters.
          * @param {string} s The base58-encoded string.
@@ -650,7 +766,7 @@
          * the encoding and format specified by `keyFormat`. Defaults to
          * hex-encoding if `keyFormat` isn't passed.
          * @param {Uint8Array} privateKeyBytes
-         * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
+         * @param {string} keyFormat Can be "HEXADECIMAL", "SUI_BECH32", "BITCOIN_WIF" or "SOLANA"
          */
         async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
           switch (keyFormat) {
@@ -676,6 +792,33 @@
               return base58Encode(concatenatedBytes);
             case "HEXADECIMAL":
               return "0x" + uint8arrayToHexString(privateKeyBytes);
+            case "BITCOIN_WIF":
+              if (privateKeyBytes.length !== 32) {
+                throw new Error(
+                  `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
+                );
+              }
+
+              const version = 0x80 // mainnet version byte TODO: support testnet? how would we know which to use?
+              const wifPayload = new Uint8Array(1 + 32 + 1);
+              wifPayload[0] = version;
+              wifPayload.set(privateKeyBytes, 1);
+              wifPayload[33] = 0x01 // compressed flag
+
+              return await base58CheckEncode(wifPayload);
+            case "SUI_BECH32":
+              if (privateKeyBytes.length !== 32) {
+                throw new Error(
+                  `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
+                );
+              }
+
+              const schemeFlag = 0x00; // ED25519 | We only support ED25519 keys for Sui currently
+              const bech32Payload = new Uint8Array(1 + 32);
+              bech32Payload[0] = schemeFlag;
+              bech32Payload.set(privateKeyBytes, 1);
+
+              return encodeBech32("suiprivkey", bech32Payload);
             default:
               console.warn(
                 `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
