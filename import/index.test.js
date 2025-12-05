@@ -58,7 +58,7 @@ describe("TKHQ", () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = TKHQ.decodeKey(keyHex);
+    const decodedKey = await TKHQ.decodeKey(keyHex);
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -69,7 +69,7 @@ describe("TKHQ", () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = TKHQ.decodeKey(keyHex, "HEXADECIMAL");
+    const decodedKey = await TKHQ.decodeKey(keyHex, "HEXADECIMAL");
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -82,7 +82,7 @@ describe("TKHQ", () => {
     const keyBytes = TKHQ.base58Decode(keySol);
     expect(keyBytes.length).toEqual(64);
     const keyPrivBytes = keyBytes.subarray(0, 32);
-    const decodedKey = TKHQ.decodeKey(keySol, "SOLANA");
+    const decodedKey = await TKHQ.decodeKey(keySol, "SOLANA");
     expect(decodedKey.length).toEqual(keyPrivBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
