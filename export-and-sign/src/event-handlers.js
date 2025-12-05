@@ -8,9 +8,6 @@ let inMemoryKeys = {};
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
-// Interval ID for expired key cleanup task
-let expiredKeyCleanupIntervalId = null;
-
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
@@ -371,7 +368,7 @@ function clearAllExpiredKeys() {
   }
 
   for (const address of addressesToRemove) {
-    delete inMemoryKeys[address];
+    clearExpiredKey(address);
   }
 }
 
@@ -390,8 +387,8 @@ function validateKey(key, keyAddress) {
 
   const now = new Date().getTime();
   if (now >= key.expiry) {
-    // Clear the expired key from memory before throwing error
-    clearExpiredKey(keyAddress);
+    // Clear all expired keys before processing the signing request
+    clearAllExpiredKeys();
     throw new Error(getKeyNotFoundErrorMessage(keyAddress)).toString();
   }
 
@@ -600,16 +597,6 @@ export function initEventHandlers(HpkeDecrypt) {
   // controllers to remove event listeners
   const messageListenerController = new AbortController();
   const turnkeyInitController = new AbortController();
-
-  // Set up periodic cleanup task to remove expired keys
-  // Clear expired keys once per day (matches the key expiration TTL)
-  const CLEANUP_INTERVAL_MS = DEFAULT_TTL_MILLISECONDS; // 24 hours
-  if (expiredKeyCleanupIntervalId) {
-    clearInterval(expiredKeyCleanupIntervalId);
-  }
-  expiredKeyCleanupIntervalId = setInterval(() => {
-    clearAllExpiredKeys();
-  }, CLEANUP_INTERVAL_MS);
 
   // Add DOM event listeners for standalone mode
   addDOMEventListeners();
