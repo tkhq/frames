@@ -28,12 +28,57 @@
         outline: none;
         border: none;
       }
+      #passphrase {
+        width: 300px;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        height: 55px;
+        color: #555b64;
+        border: none;
+        resize: none;
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+        font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+          "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+        /* display: none; */
+      }
+      #passphrase:focus {
+        outline: none;
+        border: none;
+      }
+
+      #passphrase-label {
+        display: none;
+        border: none;
+        width: 300px;
+        margin-top: 12px;
+        margin-bottom: 4px;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        color: #18191a;
+        font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+          "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+      }
+      #mnemonic-label {
+        display: none;
+        border: none;
+        width: 300px;
+        margin-bottom: 4px;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+        color: #18191a;
+        font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+          "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+      }
     </style>
   </head>
 
   <body>
     <form>
+      <label id="mnemonic-label" for="plaintext">Mnemonic:</label>
       <textarea name="plaintext" id="plaintext"></textarea>
+      <label id="passphrase-label" for="passphrase">Passphrase:</label>
+      <textarea name="passphrase" id="passphrase"></textarea>
     </form>
 
     <!--
@@ -416,6 +461,8 @@
             fontFamily: '^[^";<>]*$', // checks for the absence of some characters that could lead to CSS/HTML injection
             color:
               "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
+            labelColor:
+              "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
             backgroundColor:
               "^(transparent|inherit|initial|#[0-9a-f]{3,8}|rgba?\\(\\d{1,3}, \\d{1,3}, \\d{1,3}(, \\d?(\\.\\d{1,2})?)?\\)|hsla?\\(\\d{1,3}, \\d{1,3}%, \\d{1,3}%(, \\d?(\\.\\d{1,2})?)?\\))$",
             width:
@@ -473,15 +520,46 @@
         function applySettings(settings) {
           const validSettings = {};
           const settingsObj = JSON.parse(settings);
-          if (settingsObj.styles) {
-            // Valid styles will be applied the "plaintext" textarea HTML element.
-            const plaintextTextarea = document.getElementById("plaintext");
-            if (!plaintextTextarea) {
-              throw new Error(
-                "no plaintext textarea HTML element found to apply settings to."
-              );
-            }
 
+          const passphraseLabel = document.getElementById(
+            "passphrase-label"
+          );
+          const mnemonicLabel = document.getElementById("mnemonic-label");
+          const passphraseTextarea = document.getElementById("passphrase");
+          if (!passphraseLabel || !passphraseTextarea) {
+            throw new Error(
+              "no passphrase HTML elements found to apply settings to."
+            );
+          }
+          const plaintextTextarea = document.getElementById("plaintext");
+          if (!plaintextTextarea) {
+            throw new Error(
+              "no plaintext textarea HTML element found to apply settings to."
+            );
+          }
+
+          // Apply enablePassphrase setting
+          if (settingsObj.enablePassphrase === true) {
+            passphraseLabel.style.display = "inline-block";
+            passphraseTextarea.style.display = "inline-block";
+            passphraseTextarea.style.border = "solid 1px #ccc";
+            passphraseTextarea.style.borderRadius = "4px";
+
+            mnemonicLabel.style.display = "inline-block";
+            plaintextTextarea.style.border = "solid 1px #ccc";
+            plaintextTextarea.style.borderRadius = "4px";
+
+            validSettings["enablePassphrase"] = true;
+          } else {
+            passphraseLabel.style.display = "none";
+            passphraseTextarea.style.display = "none";
+            mnemonicLabel.style.display = "none";
+
+            plaintextTextarea.style.border = "none";
+            validSettings["enablePassphrase"] = false;
+          }
+
+          if (settingsObj.styles) {
             // Validate, sanitize, and apply the styles to the "plaintext" textarea.
             const validStyles = TKHQ.validateStyles(settingsObj.styles);
             Object.entries(validStyles).forEach(([key, value]) => {
@@ -495,7 +573,27 @@
               document.body.style.backgroundColor = validStyles.backgroundColor;
             }
 
+            if (validStyles.labelColor) {
+              document.getElementById("mnemonic-label").style.color =
+                validStyles.labelColor;
+            }
+
             validSettings["styles"] = validStyles;
+          }
+
+          if (settingsObj.passphraseStyles) {
+            // Validate, sanitize, and apply the styles to the "passphrase" textarea.
+            const validStyles = TKHQ.validateStyles(settingsObj.passphraseStyles);
+            Object.entries(validStyles).forEach(([key, value]) => {
+              passphraseTextarea.style[key] = value;
+            });
+
+            if (validStyles.labelColor) {
+              document.getElementById("passphrase-label").style.color =
+                validStyles.labelColor;
+            }
+
+            validSettings["passphraseStyles"] = validStyles;
           }
 
           return JSON.stringify(validSettings);
@@ -706,6 +804,16 @@
         { signal: turnkeyInitController.signal }
       );
 
+      // make sure the mnemonic does not include our splitter (\n--PASS--\n) string or \n characters
+      function validateMnemonic(mnemonic) {
+        if (mnemonic.includes("\n--PASS--\n")) {
+          throw new Error('mnemonic cannot include the string "\\n--PASS--\\n"');
+        }
+        if (mnemonic.includes("\n")) {
+          throw new Error("mnemonic cannot include newline characters");
+        }
+      }
+
       /**
        * Function triggered when INJECT_IMPORT_BUNDLE event is received.
        * Parses the `import_bundle` and stores the target public key as a JWK
@@ -830,8 +938,15 @@
         if (!plaintext) {
           throw new Error("no wallet mnemonic entered");
         }
-        const plaintextBuf = new TextEncoder().encode(plaintext);
 
+        // Get passphrase (TODO: what kind of validation do we want to put on this?)
+        const passphrase = document.getElementById("passphrase").value.trim();
+
+        validateMnemonic(plaintext);
+
+        const combined = passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
+        const plaintextBuf = new TextEncoder().encode(combined);
+      
         // Encrypt the bundle using the enclave target public key
         const encryptedBundle = await HpkeEncrypt({
           plaintextBuf,
