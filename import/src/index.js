@@ -268,7 +268,7 @@ async function onExtractWalletEncryptedBundle(requestId) {
     throw new Error("no wallet mnemonic entered");
   }
   
-  const passphrase = document.getElementById("passphrase").value.trim();
+  const passphrase = document.getElementById("passphrase").value;
 
   validateMnemonic(plaintext);
 
