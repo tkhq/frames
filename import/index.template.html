@@ -583,7 +583,7 @@
 
           if (settingsObj.passphraseStyles) {
             // Validate, sanitize, and apply the styles to the "passphrase" textarea.
-            const validStyles = TKHQ.validateStyles(settingsObj.styles);
+            const validStyles = TKHQ.validateStyles(settingsObj.passphraseStyles);
             Object.entries(validStyles).forEach(([key, value]) => {
               passphraseTextarea.style[key] = value;
             });
