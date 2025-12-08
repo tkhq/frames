@@ -58,7 +58,7 @@ describe("TKHQ", () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = await TKHQ.decodeKey(keyHex);
+    const decodedKey = TKHQ.decodeKey(keyHex);
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -69,7 +69,7 @@ describe("TKHQ", () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = await TKHQ.decodeKey(keyHex, "HEXADECIMAL");
+    const decodedKey = TKHQ.decodeKey(keyHex, "HEXADECIMAL");
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -82,10 +82,34 @@ describe("TKHQ", () => {
     const keyBytes = TKHQ.base58Decode(keySol);
     expect(keyBytes.length).toEqual(64);
     const keyPrivBytes = keyBytes.subarray(0, 32);
-    const decodedKey = await TKHQ.decodeKey(keySol, "SOLANA");
+    const decodedKey = TKHQ.decodeKey(keySol, "SOLANA");
     expect(decodedKey.length).toEqual(keyPrivBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
+    }
+  });
+
+  it("decodes bitcoin wif private key correctly", async () => {
+    const keyBtcWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCTV";
+    const keyBytes = TKHQ.base58Decode(keyBtcWif);
+    expect(keyBytes.length).toBeGreaterThan(32);
+    const keyPrivBytes = keyBytes.subarray(1, 33); // Remove version byte at start and compression flag at end
+    const decodedKey = TKHQ.decodeKey(keyBtcWif, "BITCOIN_WIF");
+    expect(decodedKey.length).toEqual(keyPrivBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
+    }
+  });
+
+  it ("decodes sui bech32 private key correctly", async () => {
+    const keySuiBech32 = "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
+    const {_, words } = TKHQ.decodeBech32(keySuiBech32);
+    const keyBytes = Uint8Array.from(TKHQ.bech32FromWords(words)).subarray(1); // Remove version byte at start
+    expect(keyBytes.length).toEqual(32);
+    const decodedKey = TKHQ.decodeKey(keySuiBech32, "SUI_BECH32");
+    expect(decodedKey.length).toEqual(keyBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyBytes[i]);
     }
   });
 

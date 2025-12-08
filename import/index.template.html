@@ -58,32 +58,11 @@
           return map;
         })();
 
-        async function base58CheckDecode(s) {
-          const full = base58Decode(s); // Uint8Array
-          if (full.length < 5) {
-            throw new Error("invalid WIF string: too short");
-          }
-
-          const payload = full.subarray(0, full.length - 4);
-          const checksum = full.subarray(full.length - 4);
-
-          // double SHA-256
-          const hash1Buf = await crypto.subtle.digest("SHA-256", payload);
-          const hash1 = new Uint8Array(hash1Buf);
-
-          const hash2Buf = await crypto.subtle.digest("SHA-256", hash1);
-          const hash2 = new Uint8Array(hash2Buf);
-
-          const expected = hash2.subarray(0, 4);
-
-          for (let i = 0; i < 4; i++) {
-            if (checksum[i] !== expected[i]) {
-              throw new Error("invalid WIF string: checksum mismatch");
-            }
-          }
-          return payload; // version || key || [flag]
-        }
-
+        /**
+         * Expand the HRP for Bech32 checksum computation.
+         * @param {string} hrp
+         * @returns {number[]}
+         */
         function bech32HrpExpand(hrp) {
           const ret = [];
           for (let i = 0; i < hrp.length; i++) {
@@ -98,6 +77,11 @@
           return ret;
         }
 
+        /**
+         * Compute the Bech32 checksum.
+         * @param {number[]} values
+         * @returns {number}
+         */
         function bech32Polymod(values) {
           let chk = 1;
           const GEN = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3];
@@ -114,7 +98,11 @@
           return chk;
         }
 
-        // Strict decode: accepts bech32 or bech32m.
+        /**
+         * Strict decode: accepts bech32 or bech32m.
+         * @param {string} str
+         * @returns {{hrp: string, words: number[], variant: string}}
+         */
         function decodeBech32(str) {
           // Enforce lower-case (Sui uses lowercase)
           const s = str.toLowerCase();
@@ -163,6 +151,11 @@
           return { hrp, words, variant: polymod === BECH32_CONST ? "bech32" : "bech32m" };
         }
 
+        /**
+         * Convert from 5-bit words to 8-bit bytes.
+         * @param {number[]} words
+         * @returns {Uint8Array}
+         */
         function bech32FromWords(words) {
           const fromBits = 5;
           const toBits = 8;
@@ -375,7 +368,7 @@
          * @param {string} privateKey
          * @param {string} keyFormat Can be "HEXADECIMAL", "WIF", "BECH32" or "SOLANA"
          */
-        async function decodeKey(privateKey, keyFormat) {
+        function decodeKey(privateKey, keyFormat) {
           switch (keyFormat) {
             case "SOLANA":
               const decodedKeyBytes = base58Decode(privateKey);
@@ -386,10 +379,10 @@
               }
               return decodedKeyBytes.subarray(0, 32);
             case "BITCOIN_WIF":
-              const payload = await base58CheckDecode(privateKey)
+              const payload = base58Decode(privateKey)
 
               const version = payload[0];
-              const keyAndFlags = payload.subarray(1);
+              const keyAndFlags = payload.subarray(1, payload.length - 4);
 
               // 0x80 = mainnet, 0xEF = testnet
               if (version !== 0x80 && version !== 0xef) {
@@ -752,6 +745,8 @@
           uint8arrayFromHexString,
           uint8arrayToHexString,
           base58Decode,
+          decodeBech32,
+          bech32FromWords,
           decodeKey,
           setParentFrameMessageChannelPort,
           normalizePadding,
