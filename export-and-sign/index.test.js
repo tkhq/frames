@@ -548,6 +548,8 @@ describe("Event Handler Expiration Flow", () => {
     type: "SOLANA",
     transaction: "00",
   });
+  const EXPIRED_TIME_MS = DEFAULT_TTL_MILLISECONDS + 1;
+
 
   let dom;
   let TKHQ;
@@ -707,4 +709,173 @@ describe("Event Handler Expiration Flow", () => {
       requestId
     );
   });
+
+  it("clears expired key from memory when validation detects expiration", async () => {
+    const EXPIRED_TIME_MS = DEFAULT_TTL_MILLISECONDS + 1;
+
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    // Inject a key
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      "test-address",
+      HpkeDecryptMock
+    );
+
+    // Advance time past expiration
+    jest.advanceTimersByTime(EXPIRED_TIME_MS);
+
+    // First attempt: should get "expired" error (key exists but expired, then gets cleared)
+    let errorMessage = "";
+    try {
+      await onSignTransaction(
+        requestId,
+        serializedTransaction,
+        "test-address"
+      );
+    } catch (e) {
+      errorMessage = e.toString();
+      expect(errorMessage).toContain("key bytes have expired");
+    }
+
+    // Second attempt: should get "not found" error (proves key was removed from memory)
+    // This is different from "expired" - it means the key is completely gone
+    try {
+      await onSignTransaction(
+        requestId,
+        serializedTransaction,
+        "test-address"
+      );
+    } catch (e) {
+      errorMessage = e.toString();
+      expect(errorMessage).toContain("key bytes not found");
+      expect(errorMessage).not.toContain("expired");
+    }
+  });
+
+  it("does not clear non-expired keys from memory", async () => {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    // Inject a key
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      "test-address",
+      HpkeDecryptMock
+    );
+
+    // Advance time but not past expiration
+    jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS - 1000);
+
+    // Key should still work (proves it wasn't cleared)
+    await onSignTransaction(
+      requestId,
+      serializedTransaction,
+      "test-address"
+    );
+
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      "TRANSACTION_SIGNED",
+      expect.any(String),
+      requestId
+    );
+  });
+
+  it("clears only the expired key when multiple keys exist", async () => {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    // Inject first key
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      "key1",
+      HpkeDecryptMock
+    );
+
+    // Advance time halfway through TTL
+    jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS / 2);
+
+    // Inject second key (will have later expiry)
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      "key2",
+      HpkeDecryptMock
+    );
+
+    // Advance time so first key expires but second doesn't
+    jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS / 2 + 1);
+
+    // Try to use expired key1 - should clear it
+    try {
+      await onSignTransaction(requestId, serializedTransaction, "key1");
+    } catch (e) {
+      expect(e.toString()).toContain("key bytes have expired");
+    }
+
+    // Verify key1 was cleared (second attempt should say "not found")
+    try {
+      await onSignTransaction(requestId, serializedTransaction, "key1");
+    } catch (e) {
+      expect(e.toString()).toContain("key bytes not found");
+    }
+
+    // Verify key2 still works (proves it wasn't cleared)
+    await onSignTransaction(requestId, serializedTransaction, "key2");
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      "TRANSACTION_SIGNED",
+      expect.any(String),
+      requestId
+    );
+  });
+
+  it("clears expired key even when accessed with default address", async () => {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(64).fill(9));
+
+    // Inject key without address (uses "default")
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "SOLANA",
+      undefined,
+      HpkeDecryptMock
+    );
+
+    // Advance time past expiration
+    jest.advanceTimersByTime(EXPIRED_TIME_MS);
+
+    // First attempt: should get "expired" error (key exists but expired, then cleared)
+    try {
+      await onSignTransaction(requestId, serializedTransaction, undefined);
+    } catch (e) {
+      expect(e.toString()).toContain("key bytes have expired");
+    }
+
+    // Second attempt: should get "not found" error (proves key was removed)
+    try {
+      await onSignTransaction(requestId, serializedTransaction, undefined);
+    } catch (e) {
+      expect(e.toString()).toContain("key bytes not found");
+      expect(e.toString()).not.toContain("expired");
+    }
+  });
+  
 });
