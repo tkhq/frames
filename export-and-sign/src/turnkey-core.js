@@ -268,36 +268,224 @@ function additionalAssociatedData(senderPubBuf, receiverPubBuf) {
 }
 
 /**
+ * Validates that a DER-encoded integer is in canonical (minimal) form.
+ * 
+ * For ECDSA signatures, r and s values must be:
+ * - Non-empty
+ * - Non-zero (r/s = 0 is invalid in ECDSA)
+ * - Positive (sign bit not set)
+ * - Minimally encoded (no unnecessary leading zeros)
+ * 
+ * This validation prevents signature malleability attacks by ensuring
+ * only one canonical representation of each signature value is accepted.
+ * 
+ * @param {Uint8Array} buf - The integer bytes to validate
+ * @returns {boolean} - True if the integer is canonical, false otherwise
+ */
+function isCanonicalPositiveInteger(buf) {
+  if (buf.length === 0) return false;
+
+  // Must not be all zeros (r/s = 0 is invalid in ECDSA)
+  let allZero = true;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] !== 0) {
+      allZero = false;
+      break;
+    }
+  }
+  if (allZero) return false;
+
+  // First byte's sign bit must not be set (no negative numbers)
+  if (buf[0] & 0x80) return false;
+
+  // No unnecessary leading zero:
+  // If the first byte is 0x00, then the second byte MUST have its high bit set.
+  // Otherwise, the leading 0x00 is not needed and encoding is non-canonical.
+  if (buf.length > 1 && buf[0] === 0x00 && (buf[1] & 0x80) === 0) {
+    return false;
+  }
+
+  return true;
+}
+
+// According to DER (ITU-T X.690 §8.3 & §10.1), INTEGERs must be encoded in
+// the *minimal* number of octets: no unnecessary leading 0x00 bytes are allowed.
+// A leading 0x00 is permitted only when required to keep the value positive
+// (i.e., when the most significant bit of the first non-zero byte is 1).
+//
+//   ITU-T X.690 (DER rules):
+//   https://www.itu.int/rec/T-REC-X.690
+//
+// ECDSA signatures (SEC 1 §4.1.3) require r and s to be DER-encoded INTEGERs,
+// so we must reject non-canonical encodings such as:
+//
+//   - Leading 0x00 when not needed (non-minimal encoding)
+//   - Missing leading 0x00 when needed (would make INTEGER negative)
+//   - Zero-length or negative values
+//
+//   SEC 1: Elliptic Curve Cryptography:
+//   https://www.secg.org/sec1-v2.pdf
+//
+// These checks ensure strict, canonical DER compliance.
+/**
+ * Ensures that the required number of bytes are available in the buffer at the given index.
+ * @param {Uint8Array} buf - The buffer to check
+ * @param {number} index - The current index in the buffer
+ * @param {number} needed - The number of bytes needed
+ * @throws {Error} If there are not enough bytes available
+ */
+function ensureBytesAvailable(buf, index, needed) {
+  if (index + needed > buf.length) {
+    throw new Error("failed to convert DER-encoded signature: truncated or malformed data");
+  }
+}
+
+/**
+ * Parse a DER length (short or long form) starting at the given index.
+ *
+ * Short form: 0xxxxxxx represents lengths 0..127.
+ * Long form:  1nnnnnnn followed by n length octets (big-endian, no leading zeros).
+ *             n must be > 0, <= 4 (we bound to uint32), and the encoded length
+ *             must fit within the remaining buffer.
+ *
+ * @param {Uint8Array} buf - DER-encoded bytes
+ * @param {number} index - position of the length byte
+ * @returns {{ length: number, bytesUsed: number }} - parsed length and bytes consumed
+ */
+function parseDerLength(buf, index) {
+  ensureBytesAvailable(buf, index, 1);
+  const first = buf[index];
+
+  // Short form: leading bit unset
+  if ((first & 0x80) === 0) {
+    return { length: first, bytesUsed: 1 };
+  }
+
+  // Long form
+  const numLenBytes = first & 0x7f;
+  if (numLenBytes === 0) {
+    throw new Error("failed to convert DER-encoded signature: indefinite length form is not allowed");
+  }
+  if (numLenBytes > 4) {
+    throw new Error("failed to convert DER-encoded signature: length is too large");
+  }
+
+  ensureBytesAvailable(buf, index + 1, numLenBytes);
+
+  // Disallow non-minimal long-form (leading zero in the length field)
+  if (buf[index + 1] === 0x00) {
+    throw new Error("failed to convert DER-encoded signature: non-canonical length encoding");
+  }
+
+  let length = 0;
+  for (let i = 0; i < numLenBytes; i++) {
+    length = (length << 8) | buf[index + 1 + i];
+  }
+
+  return { length, bytesUsed: 1 + numLenBytes };
+}
+
+/**
  * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
  */
 function fromDerSignature(derSignature) {
   const derSignatureBuf = uint8arrayFromHexString(derSignature);
 
-  // Check and skip the sequence tag (0x30)
-  let index = 2;
+  // Check minimum buffer size (SEQUENCE tag + length byte)
+  ensureBytesAvailable(derSignatureBuf, 0, 2);
+
+  // Check for SEQUENCE tag (0x30)
+  if (derSignatureBuf[0] !== 0x30) {
+    throw new Error(
+      "failed to convert DER-encoded signature: invalid SEQUENCE tag"
+    );
+  }
+
+  // Parse sequence length (supports short and long form)
+  const { length: sequenceLength, bytesUsed: seqLenBytes } = parseDerLength(
+    derSignatureBuf,
+    1
+  );
+
+  // Ensure the encoded sequence fits in the buffer
+  ensureBytesAvailable(derSignatureBuf, 1 + seqLenBytes, sequenceLength);
+
+  // Index now points to the first content octet
+  let index = 1 + seqLenBytes;
+  const sequenceEnd = index + sequenceLength;
 
   // Parse 'r' and check for integer tag (0x02)
+  ensureBytesAvailable(derSignatureBuf, index, 1);
   if (derSignatureBuf[index] !== 0x02) {
     throw new Error(
       "failed to convert DER-encoded signature: invalid tag for r"
     );
   }
   index++; // Move past the INTEGER tag
-  const rLength = derSignatureBuf[index];
-  index++; // Move past the length byte
+  
+  // Parse r length (short or long form)
+  const { length: rLength, bytesUsed: rLenBytes } = parseDerLength(
+    derSignatureBuf,
+    index
+  );
+  index += rLenBytes;
+  
+  // Validate rLength is reasonable (for P-256, max 33 bytes including potential leading zero)
+  if (rLength === 0 || rLength > 33) {
+    throw new Error(
+      "failed to convert DER-encoded signature: invalid r length"
+    );
+  }
+  
+  // Check bounds before slicing r
+  ensureBytesAvailable(derSignatureBuf, index, rLength);
   const r = derSignatureBuf.slice(index, index + rLength);
   index += rLength; // Move to the start of s
 
+  if (!isCanonicalPositiveInteger(r)) {
+    throw new Error(
+       "failed to convert DER-encoded signature: non-canonical DER encoding for r"
+    );
+  }
+
   // Parse 's' and check for integer tag (0x02)
+  ensureBytesAvailable(derSignatureBuf, index, 1);
   if (derSignatureBuf[index] !== 0x02) {
     throw new Error(
       "failed to convert DER-encoded signature: invalid tag for s"
     );
   }
   index++; // Move past the INTEGER tag
-  const sLength = derSignatureBuf[index];
-  index++; // Move past the length byte
+  
+  // Parse s length (short or long form)
+  const { length: sLength, bytesUsed: sLenBytes } = parseDerLength(
+    derSignatureBuf,
+    index
+  );
+  index += sLenBytes;
+  
+  // Validate sLength is reasonable (for P-256, max 33 bytes including potential leading zero)
+  if (sLength === 0 || sLength > 33) {
+    throw new Error(
+      "failed to convert DER-encoded signature: invalid s length"
+    );
+  }
+  
+  // Check bounds before slicing s
+  ensureBytesAvailable(derSignatureBuf, index, sLength);
   const s = derSignatureBuf.slice(index, index + sLength);
+  index += sLength;
+
+  if (!isCanonicalPositiveInteger(s)) {
+    throw new Error(
+      "failed to convert DER-encoded signature: non-canonical DER encoding for s"
+    );
+  }
+
+  // Ensure we consumed exactly the declared sequence length
+  if (index !== sequenceEnd) {
+    throw new Error("failed to convert DER-encoded signature: length mismatch");
+  }
 
   // Normalize 'r' and 's' to 32 bytes each
   const rPadded = normalizePadding(r, 32);
@@ -691,4 +879,5 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
+  ensureBytesAvailable,
 };

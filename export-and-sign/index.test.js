@@ -346,6 +346,14 @@ describe("TKHQ", () => {
         ).length
       ).toBe(64);
 
+      // Valid signature accepting long-form lengths
+      // Sequence length = 0x46 (70) encoded as 0x81 0x46
+      // r length = 32 encoded as 0x81 0x20
+      // s length = 32 encoded as 0x81 0x20
+      const longFormSignature =
+        "30814602812011111111111111111111111111111111111111111111111111111111111111110281202222222222222222222222222222222222222222222222222222222222222222";
+      expect(TKHQ.fromDerSignature(longFormSignature).length).toBe(64);
+
       // Invalid signature. Wrong integer tag for r
       expect(() =>
         TKHQ.fromDerSignature(
@@ -359,6 +367,184 @@ describe("TKHQ", () => {
           "304502210088f4f3b59e277f30cb16c05541551eca702ce925002dbc3de3a7c0a7f76b23f903202a0f272c3e5724848dc5232c3409918277d65fd7e8c6eb1630bf6eb2eeb472e3"
         )
       ).toThrow("failed to convert DER-encoded signature: invalid tag for s");
+
+      // Invalid signature. Wrong SEQUENCE tag (should be 0x30)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "314402202b769b6dd410ff8a1cbcd5dd7fb2733e80f11922443b1eb629e6e538d1054c3b022020b9715d140f079190123411370971cc6daba8e61b6b58d36321c31ae331799b"
+        )
+      ).toThrow("failed to convert DER-encoded signature: invalid SEQUENCE tag");
+    });
+
+    it("rejects non-canonical DER encoding", () => {
+      // Invalid signature. Non-canonical r: unnecessary leading zero
+      // r = 0x00 0x12 ... (non-canonical because 0x12 < 0x80, so leading 0x00 is unnecessary)
+      // s = valid 32-byte value
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "3045022100123434343434343434343434343434343434343434343434343434343434343402200b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for r");
+
+      // Invalid signature. Non-canonical s: unnecessary leading zero
+      // r = valid 32-byte value
+      // s = 0x00 0x12 ... (non-canonical because 0x12 < 0x80, so leading 0x00 is unnecessary)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "304502202b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b0221001234343434343434343434343434343434343434343434343434343434343434"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for s");
+
+      // Invalid signature. Negative r (sign bit set in first byte)
+      // r = 0x80 ... (negative number, invalid for ECDSA)
+      // s = valid 32-byte value
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "30440220801212121212121212121212121212121212121212121212121212121212121202200b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for r");
+
+      // Invalid signature. Negative s (sign bit set in first byte)
+      // r = valid 32-byte value
+      // s = 0x80 ... (negative number, invalid for ECDSA)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "304402202b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b02208012121212121212121212121212121212121212121212121212121212121212"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for s");
+
+      // Invalid signature. r is all zeros (invalid in ECDSA)
+      // r = 0x00 0x00 0x00 ... (all zeros)
+      // s = valid 32-byte value
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "30440220000000000000000000000000000000000000000000000000000000000000000002200b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for r");
+
+      // Invalid signature. s is all zeros (invalid in ECDSA)
+      // r = valid 32-byte value
+      // s = 0x00 0x00 0x00 ... (all zeros)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "304402202b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b02200000000000000000000000000000000000000000000000000000000000000000"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical DER encoding for s");
+
+      // Invalid signature. Indefinite length form is rejected (0x80)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "308002202b769b6dd410ff8a1cbcd5dd7fb2733e80f11922443b1eb629e6e538d1054c3b022020b9715d140f079190123411370971cc6daba8e61b6b58d36321c31ae331799b00"
+        )
+      ).toThrow("failed to convert DER-encoded signature: indefinite length form is not allowed");
+
+      // Invalid signature. Non-canonical long-form length (leading zero in length field)
+      expect(() =>
+        TKHQ.fromDerSignature(
+          "30820046028120111111111111111111111111111111111111111111111111111111111111110281202222222222222222222222222222222222222222222222222222222222222222"
+        )
+      ).toThrow("failed to convert DER-encoded signature: non-canonical length encoding");
+    });
+  });
+
+  describe("ensureBytesAvailable", () => {
+    it("does not throw when enough bytes are available", () => {
+      const buf = new Uint8Array([1, 2, 3, 4, 5]);
+      
+      // Check at start with exact length
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 5)).not.toThrow();
+      
+      // Check at start with less than available
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 3)).not.toThrow();
+      
+      // Check in middle with exact remaining length
+      expect(() => TKHQ.ensureBytesAvailable(buf, 2, 3)).not.toThrow();
+      
+      // Check in middle with less than remaining
+      expect(() => TKHQ.ensureBytesAvailable(buf, 2, 2)).not.toThrow();
+      
+      // Check at end with 1 byte
+      expect(() => TKHQ.ensureBytesAvailable(buf, 4, 1)).not.toThrow();
+      
+      // Check with zero bytes needed
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 0)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(buf, 5, 0)).not.toThrow();
+    });
+
+    it("throws when not enough bytes are available", () => {
+      const buf = new Uint8Array([1, 2, 3, 4, 5]);
+      
+      // Request more bytes than available from start
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 6)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Request more bytes than available from middle
+      expect(() => TKHQ.ensureBytesAvailable(buf, 2, 4)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Request bytes starting at end of buffer
+      expect(() => TKHQ.ensureBytesAvailable(buf, 5, 1)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Request bytes starting beyond buffer
+      expect(() => TKHQ.ensureBytesAvailable(buf, 6, 1)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Request many bytes from start
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 100)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+    });
+
+    it("handles edge cases correctly", () => {
+      // Empty buffer
+      const emptyBuf = new Uint8Array([]);
+      expect(() => TKHQ.ensureBytesAvailable(emptyBuf, 0, 0)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(emptyBuf, 0, 1)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Single byte buffer
+      const singleByteBuf = new Uint8Array([42]);
+      expect(() => TKHQ.ensureBytesAvailable(singleByteBuf, 0, 1)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(singleByteBuf, 0, 2)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      expect(() => TKHQ.ensureBytesAvailable(singleByteBuf, 1, 1)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      
+      // Large buffer
+      const largeBuf = new Uint8Array(1000).fill(0);
+      expect(() => TKHQ.ensureBytesAvailable(largeBuf, 0, 1000)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(largeBuf, 500, 500)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(largeBuf, 500, 501)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+    });
+
+    it("handles boundary conditions", () => {
+      const buf = new Uint8Array([1, 2, 3, 4, 5]);
+      
+      // Exactly at boundary: index + needed = length (should pass)
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 5)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(buf, 2, 3)).not.toThrow();
+      expect(() => TKHQ.ensureBytesAvailable(buf, 4, 1)).not.toThrow();
+      
+      // Just over boundary: index + needed = length + 1 (should throw)
+      expect(() => TKHQ.ensureBytesAvailable(buf, 0, 6)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      expect(() => TKHQ.ensureBytesAvailable(buf, 2, 4)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
+      expect(() => TKHQ.ensureBytesAvailable(buf, 4, 2)).toThrow(
+        "failed to convert DER-encoded signature: truncated or malformed data"
+      );
     });
   });
 
