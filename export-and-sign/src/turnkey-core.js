@@ -75,7 +75,8 @@ async function loadQuorumKey(quorumPublic) {
 }
 
 /**
- * Creates a new public/private key pair and persists it in localStorage
+ * Creates a new public/private key pair and persists it in sessionStorage
+ * Uses sessionStorage for tab isolation to prevent cross-tab key leakage.
  */
 async function initEmbeddedKey() {
   if (isDoublyIframed()) {
@@ -131,10 +132,11 @@ function setParentFrameMessageChannelPort(port) {
 
 /**
  * Resets the current embedded private key JWK.
+ * Uses sessionStorage for tab isolation.
  */
 function onResetEmbeddedKey() {
-  window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
-  window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY_ORIGIN);
+  window.sessionStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+  window.sessionStorage.removeItem(TURNKEY_EMBEDDED_KEY_ORIGIN);
 }
 
 /**
@@ -154,7 +156,8 @@ function setSettings(settings) {
 }
 
 /**
- * Set an item in localStorage with an expiration time
+ * Set an item in sessionStorage with an expiration time
+ * Uses sessionStorage for embedded keys to provide tab isolation.
  * @param {string} key
  * @param {string} value
  * @param {number} ttl expiration time in milliseconds
@@ -165,28 +168,29 @@ function setItemWithExpiry(key, value, ttl) {
     value: value,
     expiry: now.getTime() + ttl,
   };
-  window.localStorage.setItem(key, JSON.stringify(item));
+  window.sessionStorage.setItem(key, JSON.stringify(item));
 }
 
 /**
- * Get an item from localStorage. Returns `null` and
- * removes the item from localStorage if expired or
+ * Get an item from sessionStorage. Returns `null` and
+ * removes the item from sessionStorage if expired or
  * expiry time is missing.
+ * Uses sessionStorage for embedded keys to provide tab isolation.
  * @param {string} key
  */
 function getItemWithExpiry(key) {
-  const itemStr = window.localStorage.getItem(key);
+  const itemStr = window.sessionStorage.getItem(key);
   if (!itemStr) {
     return null;
   }
   const item = JSON.parse(itemStr);
   if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
-    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
     return null;
   }
   const now = new Date();
   if (now.getTime() > item.expiry) {
-    window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(key);
     return null;
   }
   return item.value;
