@@ -71,6 +71,7 @@ describe("TKHQ", () => {
     global.window = dom.window;
     global.document = dom.window.document;
     global.localStorage = dom.window.localStorage;
+    global.sessionStorage = dom.window.sessionStorage;
     global.crypto = crypto.webcrypto;
 
     const module = await import("./src/turnkey-core.js");
@@ -81,11 +82,11 @@ describe("TKHQ", () => {
     TKHQ = dom.window.TKHQ;
   });
 
-  describe("LocalStorage with expiry", () => {
-    it("gets and sets items with expiry localStorage", async () => {
+  describe("SessionStorage with expiry", () => {
+    it("gets and sets items with expiry sessionStorage", async () => {
       // Set a TTL of 1000ms
       TKHQ.setItemWithExpiry("k", "v", 1000);
-      let item = JSON.parse(dom.window.localStorage.getItem("k"));
+      let item = JSON.parse(dom.window.sessionStorage.getItem("k"));
       expect(item.value).toBe("v");
       expect(item.expiry).toBeTruthy();
 
@@ -96,7 +97,7 @@ describe("TKHQ", () => {
       // Test expired item: use setItemWithExpiry, then manually set expiry in the past
       TKHQ.setItemWithExpiry("a", "b", 500);
       // Verify the item was set correctly with setItemWithExpiry
-      let itemA = JSON.parse(dom.window.localStorage.getItem("a"));
+      let itemA = JSON.parse(dom.window.sessionStorage.getItem("a"));
       expect(itemA.value).toBe("b");
       expect(itemA.expiry).toBeTruthy();
       
@@ -105,19 +106,19 @@ describe("TKHQ", () => {
         value: "b",
         expiry: new Date().getTime() - 1000,
       };
-      dom.window.localStorage.setItem("a", JSON.stringify(expiredItem));
+      dom.window.sessionStorage.setItem("a", JSON.stringify(expiredItem));
       const expiredResult = TKHQ.getItemWithExpiry("a");
       expect(expiredResult).toBeNull();
 
       // Returns null if getItemWithExpiry is called for item without expiry
-      dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+      dom.window.sessionStorage.setItem("k", JSON.stringify({ value: "v" }));
       item = TKHQ.getItemWithExpiry("k");
       expect(item).toBeNull();
     });
   });
 
   describe("Embedded key management", () => {
-    it("gets and sets embedded key in localStorage", async () => {
+    it("gets and sets embedded key in sessionStorage", async () => {
       expect(TKHQ.getEmbeddedKey()).toBe(null);
 
       // Set a dummy "key"
@@ -134,6 +135,251 @@ describe("TKHQ", () => {
       // This should have no effect; generated key should stay the same
       await TKHQ.initEmbeddedKey();
       expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
+    });
+  });
+
+  describe("Multi-tab isolation (simulating multiple iframe instances)", () => {
+    let tab1DOM
+    let tab2DOM;
+    let tab1TKHQ
+    let tab2TKHQ;
+
+    beforeEach(async () => {
+      // Simulate Tab 1: Parent website with iframe
+      tab1DOM = new JSDOM(html, {
+        runScripts: "dangerously",
+        url: "http://localhost",
+        beforeParse(window) {
+          window.TextDecoder = TextDecoder;
+          window.TextEncoder = TextEncoder;
+          window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
+        },
+      });
+
+      Object.defineProperty(tab1DOM.window, "crypto", {
+        value: crypto.webcrypto,
+      });
+
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.localStorage = tab1DOM.window.localStorage;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      global.crypto = crypto.webcrypto;
+
+      const module1 = await import("./src/turnkey-core.js");
+      tab1TKHQ = module1.TKHQ;
+      tab1DOM.window.TKHQ = tab1TKHQ;
+
+      // Simulate Tab 2: Another instance of the same parent website with iframe
+      tab2DOM = new JSDOM(html, {
+        runScripts: "dangerously",
+        url: "http://localhost",
+        beforeParse(window) {
+          window.TextDecoder = TextDecoder;
+          window.TextEncoder = TextEncoder;
+          window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
+        },
+      });
+
+      Object.defineProperty(tab2DOM.window, "crypto", {
+        value: crypto.webcrypto,
+      });
+
+      // Switch to Tab 2 context
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.localStorage = tab2DOM.window.localStorage;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+
+      const module2 = await import("./src/turnkey-core.js");
+      tab2TKHQ = module2.TKHQ;
+      tab2DOM.window.TKHQ = tab2TKHQ;
+    });
+
+    afterEach(() => {
+      delete global.window;
+      delete global.document;
+      delete global.localStorage;
+      delete global.sessionStorage;
+      delete global.crypto;
+    });
+
+    it("should have independent embedded keys in different tabs", async () => {
+      // Initialize embedded keys in both tabs
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      await tab1TKHQ.initEmbeddedKey();
+      const tab1Key = tab1TKHQ.getEmbeddedKey();
+
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      await tab2TKHQ.initEmbeddedKey();
+      const tab2Key = tab2TKHQ.getEmbeddedKey();
+
+      // Keys should be different (each tab generates its own)
+      expect(tab1Key).not.toBeNull();
+      expect(tab2Key).not.toBeNull();
+      expect(tab1Key.d).not.toEqual(tab2Key.d);
+    });
+
+    it("should not share embedded keys between tabs", async () => {
+      // Set a key in Tab 1
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      const testKey = { kty: "EC", crv: "P-256", d: "tab1-secret-key" };
+      tab1TKHQ.setEmbeddedKey(testKey);
+
+      // Tab 2 should not see Tab 1's key
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      const tab2Key = tab2TKHQ.getEmbeddedKey();
+      expect(tab2Key).toBeNull();
+
+      // Tab 1 should still have its key
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      const tab1Key = tab1TKHQ.getEmbeddedKey();
+      expect(tab1Key).toEqual(testKey);
+    });
+
+    it("should allow each tab to set its own embedded key independently", async () => {
+      const tab1Key = { kty: "EC", crv: "P-256", d: "tab1-key" };
+      const tab2Key = { kty: "EC", crv: "P-256", d: "tab2-key" };
+    
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      tab1TKHQ.setEmbeddedKey(tab1Key);
+    
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      tab2TKHQ.setEmbeddedKey(tab2Key);
+    
+      // Verify each tab has its own key
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      expect(tab1TKHQ.getEmbeddedKey()).toEqual(tab1Key);
+    
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      expect(tab2TKHQ.getEmbeddedKey()).toEqual(tab2Key);
+    
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      const tab1StoredKey = tab1TKHQ.getEmbeddedKey().d;
+    
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      const tab2StoredKey = tab2TKHQ.getEmbeddedKey().d;
+    
+      expect(tab1StoredKey).not.toEqual(tab2StoredKey);
+    });
+    
+
+    it("should clear keys independently in each tab", async () => {
+      const testKey = { kty: "EC", crv: "P-256", d: "test-key" };
+
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      tab1TKHQ.setEmbeddedKey(testKey);
+
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      tab2TKHQ.setEmbeddedKey(testKey);
+
+      // Clear key in Tab 1 only
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      tab1TKHQ.onResetEmbeddedKey();
+
+      // Tab 1 should have no key
+      expect(tab1TKHQ.getEmbeddedKey()).toBeNull();
+
+      // Tab 2 should still have its key
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      expect(tab2TKHQ.getEmbeddedKey()).toEqual(testKey);
+    });
+
+    it("should maintain key expiry independently in each tab", async () => {
+      jest.useFakeTimers();
+
+      const testKey = { kty: "EC", crv: "P-256", d: "test-key" };
+
+      // Set key with 1 second TTL in Tab 1
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      tab1TKHQ.setItemWithExpiry(
+        "TURNKEY_EMBEDDED_KEY",
+        JSON.stringify(testKey),
+        1000
+      );
+
+      // Set key with 2 second TTL in Tab 2
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      tab2TKHQ.setItemWithExpiry(
+        "TURNKEY_EMBEDDED_KEY",
+        JSON.stringify(testKey),
+        2000
+      );
+
+      // Advance time by 1.5 seconds
+      jest.advanceTimersByTime(1500);
+
+      // Tab 1's key should be expired
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      const tab1Key = tab1TKHQ.getItemWithExpiry("TURNKEY_EMBEDDED_KEY");
+      expect(tab1Key).toBeNull();
+
+      // Tab 2's key should still be valid
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      const tab2Key = tab2TKHQ.getItemWithExpiry("TURNKEY_EMBEDDED_KEY");
+      expect(tab2Key).toBe(JSON.stringify(testKey));
+
+      jest.useRealTimers();
+    });
+
+    it("should verify sessionStorage isolation (not shared between tabs)", () => {
+      // Set a value in Tab 1's sessionStorage
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      tab1DOM.window.sessionStorage.setItem("test-key", "tab1-value");
+
+      // Tab 2's sessionStorage should not have this value
+      global.window = tab2DOM.window;
+      global.document = tab2DOM.window.document;
+      global.sessionStorage = tab2DOM.window.sessionStorage;
+      const tab2Value = tab2DOM.window.sessionStorage.getItem("test-key");
+      expect(tab2Value).toBeNull();
+
+      // Tab 1 should still have its value
+      global.window = tab1DOM.window;
+      global.document = tab1DOM.window.document;
+      global.sessionStorage = tab1DOM.window.sessionStorage;
+      const tab1Value = tab1DOM.window.sessionStorage.getItem("test-key");
+      expect(tab1Value).toBe("tab1-value");
     });
   });
 
@@ -588,6 +834,7 @@ describe("Event Handler Expiration Flow", () => {
     global.window = dom.window;
     global.document = dom.window.document;
     global.localStorage = dom.window.localStorage;
+    global.sessionStorage = dom.window.sessionStorage;
     global.TextEncoder = TextEncoder;
     global.TextDecoder = TextDecoder;
     global.crypto = crypto.webcrypto;
@@ -641,6 +888,7 @@ describe("Event Handler Expiration Flow", () => {
     delete global.window;
     delete global.document;
     delete global.localStorage;
+    delete global.sessionStorage;
     delete global.crypto;
   });
 
