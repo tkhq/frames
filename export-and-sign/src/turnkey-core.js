@@ -652,5 +652,4 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
-  ensureBytesAvailable,
 };
