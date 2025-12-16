@@ -5,6 +5,7 @@
 
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
+import { fromDerSignature } from "@turnkey/crypto";
 
 /** constant for LocalStorage */
 const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
@@ -265,46 +266,6 @@ function additionalAssociatedData(senderPubBuf, receiverPubBuf) {
   const s = Array.from(new Uint8Array(senderPubBuf));
   const r = Array.from(new Uint8Array(receiverPubBuf));
   return new Uint8Array([...s, ...r]);
-}
-
-/**
- * Converts an ASN.1 DER-encoded ECDSA signature to the raw format that WebCrypto uses.
- */
-function fromDerSignature(derSignature) {
-  const derSignatureBuf = uint8arrayFromHexString(derSignature);
-
-  // Check and skip the sequence tag (0x30)
-  let index = 2;
-
-  // Parse 'r' and check for integer tag (0x02)
-  if (derSignatureBuf[index] !== 0x02) {
-    throw new Error(
-      "failed to convert DER-encoded signature: invalid tag for r"
-    );
-  }
-  index++; // Move past the INTEGER tag
-  const rLength = derSignatureBuf[index];
-  index++; // Move past the length byte
-  const r = derSignatureBuf.slice(index, index + rLength);
-  index += rLength; // Move to the start of s
-
-  // Parse 's' and check for integer tag (0x02)
-  if (derSignatureBuf[index] !== 0x02) {
-    throw new Error(
-      "failed to convert DER-encoded signature: invalid tag for s"
-    );
-  }
-  index++; // Move past the INTEGER tag
-  const sLength = derSignatureBuf[index];
-  index++; // Move past the length byte
-  const s = derSignatureBuf.slice(index, index + sLength);
-
-  // Normalize 'r' and 's' to 32 bytes each
-  const rPadded = normalizePadding(r, 32);
-  const sPadded = normalizePadding(s, 32);
-
-  // Concatenate and return the raw signature
-  return new Uint8Array([...rPadded, ...sPadded]);
 }
 
 /**
