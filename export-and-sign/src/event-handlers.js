@@ -1,6 +1,8 @@
 import { TKHQ } from "./turnkey-core.js";
 import { Keypair, VersionedTransaction } from "@solana/web3.js";
-import nacl from "tweetnacl";
+import * as nobleEd25519 from "@noble/ed25519";
+import * as nobleHashes from "@noble/hashes/sha512";
+
 import { HpkeDecrypt } from "./crypto-utils.js";
 
 // Persist keys in memory via mapping of { address --> pk }
@@ -264,9 +266,16 @@ async function onSignMessage(requestId, serializedMessage, address) {
   const keypair = await getOrCreateKeypair(key);
 
   if (messageType === "SOLANA") {
-    // Sign the message
-    const signature = nacl.sign.detached(messageBytes, keypair.secretKey);
-
+    // Set up sha512 for nobleEd25519 (required for signing)
+    nobleEd25519.etc.sha512Sync = (...m) =>
+      nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
+    
+    // Extract the 32-byte private key from the 64-byte secretKey
+    // Solana keypair.secretKey format: [32-byte private key][32-byte public key]
+    const privateKey = keypair.secretKey.slice(0, 32);
+    // Sign the message using nobleEd25519
+    const signature = nobleEd25519.sign(messageBytes, privateKey);
+    
     // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
     // Clients can verify the signature returned.
 
