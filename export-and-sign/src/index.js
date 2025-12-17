@@ -27,26 +27,3 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 });
-
-// Init MessageChannel for communication between iframe <> parent page
-window.addEventListener("message", async function (event) {
-  if (
-    event.data &&
-    event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-    event.ports?.[0]
-  ) {
-    const iframeMessagePort = event.ports[0];
-    iframeMessagePort.onmessage =
-      initEventHandlers(HpkeDecrypt).messageEventListener;
-
-    TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
-
-    await TKHQ.initEmbeddedKey();
-    const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-    const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-    const targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
-    document.getElementById("embedded-key").value = targetPubHex;
-
-    TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
-  }
-});
