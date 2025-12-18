@@ -21,8 +21,7 @@ spec:
             - -c
             - |
                 mkdir -p templated/export templated/import templated/export-and-sign;
-                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/index.template.html > templated/import/index.html;
-                envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < import/standalone.template.html > templated/import/standalone.html;
+                
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
 
                 # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
@@ -33,6 +32,21 @@ spec:
 
                 # Template the environment variable in the built JavaScript files
                 for file in templated/export-and-sign/*.js; do
+                  if [ -f "$file" ]; then
+                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                      mv "$file.tmp" "$file"
+                    fi
+                  fi
+                done
+
+                # Do the same for import: copy the webpack-built files and template the environment variable in JS files
+                if [ -d "/usr/share/nginx/import" ]; then
+                  cp -r /usr/share/nginx/import/. templated/import/;
+                  ls -la templated/import/
+                fi
+
+                # Template the environment variable in the built JavaScript files
+                for file in templated/import/*.js; do
                   if [ -f "$file" ]; then
                     if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
                       mv "$file.tmp" "$file"
@@ -138,4 +152,3 @@ spec:
     - name: http-oauth-rd
       port: 8085
       targetPort: oauth-redirect
-
