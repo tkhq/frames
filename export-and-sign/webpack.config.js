@@ -1,6 +1,7 @@
 const path = require("path");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
+const { SubresourceIntegrityPlugin } = require("webpack-subresource-integrity");
 
 module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
@@ -13,6 +14,8 @@ module.exports = (env, argv) => {
       filename: "bundle.[contenthash].js",
       publicPath: "/",
       clean: true,
+      // Required for Subresource Integrity (SRI)
+      crossOriginLoading: "anonymous",
     },
     module: {
       rules: [
@@ -66,6 +69,10 @@ module.exports = (env, argv) => {
         ? [
             new MiniCssExtractPlugin({
               filename: "styles.[contenthash].css",
+            }),
+            // This adds integrity hashes to <script> and <link> tags to prevent tampering
+            new SubresourceIntegrityPlugin({
+              hashFuncNames: ["sha384"],
             }),
           ]
         : []),
