@@ -35,6 +35,10 @@ jobs:
         working-directory: ./${{ matrix.directory }}
         run: npm install
 
+      - name: Check Provenance Attestations for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm audit signatures
+
       - name: Run Tests for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
         run: npm test
