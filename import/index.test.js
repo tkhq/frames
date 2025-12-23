@@ -89,6 +89,30 @@ describe("TKHQ", () => {
     }
   });
 
+  it("decodes bitcoin wif private key correctly", async () => {
+    const keyBtcWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCTV";
+    const keyBytes = TKHQ.base58Decode(keyBtcWif);
+    expect(keyBytes.length).toBeGreaterThan(32);
+    const keyPrivBytes = keyBytes.subarray(1, 33); // Remove version byte at start and compression flag at end
+    const decodedKey = TKHQ.decodeKey(keyBtcWif, "BITCOIN_WIF");
+    expect(decodedKey.length).toEqual(keyPrivBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
+    }
+  });
+
+  it ("decodes sui bech32 private key correctly", async () => {
+    const keySuiBech32 = "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
+    const {_, words } = TKHQ.decodeBech32(keySuiBech32);
+    const keyBytes = Uint8Array.from(TKHQ.bech32FromWords(words)).subarray(1); // Remove version byte at start
+    expect(keyBytes.length).toEqual(32);
+    const decodedKey = TKHQ.decodeKey(keySuiBech32, "SUI_BECH32");
+    expect(decodedKey.length).toEqual(keyBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyBytes[i]);
+    }
+  });
+
   it("contains additionalAssociatedData", async () => {
     // This is a trivial helper; concatenates the 2 arrays!
     expect(

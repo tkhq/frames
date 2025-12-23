@@ -120,6 +120,25 @@ describe("TKHQ", () => {
     expect(encodedKey).toEqual(keySol);
   });
 
+  it("encodes bitcoin WIF private key correctly", async () => {
+    const keyWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCTV";
+    const keyWifBytes = (TKHQ.base58Decode(keyWif)).subarray(0, -4); // remove 4 byte checksum
+    expect(keyWifBytes.length).toEqual(34); // 1 byte version + 32 byte privkey + 1 byte compressed flag
+    const keyPrivBytes = keyWifBytes.subarray(1, 33);
+    const encodedKey = await TKHQ.encodeKey(keyPrivBytes, "BITCOIN_WIF");
+    expect(encodedKey).toEqual(keyWif);
+  });
+
+  it("encodes sui bech32 private key correctly", async () => {
+    const keySui =
+      "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
+    const { _, words} = TKHQ.decodeBech32(keySui);
+    const keySuiBytes = (TKHQ.bech32FromWords(words)).subarray(1); // remove 1 byte scheme flag
+    expect(keySuiBytes.length).toEqual(32);
+    const encodedKey = await TKHQ.encodeKey(keySuiBytes, "SUI_BECH32");
+    expect(encodedKey).toEqual(keySui);
+  });
+
   it("encodes wallet with only mnemonic correctly", async () => {
     const mnemonic =
       "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
