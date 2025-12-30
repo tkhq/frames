@@ -1,0 +1,61 @@
+#plaintext {
+  width: 300px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  height: 110px;
+  color: #555b64;
+  border: none;
+  resize: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+    "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+}
+#plaintext:focus {
+  outline: none;
+  border: none;
+}
+#passphrase {
+  width: 300px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  height: 55px;
+  color: #555b64;
+  border: none;
+  resize: none;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+    "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+  display: none;
+}
+#passphrase:focus {
+  outline: none;
+  border: none;
+}
+
+#passphrase-label {
+  display: none;
+  border: none;
+  width: 300px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #18191a;
+  font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+    "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+}
+#mnemonic-label {
+  display: none;
+  border: none;
+  width: 300px;
+  margin-bottom: 4px;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: #18191a;
+  font-family: "Lucida Sans", "Lucida Sans Regular", "Lucida Grande",
+    "Lucida Sans Unicode", Geneva, Verdana, sans-serif;
+}
+
+/*# sourceMappingURL=index.styles.0903e8b6c7ae355513d0.css.map*/

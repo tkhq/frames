@@ -172,3 +172,56 @@ To clean things up:
 ```
 k3d cluster delete frames
 ```
+
+# Building with Webpack
+
+You'll see that some of our iframes are built with webpack. Note that configurations may vary: some may have standalone HTML pages to serve separately (e.g. import), while others do not. Take a peek at some of the webpack config files for reference.
+
+## Testing and iterating with Webpack
+
+For iframes that utilize webpack, the development flows change a bit. Each change you make will likely require a subsequent `npm run build` to webpack-ify your changes. You can then test your changes with `npm run start` to view the site locally. 
+
+Furthermore, the trickier part is ensuring that built files (most of the time persisted in `/dist`) are accessible. See `Dockerfile`, `nginx.conf`, and `kustomize/base/resources.yaml` to see some example configurations.
+
+Finally, when iterating on an iframe and rebuilding, you may want to test locally with Docker + k8s. If you do so, you may need to add `imagePullPolicy: IfNotPresent` to both the `initContainers` and `containers` within `kustomize/base/resources.yaml`, and `newName: frames` + `newTag: latest` to `kustomize/base/kustomization.yaml`. This helps ensure you're using non-stale artifacts. 
+
+Example diff for `kustomize/base/kustomization.yaml`:
+
+```bash
+diff --git a/kustomize/base/kustomization.yaml b/kustomize/base/kustomization.yaml
+index a18fe46..7ef92e7 100644
+--- a/kustomize/base/kustomization.yaml
++++ b/kustomize/base/kustomization.yaml
+@@ -6,3 +6,5 @@ resources:
+   - resources.yaml
+ images:
+   - name: ghcr.io/tkhq/frames
++    newName: frames
++    newTag: latest
+```
+
+
+Overall, here's what you might do:
+
+```bash
+# (Re)-Build image
+docker build --no-cache -t frames:latest .
+
+# Import to k3d
+k3d image import frames:latest --cluster frames
+
+# Deploy
+kubectl kustomize kustomize | kubectl --context k3d-frames apply -f-
+
+# Test (with whichever ports are applicable for your iframe)
+kubectl port-forward svc/frames 8083:8083 --context k3d-frames
+```
+
+If testing in a live, non-local environment, you can point containers to a new image as follows:
+
+```
+# Update containers (main + init) to new image
+kubectl --context <context> -n tkhq-frames set image deployment/frames \
+  frames=ghcr.io/tkhq/frames@sha256:<digest> \
+  template-quorum-key=ghcr.io/tkhq/frames@sha256:<digest>
+```
