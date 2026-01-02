@@ -101,3 +101,5 @@ PERFORMANCE OF THIS SOFTWARE.
 /*! noble-ed25519 - MIT License (c) 2019 Paul Miller (paulmillr.com) */
 
 /*! noble-hashes - MIT License (c) 2022 Paul Miller (paulmillr.com) */
+
+/*! safe-buffer. MIT License. Feross Aboukhadijeh <https://feross.org/opensource> */
