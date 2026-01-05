@@ -1,3 +1,5 @@
+import { bech32 } from "bech32";
+
 /** constants for LocalStorage */
 const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
@@ -155,7 +157,6 @@ function uint8arrayToHexString(buffer) {
 function base58Decode(s) {
   // See https://en.bitcoin.it/wiki/Base58Check_encoding
   var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  var decoded = BigInt(0);
   var decodedBytes = [];
   var leadingZeros = [];
   for (var i = 0; i < s.length; i++) {
@@ -196,13 +197,56 @@ function base58Decode(s) {
 }
 
 /**
+ * Decodes a base58check-encoded string and verifies the checksum.
+ * Base58Check encoding includes a 4-byte checksum at the end to detect errors.
+ * The checksum is the first 4 bytes of SHA256(SHA256(payload)).
+ * This function throws an error if the checksum is invalid.
+ * @param {string} s The base58check-encoded string.
+ * @return {Promise<Uint8Array>} The decoded payload (without checksum).
+ */
+async function base58CheckDecode(s) {
+  const decoded = base58Decode(s);
+
+  if (decoded.length < 5) {
+    throw new Error(
+      `invalid base58check length: expected at least 5 bytes, got ${decoded.length}`
+    );
+  }
+
+  const payload = decoded.subarray(0, decoded.length - 4);
+  const checksum = decoded.subarray(decoded.length - 4);
+
+  const subtle = getSubtleCrypto();
+  if (!subtle) {
+    throw new Error("WebCrypto subtle API is unavailable");
+  }
+
+  // Compute double SHA256 hash
+  const hash1Buf = await subtle.digest("SHA-256", payload);
+  const hash1 = new Uint8Array(hash1Buf);
+  const hash2Buf = await subtle.digest("SHA-256", hash1);
+  const hash2 = new Uint8Array(hash2Buf);
+  const computedChecksum = hash2.subarray(0, 4);
+
+  // Verify checksum
+  for (let i = 0; i < 4; i++) {
+    if (checksum[i] !== computedChecksum[i]) {
+      throw new Error("invalid base58check checksum");
+    }
+  }
+
+  return payload;
+}
+
+/**
  * Returns private key bytes from a private key, represented in
  * the encoding and format specified by `keyFormat`. Defaults to
  * hex-encoding if `keyFormat` isn't passed.
  * @param {string} privateKey
- * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
+ * @param {string} keyFormat Can be "HEXADECIMAL", "SUI_BECH32", "BITCOIN_MAINNET_WIF", "BITCOIN_TESTNET_WIF" or "SOLANA"
+ * @return {Promise<Uint8Array>}
  */
-function decodeKey(privateKey, keyFormat) {
+async function decodeKey(privateKey, keyFormat) {
   switch (keyFormat) {
     case "SOLANA": {
       const decodedKeyBytes = base58Decode(privateKey);
@@ -218,6 +262,60 @@ function decodeKey(privateKey, keyFormat) {
         return uint8arrayFromHexString(privateKey.slice(2));
       }
       return uint8arrayFromHexString(privateKey);
+    case "BITCOIN_MAINNET_WIF":
+    case "BITCOIN_TESTNET_WIF": {
+      const payload = await base58CheckDecode(privateKey);
+
+      const version = payload[0];
+      const keyAndFlags = payload.subarray(1);
+
+      // 0x80 = mainnet, 0xEF = testnet
+      if (version !== 0x80 && version !== 0xef) {
+        throw new Error(
+          `invalid WIF version byte: ${version}. Expected 0x80 (mainnet) or 0xEF (testnet).`
+        );
+      }
+
+      if (keyAndFlags.length === 32) {
+        throw new Error(
+          "uncompressed WIF not supported; please use a compressed WIF key"
+        );
+      }
+
+      if (keyAndFlags.length === 33 && keyAndFlags[32] === 0x01) {
+        return keyAndFlags.subarray(0, 32);
+      }
+
+      throw new Error("invalid WIF payload format");
+    }
+    case "SUI_BECH32": {
+      const { prefix, words } = bech32.decode(privateKey);
+
+      if (prefix !== "suiprivkey") {
+        throw new Error(
+          `invalid SUI private key human-readable part (HRP): expected "suiprivkey"`
+        );
+      }
+
+      const bytes = bech32.fromWords(words);
+      if (bytes.length !== 33) {
+        throw new Error(
+          `invalid SUI private key length: expected 33 bytes, got ${bytes.length}`
+        );
+      }
+
+      const schemeFlag = bytes[0];
+      const privkey = bytes.slice(1);
+
+      // schemeFlag = 0 is Ed25519; We currently only support Ed25519 keys for SUI.
+      if (schemeFlag !== 0) {
+        throw new Error(
+          `invalid SUI private key scheme flag: expected 0 (Ed25519). Turnkey only supports Ed25519 keys for SUI.`
+        );
+      }
+
+      return new Uint8Array(privkey);
+    }
     default:
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
@@ -579,6 +677,7 @@ export {
   uint8arrayFromHexString,
   uint8arrayToHexString,
   base58Decode,
+  base58CheckDecode,
   decodeKey,
   setParentFrameMessageChannelPort,
   normalizePadding,

@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 import * as crypto from "crypto";
 import * as TKHQ from "./src/turnkey-core.js";
+import { bech32 } from "bech32";
 
 // Mock the TURNKEY_SIGNER_ENVIRONMENT replacement that webpack would do
 const verifyEnclaveSignature = async function (
@@ -95,11 +96,82 @@ describe("TKHQ", () => {
     expect(key.key_ops).toEqual([]);
   });
 
+  it("decodes bitcoin wif private key correctly", async () => {
+    const keyBtcWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCTV";
+    const keyBytes = TKHQ.base58Decode(keyBtcWif);
+    expect(keyBytes.length).toBeGreaterThan(32);
+    const keyPrivBytes = keyBytes.subarray(1, 33); // Remove version byte at start and compression flag at end
+    const decodedKey = await TKHQ.decodeKey(keyBtcWif, "BITCOIN_MAINNET_WIF");
+    expect(decodedKey.length).toEqual(keyPrivBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
+    }
+  });
+
+  // Bitcoin WIF negative tests
+  it("rejects bitcoin WIF with invalid base58 characters", async () => {
+    const invalidWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCT0"; // contains '0'
+    await expect(
+      TKHQ.decodeKey(invalidWif, "BITCOIN_MAINNET_WIF")
+    ).rejects.toThrow();
+  });
+
+  it("rejects bitcoin WIF with invalid checksum", async () => {
+    const invalidChecksumWif =
+      "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeXXX";
+    await expect(
+      TKHQ.decodeKey(invalidChecksumWif, "BITCOIN_MAINNET_WIF")
+    ).rejects.toThrow("invalid base58check checksum");
+  });
+
+  it("decodes sui bech32 private key correctly", async () => {
+    const keySuiBech32 =
+      "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
+    const { words } = bech32.decode(keySuiBech32);
+    const keyBytes = Uint8Array.from(bech32.fromWords(words)).subarray(1); // Remove version byte at start
+    expect(keyBytes.length).toEqual(32);
+    const decodedKey = await TKHQ.decodeKey(keySuiBech32, "SUI_BECH32");
+    expect(decodedKey.length).toEqual(keyBytes.length);
+    for (let i = 0; i < decodedKey.length; i++) {
+      expect(decodedKey[i]).toEqual(keyBytes[i]);
+    }
+  });
+
+  // SUI Bech32 negative tests
+  it("rejects sui private key with wrong HRP", async () => {
+    // Create a valid bech32 string with wrong prefix
+    const schemeFlag = 0x00;
+    const privateKey = new Uint8Array(32).fill(0x42);
+    const payload = new Uint8Array([schemeFlag, ...privateKey]);
+    const words = bech32.toWords(payload);
+    const wrongHrp = bech32.encode("sui", words); // Wrong prefix, should be "suiprivkey"
+
+    await expect(TKHQ.decodeKey(wrongHrp, "SUI_BECH32")).rejects.toThrow(
+      'invalid SUI private key human-readable part (HRP): expected "suiprivkey"'
+    );
+  });
+
+  it("rejects sui private key with invalid scheme flag", async () => {
+    // Construct a valid bech32 string with scheme flag = 0x01 (Secp256k1)
+    // Format: scheme_flag (1 byte) + private_key (32 bytes) = 33 bytes total
+    const schemeFlag = 0x01; // Secp256k1
+    const privateKey = new Uint8Array(32).fill(0x42); // dummy 32-byte key
+    const payload = new Uint8Array([schemeFlag, ...privateKey]);
+
+    // Convert to bech32 words and encode
+    const words = bech32.toWords(payload);
+    const secp256k1Key = bech32.encode("suiprivkey", words);
+
+    await expect(TKHQ.decodeKey(secp256k1Key, "SUI_BECH32")).rejects.toThrow(
+      "invalid SUI private key scheme flag: expected 0 (Ed25519)"
+    );
+  });
+
   it("decodes hex-encoded private key correctly by default", async () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = TKHQ.decodeKey(keyHex);
+    const decodedKey = await TKHQ.decodeKey(keyHex);
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -110,7 +182,7 @@ describe("TKHQ", () => {
     const keyHex =
       "0x13eff5b3f9c63eab5d53cff5149f01606b69325496e0e98b53afa938d890cd2e";
     const keyBytes = TKHQ.uint8arrayFromHexString(keyHex.slice(2));
-    const decodedKey = TKHQ.decodeKey(keyHex, "HEXADECIMAL");
+    const decodedKey = await TKHQ.decodeKey(keyHex, "HEXADECIMAL");
     expect(decodedKey.length).toEqual(keyBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyBytes[i]);
@@ -123,7 +195,7 @@ describe("TKHQ", () => {
     const keyBytes = TKHQ.base58Decode(keySol);
     expect(keyBytes.length).toEqual(64);
     const keyPrivBytes = keyBytes.subarray(0, 32);
-    const decodedKey = TKHQ.decodeKey(keySol, "SOLANA");
+    const decodedKey = await TKHQ.decodeKey(keySol, "SOLANA");
     expect(decodedKey.length).toEqual(keyPrivBytes.length);
     for (let i = 0; i < decodedKey.length; i++) {
       expect(decodedKey[i]).toEqual(keyPrivBytes[i]);
