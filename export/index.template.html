@@ -1279,6 +1279,9 @@
         passphraseInput.type = "password";
         passphraseInput.id = "export-passphrase";
         passphraseInput.placeholder = "Enter passphrase (min 8 characters)";
+        passphraseInput.required = true;
+        passphraseInput.setAttribute("aria-required", "true");
+        passphraseInput.minLength = 8;
         formDiv.appendChild(passphraseInput);
 
         // Create confirmation input
@@ -1291,6 +1294,8 @@
         confirmInput.type = "password";
         confirmInput.id = "export-passphrase-confirm";
         confirmInput.placeholder = "Confirm passphrase";
+        confirmInput.required = true;
+        confirmInput.setAttribute("aria-required", "true");
         formDiv.appendChild(confirmInput);
 
         // Create error message paragraph
