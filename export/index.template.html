@@ -1269,12 +1269,14 @@
             ["deriveBits", "deriveKey"]
           );
 
-          // Derive AES-256 key using PBKDF2 (100,000 iterations, SHA-256)
+          // Derive AES-256 key using PBKDF2 (600,000 iterations, SHA-256).
+          // NOTE: The iteration count must match during decryption; changing it
+          // affects compatibility with data encrypted using a different value.
           const aesKey = await crypto.subtle.deriveKey(
             {
               name: "PBKDF2",
               salt: salt,
-              iterations: 100000,
+              iterations: 600000,
               hash: "SHA-256",
             },
             keyMaterial,
