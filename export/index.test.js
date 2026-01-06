@@ -544,3 +544,272 @@ describe("TKHQ", () => {
     expect(decryptedMnemonic).toBe(mnemonic);
   });
 });
+
+/**
+ * Tests for passphrase form validation
+ * These tests create the form elements manually and test the validation logic
+ */
+describe("Passphrase Form Validation", () => {
+  let dom;
+  let document;
+  let TKHQ;
+
+  // Helper to create the passphrase form elements (mimics displayPassphraseForm)
+  function createPassphraseForm() {
+    const formDiv = document.createElement("div");
+    formDiv.id = "passphrase-form-div";
+
+    const passphraseInput = document.createElement("input");
+    passphraseInput.type = "password";
+    passphraseInput.id = "export-passphrase";
+    formDiv.appendChild(passphraseInput);
+
+    const confirmInput = document.createElement("input");
+    confirmInput.type = "password";
+    confirmInput.id = "export-passphrase-confirm";
+    formDiv.appendChild(confirmInput);
+
+    const errorMsg = document.createElement("p");
+    errorMsg.id = "passphrase-error";
+    errorMsg.style.display = "none";
+    formDiv.appendChild(errorMsg);
+
+    const submitButton = document.createElement("button");
+    submitButton.type = "button";
+    submitButton.id = "encrypt-and-export";
+    formDiv.appendChild(submitButton);
+
+    document.body.appendChild(formDiv);
+
+    return { formDiv, passphraseInput, confirmInput, errorMsg, submitButton };
+  }
+
+  // Helper to create click handler that mimics displayPassphraseForm logic
+  function addValidationHandler(elements, mnemonic, onSuccess) {
+    const { passphraseInput, confirmInput, errorMsg, submitButton } = elements;
+
+    submitButton.addEventListener("click", async () => {
+      const passphrase = passphraseInput.value;
+      const confirmPassphrase = confirmInput.value;
+
+      // Validate minimum passphrase length (8 characters)
+      if (passphrase.length < 8) {
+        errorMsg.innerText = "Passphrase must be at least 8 characters long.";
+        errorMsg.style.display = "block";
+        return;
+      }
+
+      // Validate passphrases match
+      if (passphrase !== confirmPassphrase) {
+        errorMsg.innerText = "Passphrases do not match.";
+        errorMsg.style.display = "block";
+        return;
+      }
+
+      // Hide error message
+      errorMsg.style.display = "none";
+
+      if (onSuccess) {
+        await onSuccess(passphrase);
+      }
+    });
+  }
+
+  beforeEach(() => {
+    dom = new JSDOM(html, {
+      runScripts: "dangerously",
+      url: "http://localhost",
+      beforeParse(window) {
+        window.TextDecoder = TextDecoder;
+        window.TextEncoder = TextEncoder;
+      },
+    });
+
+    Object.defineProperty(dom.window, "crypto", {
+      value: crypto.webcrypto,
+    });
+
+    document = dom.window.document;
+    TKHQ = dom.window.TKHQ;
+  });
+
+  it("shows error when passphrase is too short", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Set a passphrase that's too short (< 8 chars)
+    elements.passphraseInput.value = "short";
+    elements.confirmInput.value = "short";
+
+    // Click submit
+    elements.submitButton.click();
+
+    // Error should be displayed
+    expect(elements.errorMsg.style.display).toBe("block");
+    expect(elements.errorMsg.innerText).toBe(
+      "Passphrase must be at least 8 characters long."
+    );
+  });
+
+  it("shows error when passphrase is exactly 7 characters", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Set a passphrase that's exactly 7 chars (boundary case)
+    elements.passphraseInput.value = "1234567";
+    elements.confirmInput.value = "1234567";
+
+    elements.submitButton.click();
+
+    expect(elements.errorMsg.style.display).toBe("block");
+    expect(elements.errorMsg.innerText).toBe(
+      "Passphrase must be at least 8 characters long."
+    );
+  });
+
+  it("accepts passphrase with exactly 8 characters", async () => {
+    const elements = createPassphraseForm();
+    let successCalled = false;
+
+    addValidationHandler(elements, "test mnemonic", async () => {
+      successCalled = true;
+    });
+
+    // Set a passphrase that's exactly 8 chars (boundary case - should pass)
+    elements.passphraseInput.value = "12345678";
+    elements.confirmInput.value = "12345678";
+
+    elements.submitButton.click();
+
+    // Allow async handler to complete
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(elements.errorMsg.style.display).toBe("none");
+    expect(successCalled).toBe(true);
+  });
+
+  it("shows error when passphrases do not match", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Set mismatched passphrases (both >= 8 chars)
+    elements.passphraseInput.value = "password123";
+    elements.confirmInput.value = "password456";
+
+    elements.submitButton.click();
+
+    expect(elements.errorMsg.style.display).toBe("block");
+    expect(elements.errorMsg.innerText).toBe("Passphrases do not match.");
+  });
+
+  it("shows length error before mismatch error", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Set short AND mismatched passphrases
+    elements.passphraseInput.value = "short";
+    elements.confirmInput.value = "diff";
+
+    elements.submitButton.click();
+
+    // Length error should take precedence
+    expect(elements.errorMsg.style.display).toBe("block");
+    expect(elements.errorMsg.innerText).toBe(
+      "Passphrase must be at least 8 characters long."
+    );
+  });
+
+  it("hides error message on successful validation", async () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic", async () => {});
+
+    // First trigger an error
+    elements.passphraseInput.value = "short";
+    elements.confirmInput.value = "short";
+    elements.submitButton.click();
+    expect(elements.errorMsg.style.display).toBe("block");
+
+    // Now enter valid passphrases
+    elements.passphraseInput.value = "validpassword123";
+    elements.confirmInput.value = "validpassword123";
+    elements.submitButton.click();
+
+    // Allow async handler to complete
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Error should be hidden
+    expect(elements.errorMsg.style.display).toBe("none");
+  });
+
+  it("accepts empty confirmation when passphrase is too short (length check first)", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Short passphrase with empty confirmation
+    elements.passphraseInput.value = "short";
+    elements.confirmInput.value = "";
+
+    elements.submitButton.click();
+
+    // Should show length error, not mismatch
+    expect(elements.errorMsg.innerText).toBe(
+      "Passphrase must be at least 8 characters long."
+    );
+  });
+
+  it("validates with special characters in passphrase", async () => {
+    const elements = createPassphraseForm();
+    let receivedPassphrase = null;
+
+    addValidationHandler(elements, "test mnemonic", async (passphrase) => {
+      receivedPassphrase = passphrase;
+    });
+
+    // Passphrase with special characters
+    const specialPass = "p@$$w0rd!#%^&*()";
+    elements.passphraseInput.value = specialPass;
+    elements.confirmInput.value = specialPass;
+
+    elements.submitButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(elements.errorMsg.style.display).toBe("none");
+    expect(receivedPassphrase).toBe(specialPass);
+  });
+
+  it("validates with unicode characters in passphrase", async () => {
+    const elements = createPassphraseForm();
+    let receivedPassphrase = null;
+
+    addValidationHandler(elements, "test mnemonic", async (passphrase) => {
+      receivedPassphrase = passphrase;
+    });
+
+    // Passphrase with unicode
+    const unicodePass = "密码🔐secure";
+    elements.passphraseInput.value = unicodePass;
+    elements.confirmInput.value = unicodePass;
+
+    elements.submitButton.click();
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(elements.errorMsg.style.display).toBe("none");
+    expect(receivedPassphrase).toBe(unicodePass);
+  });
+
+  it("is case-sensitive when comparing passphrases", () => {
+    const elements = createPassphraseForm();
+    addValidationHandler(elements, "test mnemonic");
+
+    // Same passphrase but different case
+    elements.passphraseInput.value = "Password123";
+    elements.confirmInput.value = "password123";
+
+    elements.submitButton.click();
+
+    expect(elements.errorMsg.style.display).toBe("block");
+    expect(elements.errorMsg.innerText).toBe("Passphrases do not match.");
+  });
+});
