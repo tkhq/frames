@@ -1697,8 +1697,9 @@
             return;
           }
 
-          // Hide error message
+          // Hide error message and disable button to prevent duplicate submissions
           errorMsg.style.display = "none";
+          submitButton.disabled = true;
 
           try {
             // Encode mnemonic to Uint8Array
@@ -1722,9 +1723,12 @@
               encryptedBase64,
               requestId
             );
+
+            // Keep button disabled after success (operation complete)
           } catch (e) {
             errorMsg.innerText = "Encryption failed: " + e.toString();
             errorMsg.style.display = "block";
+            submitButton.disabled = false;
           }
         });
       }
