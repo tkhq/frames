@@ -446,4 +446,101 @@ describe("TKHQ", () => {
     };
     expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
   });
+
+  it("encrypts data with passphrase correctly", async () => {
+    const plaintext = new TextEncoder().encode("test mnemonic phrase");
+    const passphrase = "securepassword123";
+
+    const encrypted = await TKHQ.encryptWithPassphrase(plaintext, passphrase);
+
+    // Result should be salt (16) + iv (12) + ciphertext (at least as long as plaintext + auth tag)
+    // Note: Using ArrayBuffer check due to JSDOM cross-realm Uint8Array difference
+    expect(encrypted.buffer).toBeDefined();
+    expect(encrypted.length).toBeGreaterThanOrEqual(16 + 12 + plaintext.length);
+
+    // Salt and IV should be present at the beginning
+    const salt = encrypted.slice(0, 16);
+    const iv = encrypted.slice(16, 28);
+    expect(salt.length).toBe(16);
+    expect(iv.length).toBe(12);
+  });
+
+  it("decrypts data encrypted by encryptWithPassphrase correctly", async () => {
+    const originalText = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const plaintext = new TextEncoder().encode(originalText);
+    const passphrase = "mySecurePassphrase!";
+
+    // Encrypt
+    const encrypted = await TKHQ.encryptWithPassphrase(plaintext, passphrase);
+
+    // Decrypt
+    const decrypted = await TKHQ.decryptWithPassphrase(encrypted, passphrase);
+
+    // Verify
+    const decryptedText = new TextDecoder().decode(decrypted);
+    expect(decryptedText).toBe(originalText);
+  });
+
+  it("fails to decrypt with wrong passphrase", async () => {
+    const plaintext = new TextEncoder().encode("secret data");
+    const correctPassphrase = "correctPassphrase";
+    const wrongPassphrase = "wrongPassphrase";
+
+    const encrypted = await TKHQ.encryptWithPassphrase(plaintext, correctPassphrase);
+
+    // Attempting to decrypt with wrong passphrase should throw
+    await expect(
+      TKHQ.decryptWithPassphrase(encrypted, wrongPassphrase)
+    ).rejects.toThrow();
+  });
+
+  it("produces different ciphertext for same plaintext (due to random salt/IV)", async () => {
+    const plaintext = new TextEncoder().encode("same plaintext");
+    const passphrase = "samePassphrase";
+
+    const encrypted1 = await TKHQ.encryptWithPassphrase(plaintext, passphrase);
+    const encrypted2 = await TKHQ.encryptWithPassphrase(plaintext, passphrase);
+
+    // Encrypted results should be different due to random salt and IV
+    expect(TKHQ.uint8arrayToHexString(encrypted1)).not.toBe(
+      TKHQ.uint8arrayToHexString(encrypted2)
+    );
+
+    // But both should decrypt to the same plaintext
+    const decrypted1 = await TKHQ.decryptWithPassphrase(encrypted1, passphrase);
+    const decrypted2 = await TKHQ.decryptWithPassphrase(encrypted2, passphrase);
+
+    expect(new TextDecoder().decode(decrypted1)).toBe("same plaintext");
+    expect(new TextDecoder().decode(decrypted2)).toBe("same plaintext");
+  });
+
+  it("handles encryption of wallet mnemonic end-to-end", async () => {
+    const mnemonic =
+      "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";
+    const passphrase = "strongPassphrase123!";
+
+    // Encode mnemonic to bytes
+    const mnemonicBytes = new TextEncoder().encode(mnemonic);
+
+    // Encrypt
+    const encrypted = await TKHQ.encryptWithPassphrase(mnemonicBytes, passphrase);
+
+    // Convert to base64 (as would be done in displayPassphraseForm)
+    const encryptedBase64 = btoa(String.fromCharCode.apply(null, encrypted));
+    expect(typeof encryptedBase64).toBe("string");
+    expect(encryptedBase64.length).toBeGreaterThan(0);
+
+    // Convert back from base64
+    const encryptedFromBase64 = new Uint8Array(
+      atob(encryptedBase64)
+        .split("")
+        .map((c) => c.charCodeAt(0))
+    );
+
+    // Decrypt
+    const decrypted = await TKHQ.decryptWithPassphrase(encryptedFromBase64, passphrase);
+    const decryptedMnemonic = new TextDecoder().decode(decrypted);
+
+    expect(decryptedMnemonic).toBe(mnemonic);
+  });
 });
