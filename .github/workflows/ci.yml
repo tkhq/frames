@@ -46,6 +46,7 @@ jobs:
   format:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         directory:
           [
@@ -74,6 +75,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         directory:
           [
@@ -102,6 +104,7 @@ jobs:
   build-check:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         directory:
           [
