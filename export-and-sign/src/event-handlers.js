@@ -79,7 +79,9 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
         if (!signedData.ciphertext) {
           throw new Error('missing "ciphertext" in bundle signed data');
         }
-        encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
+        encappedKeyBuf = TKHQ.uint8arrayFromHexString(
+          signedData.encappedPublic
+        );
         ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       }
       break;

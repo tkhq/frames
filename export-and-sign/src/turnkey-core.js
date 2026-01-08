@@ -514,7 +514,7 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
       return "0x" + uint8arrayToHexString(privateKeyBytes);
     default:
       // keeping console.warn for debugging purposes.
-      // eslint-disable-next-line no-console 
+      // eslint-disable-next-line no-console
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
       );
