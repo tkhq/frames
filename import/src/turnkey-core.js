@@ -454,16 +454,12 @@ function applySettings(settings) {
   const validSettings = {};
   const settingsObj = JSON.parse(settings);
 
-  const passphraseLabel = document.getElementById(
-    "passphrase-label"
-  );
+  const passphraseLabel = document.getElementById("passphrase-label");
   const mnemonicLabel = document.getElementById("mnemonic-label");
   const passphraseTextarea = document.getElementById("passphrase");
 
   if (!passphraseLabel || !passphraseTextarea) {
-    throw new Error(
-      "no passphrase HTML elements found to apply settings to."
-    );
+    throw new Error("no passphrase HTML elements found to apply settings to.");
   }
   const plaintextTextarea = document.getElementById("plaintext");
   if (!plaintextTextarea) {
@@ -529,7 +525,7 @@ function applySettings(settings) {
 
     validSettings["passphraseStyles"] = validStyles;
   }
-  
+
   return JSON.stringify(validSettings);
 }
 

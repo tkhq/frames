@@ -267,12 +267,13 @@ async function onExtractWalletEncryptedBundle(requestId) {
   if (!plaintext) {
     throw new Error("no wallet mnemonic entered");
   }
-  
+
   const passphrase = document.getElementById("passphrase").value;
 
   validateMnemonic(plaintext);
 
-  const combined = passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
+  const combined =
+    passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
   const plaintextBuf = new TextEncoder().encode(combined);
 
   // Encrypt the bundle using the enclave target public key
