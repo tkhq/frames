@@ -137,5 +137,3 @@ jobs:
 
       - name: Check dist folder matches committed version
         uses: ./.github/actions/build-check
-        with:
-          directory: ${{ matrix.directory }}

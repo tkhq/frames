@@ -1,40 +1,19 @@
-name: "Build check"
-description: "Check if dist folder matches committed version after build"
-
-inputs:
-  directory:
-    description: "Directory to check"
-    required: true
+name: "Git check"
+description: "Git sanity checks"
 
 runs:
   using: "composite"
 
   steps:
-    - name: Check dist folder matches committed version
+    - name: Is Git clean?
       run: |
-        cd "${{ inputs.directory }}"
-        
-        # Check if dist folder exists after build
-        if [ ! -d "dist" ]; then
-          echo "::error::dist folder not found after build"
+        if [ -z "$( git status --porcelain )" ]; then
+          echo "Git is clean!"
+          exit 0
+        else
+          echo "Git is dirty!"
+          git add -A
+          git --no-pager diff HEAD
           exit 1
         fi
-        
-        # Use git diff to check if dist folder changed from committed version
-        # Filter out .map files as they may have timestamp differences that don't affect functionality
-        diff_output=$(git diff --name-status HEAD -- dist/ 2>&1 || true)
-        # Filter out .map files and check if there are any remaining differences
-        filtered_diff=$(echo "$diff_output" | grep -v "\.map$" | grep -v "^$" || true)
-        
-        if [ -n "$filtered_diff" ]; then
-          echo "::error::dist folder in ${{ inputs.directory }} differs from committed version"
-          echo ""
-          echo "Files that changed:"
-          echo "$filtered_diff"
-          echo ""
-          echo "To fix this, run 'npm run build' in ${{ inputs.directory }} and commit the changes"
-          exit 1
-        fi
-        
-        echo "✓ dist folder in ${{ inputs.directory }} matches committed version"
       shell: bash
