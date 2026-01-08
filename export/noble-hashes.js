@@ -1129,7 +1129,6 @@ var nobleHashes = (() => {
     _cloneInto(to) {
       to || (to = Object.create(Object.getPrototypeOf(this), {}));
       const { oHash, iHash, finished, destroyed, blockLen, outputLen } = this;
-      to = to;
       to.finished = finished;
       to.destroyed = destroyed;
       to.blockLen = blockLen;
