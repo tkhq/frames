@@ -156,7 +156,7 @@ async function onInjectImportBundle(bundle, organizationId, userId) {
   const bundleObj = JSON.parse(bundle);
 
   switch (bundleObj.version) {
-    case "v1.0.0":
+    case "v1.0.0": {
       // Validate fields exist
       if (!bundleObj.data) {
         throw new Error('missing "data" in bundle');
@@ -218,6 +218,7 @@ async function onInjectImportBundle(bundle, organizationId, userId) {
       // Load target public key generated from enclave and set in local storage
       targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
       break;
+    }
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
   }

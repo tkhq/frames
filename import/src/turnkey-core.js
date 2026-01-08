@@ -204,7 +204,7 @@ function base58Decode(s) {
  */
 function decodeKey(privateKey, keyFormat) {
   switch (keyFormat) {
-    case "SOLANA":
+    case "SOLANA": {
       const decodedKeyBytes = base58Decode(privateKey);
       if (decodedKeyBytes.length !== 64) {
         throw new Error(
@@ -212,6 +212,7 @@ function decodeKey(privateKey, keyFormat) {
         );
       }
       return decodedKeyBytes.subarray(0, 32);
+    }
     case "HEXADECIMAL":
       if (privateKey.startsWith("0x")) {
         return uint8arrayFromHexString(privateKey.slice(2));
@@ -513,7 +514,7 @@ function applySettings(settings) {
 
   if (settingsObj.passphraseStyles) {
     // Validate, sanitize, and apply the styles to the "passphrase" textarea.
-    const validStyles = TKHQ.validateStyles(settingsObj.passphraseStyles);
+    const validStyles = validateStyles(settingsObj.passphraseStyles);
     Object.entries(validStyles).forEach(([key, value]) => {
       passphraseTextarea.style[key] = value;
     });
