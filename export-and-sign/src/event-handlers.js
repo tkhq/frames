@@ -269,13 +269,13 @@ async function onSignMessage(requestId, serializedMessage, address) {
     // Set up sha512 for nobleEd25519 (required for signing)
     nobleEd25519.etc.sha512Sync = (...m) =>
       nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
-    
+
     // Extract the 32-byte private key from the 64-byte secretKey
     // Solana keypair.secretKey format: [32-byte private key][32-byte public key]
     const privateKey = keypair.secretKey.slice(0, 32);
     // Sign the message using nobleEd25519
     const signature = nobleEd25519.sign(messageBytes, privateKey);
-    
+
     // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
     // Clients can verify the signature returned.
 
@@ -391,7 +391,9 @@ function clearAllExpiredKeys() {
  */
 function validateKey(key, keyAddress) {
   if (!key) {
-    throw new Error( `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`).toString();
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
   }
 
   const now = new Date().getTime();
