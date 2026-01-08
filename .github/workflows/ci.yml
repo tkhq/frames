@@ -135,30 +135,7 @@ jobs:
         working-directory: ./${{ matrix.directory }}
         run: npm run build
 
-      - name: Check dist folder matches committed version for ${{ matrix.directory }}
-        run: |
-          cd ${{ matrix.directory }}
-          
-          # Check if dist folder exists after build
-          if [ ! -d "dist" ]; then
-            echo "::error::dist folder not found after build"
-            exit 1
-          fi
-          
-          # Use git diff to check if dist folder changed from committed version
-          # Filter out .map files as they may have timestamp differences that don't affect functionality
-          diff_output=$(git diff --name-status HEAD -- dist/ 2>&1 || true)
-          # Filter out .map files and check if there are any remaining differences
-          filtered_diff=$(echo "$diff_output" | grep -v "\.map$" | grep -v "^$" || true)
-          
-          if [ -n "$filtered_diff" ]; then
-            echo "::error::dist folder in ${{ matrix.directory }} differs from committed version"
-            echo ""
-            echo "Files that changed:"
-            echo "$filtered_diff"
-            echo ""
-            echo "To fix this, run 'npm run build' in ${{ matrix.directory }} and commit the changes"
-            exit 1
-          fi
-          
-          echo "✓ dist folder in ${{ matrix.directory }} matches committed version"
+      - name: Check dist folder matches committed version
+        uses: ./.github/actions/build-check
+        with:
+          directory: ${{ matrix.directory }}

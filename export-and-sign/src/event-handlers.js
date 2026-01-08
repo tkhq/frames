@@ -3,8 +3,6 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 
-import { HpkeDecrypt } from "./crypto-utils.js";
-
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
@@ -56,32 +54,34 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
       }
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-      const signedData = JSON.parse(
-        textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
-      );
-
-      // Validate fields match
-      if (!organizationId) {
-        throw new Error(
-          `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
+      {
+        const signedData = JSON.parse(
+          textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
         );
-      } else if (
-        !signedData.organizationId ||
-        signedData.organizationId !== organizationId
-      ) {
-        throw new Error(
-          `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
-        );
-      }
 
-      if (!signedData.encappedPublic) {
-        throw new Error('missing "encappedPublic" in bundle signed data');
+        // Validate fields match
+        if (!organizationId) {
+          throw new Error(
+            `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
+          );
+        } else if (
+          !signedData.organizationId ||
+          signedData.organizationId !== organizationId
+        ) {
+          throw new Error(
+            `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
+          );
+        }
+
+        if (!signedData.encappedPublic) {
+          throw new Error('missing "encappedPublic" in bundle signed data');
+        }
+        if (!signedData.ciphertext) {
+          throw new Error('missing "ciphertext" in bundle signed data');
+        }
+        encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
+        ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       }
-      if (!signedData.ciphertext) {
-        throw new Error('missing "ciphertext" in bundle signed data');
-      }
-      encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
-      ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       break;
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
@@ -523,10 +523,12 @@ function initMessageEventListener(HpkeDecrypt) {
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
       );
       try {
-        await onInjectWalletBundle(
-          event.data["value"],
-          event.data["organizationId"],
+        await onInjectKeyBundle(
           event.data["requestId"],
+          event.data["organizationId"],
+          event.data["value"],
+          undefined, // keyFormat - default to HEXADECIMAL
+          undefined, // address - default to "default"
           HpkeDecrypt
         );
       } catch (e) {
