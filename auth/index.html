@@ -1213,14 +1213,16 @@
             }
 
             var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-            
+
             // If the embedded key is not initialized or not available, reset it
-            if (!(window.isInitEmbeddedKeyRunByDomContentLoaded && embeddedKeyJwk)) {
+            if (
+              !(window.isInitEmbeddedKeyRunByDomContentLoaded && embeddedKeyJwk)
+            ) {
               await TKHQ.resetEmbeddedKey();
               document.getElementById("embedded-key").value = "";
               await TKHQ.initEmbeddedKey(iframeKeyTtl);
             }
-            
+
             // Re-fetch embedded key
             embeddedKeyJwk = await TKHQ.getEmbeddedKey();
             var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(

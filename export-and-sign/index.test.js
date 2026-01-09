@@ -99,7 +99,7 @@ describe("TKHQ", () => {
       let itemA = JSON.parse(dom.window.localStorage.getItem("a"));
       expect(itemA.value).toBe("b");
       expect(itemA.expiry).toBeTruthy();
-      
+
       // Now manually modify the expiry to be in the past to test expiration
       const expiredItem = {
         value: "b",
@@ -550,7 +550,6 @@ describe("Event Handler Expiration Flow", () => {
   });
   const EXPIRED_TIME_MS = DEFAULT_TTL_MILLISECONDS + 1;
 
-
   let dom;
   let TKHQ;
   let sendMessageSpy;
@@ -600,21 +599,17 @@ describe("Event Handler Expiration Flow", () => {
       .spyOn(TKHQ, "sendMessageUp")
       .mockImplementation(() => {});
 
-    jest
-      .spyOn(TKHQ, "verifyEnclaveSignature")
-      .mockResolvedValue(true);
+    jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
     // Set a dummy embedded key for testing
     TKHQ.setEmbeddedKey({ foo: "bar" });
-    expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" }); 
+    expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" });
     jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
-    jest
-      .spyOn(TKHQ, "uint8arrayFromHexString")
-      .mockImplementation((hex) => {
-        if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0) {
-          throw new Error("cannot create uint8array from invalid hex string");
-        }
-        return new Uint8Array(Buffer.from(hex, "hex"));
-      });
+    jest.spyOn(TKHQ, "uint8arrayFromHexString").mockImplementation((hex) => {
+      if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0) {
+        throw new Error("cannot create uint8array from invalid hex string");
+      }
+      return new Uint8Array(Buffer.from(hex, "hex"));
+    });
     jest
       .spyOn(TKHQ, "uint8arrayToHexString")
       .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
@@ -660,11 +655,7 @@ describe("Event Handler Expiration Flow", () => {
 
     expect(HpkeDecryptMock).toHaveBeenCalled();
 
-    await onSignTransaction(
-      requestId,
-      serializedTransaction,
-      undefined
-    );
+    await onSignTransaction(requestId, serializedTransaction, undefined);
 
     expect(sendMessageSpy).toHaveBeenNthCalledWith(
       2,
@@ -672,7 +663,6 @@ describe("Event Handler Expiration Flow", () => {
       expect.any(String),
       requestId
     );
-
   });
 
   it("blocks signing after expiry", async () => {
@@ -692,11 +682,7 @@ describe("Event Handler Expiration Flow", () => {
     jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS + 1);
 
     try {
-      await onSignTransaction(
-        requestId,
-        serializedTransaction,
-        undefined
-      );
+      await onSignTransaction(requestId, serializedTransaction, undefined);
     } catch (e) {
       // onSignTransaction throws when key is expired, simulate the message listener error handling
       TKHQ.sendMessageUp("ERROR", e.toString(), requestId);
@@ -733,11 +719,7 @@ describe("Event Handler Expiration Flow", () => {
     // First attempt: should get "expired" error (key exists but expired, then gets cleared)
     let errorMessage = "";
     try {
-      await onSignTransaction(
-        requestId,
-        serializedTransaction,
-        "test-address"
-      );
+      await onSignTransaction(requestId, serializedTransaction, "test-address");
     } catch (e) {
       errorMessage = e.toString();
       expect(errorMessage).toContain("key bytes have expired");
@@ -746,11 +728,7 @@ describe("Event Handler Expiration Flow", () => {
     // Second attempt: should get "not found" error (proves key was removed from memory)
     // This is different from "expired" - it means the key is completely gone
     try {
-      await onSignTransaction(
-        requestId,
-        serializedTransaction,
-        "test-address"
-      );
+      await onSignTransaction(requestId, serializedTransaction, "test-address");
     } catch (e) {
       errorMessage = e.toString();
       expect(errorMessage).toContain("key bytes not found");
@@ -777,11 +755,7 @@ describe("Event Handler Expiration Flow", () => {
     jest.advanceTimersByTime(DEFAULT_TTL_MILLISECONDS - 1000);
 
     // Key should still work (proves it wasn't cleared)
-    await onSignTransaction(
-      requestId,
-      serializedTransaction,
-      "test-address"
-    );
+    await onSignTransaction(requestId, serializedTransaction, "test-address");
 
     expect(sendMessageSpy).toHaveBeenCalledWith(
       "TRANSACTION_SIGNED",
@@ -877,5 +851,4 @@ describe("Event Handler Expiration Flow", () => {
       expect(e.toString()).not.toContain("expired");
     }
   });
-  
 });

@@ -181,7 +181,10 @@ function getItemWithExpiry(key) {
     return null;
   }
   const item = JSON.parse(itemStr);
-  if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+  if (
+    !Object.prototype.hasOwnProperty.call(item, "expiry") ||
+    !Object.prototype.hasOwnProperty.call(item, "value")
+  ) {
     window.localStorage.removeItem(key);
     return null;
   }
@@ -439,7 +442,6 @@ function base58Encode(bytes) {
 function base58Decode(s) {
   // See https://en.bitcoin.it/wiki/Base58Check_encoding
   var alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-  var decoded = BigInt(0);
   var decodedBytes = [];
   var leadingZeros = [];
   for (var i = 0; i < s.length; i++) {
@@ -502,13 +504,17 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
           `invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`
         );
       }
-      const concatenatedBytes = new Uint8Array(64);
-      concatenatedBytes.set(privateKeyBytes, 0);
-      concatenatedBytes.set(publicKeyBytes, 32);
-      return base58Encode(concatenatedBytes);
+      {
+        const concatenatedBytes = new Uint8Array(64);
+        concatenatedBytes.set(privateKeyBytes, 0);
+        concatenatedBytes.set(publicKeyBytes, 32);
+        return base58Encode(concatenatedBytes);
+      }
     case "HEXADECIMAL":
       return "0x" + uint8arrayToHexString(privateKeyBytes);
     default:
+      // keeping console.warn for debugging purposes.
+      // eslint-disable-next-line no-console
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
       );
@@ -532,7 +538,7 @@ function getEd25519PublicKey(privateKeyHex) {
  * @param {Object} styles
  * @return {Object}
  */
-function validateStyles(styles, element) {
+function validateStyles(styles) {
   const validStyles = {};
 
   const cssValidationRegex = {

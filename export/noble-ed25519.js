@@ -315,7 +315,9 @@ var nobleEd25519 = (() => {
             SB = G.mul(s, false); // in the range 0 <= s < L
             hashable = concatB(R.toRawBytes(), A.toRawBytes(), msg); // dom2(F, C) || R || A || PH(M)
         }
-        catch (error) { }
+        catch (_error) {
+            // Error caught during parsing - will be handled by checking SB == null below
+        }
         const finish = (hashed) => {
             if (SB == null)
                 return false; // false if try-catch catched an error

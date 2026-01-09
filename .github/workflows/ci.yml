@@ -29,7 +29,7 @@ jobs:
       - name: Install Node.js
         uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
         with:
-          node-version: 18
+          node-version: 20
 
       - name: Install Dependencies for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
@@ -42,3 +42,98 @@ jobs:
       - name: Run Tests for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
         run: npm test
+
+  format:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          [
+            'auth',
+            'export',
+            'import',
+            'export-and-sign',
+            'oauth-origin',
+            'oauth-redirect',
+          ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v3.0.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
+        with:
+          node-version: 20
+
+      - name: Install Dependencies for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm install
+
+      - name: Run Prettier Check for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm run prettier:check
+
+  lint:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          [
+            'auth',
+            'export',
+            'import',
+            'export-and-sign',
+            'oauth-origin',
+            'oauth-redirect',
+          ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v3.0.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
+        with:
+          node-version: 20
+
+      - name: Install Dependencies for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm install
+
+      - name: Run ESLint for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm run lint
+
+  build-check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        directory:
+          [
+            'import',
+            'export-and-sign',
+          ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@2541b1294d2704b0964813337f33b291d3f8596b # v3.0.2
+
+      - name: Install Node.js
+        uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
+        with:
+          node-version: 20
+
+      - name: Install Dependencies for ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm install
+
+      - name: Build ${{ matrix.directory }}
+        working-directory: ./${{ matrix.directory }}
+        run: npm run build
+
+      - name: Check dist folder matches committed version
+        uses: ./.github/actions/build-check

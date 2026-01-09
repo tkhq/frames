@@ -170,7 +170,7 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
   const bundleObj = JSON.parse(bundle);
 
   switch (bundleObj.version) {
-    case "v1.0.0":
+    case "v1.0.0": {
       // Validate fields exist
       if (!bundleObj.data) {
         throw new Error('missing "data" in bundle');
@@ -232,6 +232,7 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
       // Load target public key generated from enclave and set in local storage
       targetPublicBuf = TKHQ.uint8arrayFromHexString(signedData.targetPublic);
       break;
+    }
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
   }
@@ -267,12 +268,13 @@ async function onExtractWalletEncryptedBundle(requestId) {
   if (!plaintext) {
     throw new Error("no wallet mnemonic entered");
   }
-  
+
   const passphrase = document.getElementById("passphrase").value;
 
   validateMnemonic(plaintext);
 
-  const combined = passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
+  const combined =
+    passphrase === "" ? plaintext : `${plaintext}\n--PASS--\n${passphrase}`;
   const plaintextBuf = new TextEncoder().encode(combined);
 
   // Encrypt the bundle using the enclave target public key

@@ -204,7 +204,7 @@ function base58Decode(s) {
  */
 function decodeKey(privateKey, keyFormat) {
   switch (keyFormat) {
-    case "SOLANA":
+    case "SOLANA": {
       const decodedKeyBytes = base58Decode(privateKey);
       if (decodedKeyBytes.length !== 64) {
         throw new Error(
@@ -212,6 +212,7 @@ function decodeKey(privateKey, keyFormat) {
         );
       }
       return decodedKeyBytes.subarray(0, 32);
+    }
     case "HEXADECIMAL":
       if (privateKey.startsWith("0x")) {
         return uint8arrayFromHexString(privateKey.slice(2));
@@ -454,16 +455,12 @@ function applySettings(settings) {
   const validSettings = {};
   const settingsObj = JSON.parse(settings);
 
-  const passphraseLabel = document.getElementById(
-    "passphrase-label"
-  );
+  const passphraseLabel = document.getElementById("passphrase-label");
   const mnemonicLabel = document.getElementById("mnemonic-label");
   const passphraseTextarea = document.getElementById("passphrase");
 
   if (!passphraseLabel || !passphraseTextarea) {
-    throw new Error(
-      "no passphrase HTML elements found to apply settings to."
-    );
+    throw new Error("no passphrase HTML elements found to apply settings to.");
   }
   const plaintextTextarea = document.getElementById("plaintext");
   if (!plaintextTextarea) {
@@ -517,7 +514,7 @@ function applySettings(settings) {
 
   if (settingsObj.passphraseStyles) {
     // Validate, sanitize, and apply the styles to the "passphrase" textarea.
-    const validStyles = TKHQ.validateStyles(settingsObj.passphraseStyles);
+    const validStyles = validateStyles(settingsObj.passphraseStyles);
     Object.entries(validStyles).forEach(([key, value]) => {
       passphraseTextarea.style[key] = value;
     });
@@ -529,7 +526,7 @@ function applySettings(settings) {
 
     validSettings["passphraseStyles"] = validStyles;
   }
-  
+
   return JSON.stringify(validSettings);
 }
 

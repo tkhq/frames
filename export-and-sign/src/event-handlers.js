@@ -3,8 +3,6 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 
-import { HpkeDecrypt } from "./crypto-utils.js";
-
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
@@ -56,32 +54,36 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
       }
 
       // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-      const signedData = JSON.parse(
-        textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
-      );
-
-      // Validate fields match
-      if (!organizationId) {
-        throw new Error(
-          `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
+      {
+        const signedData = JSON.parse(
+          textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
         );
-      } else if (
-        !signedData.organizationId ||
-        signedData.organizationId !== organizationId
-      ) {
-        throw new Error(
-          `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
-        );
-      }
 
-      if (!signedData.encappedPublic) {
-        throw new Error('missing "encappedPublic" in bundle signed data');
+        // Validate fields match
+        if (!organizationId) {
+          throw new Error(
+            `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
+          );
+        } else if (
+          !signedData.organizationId ||
+          signedData.organizationId !== organizationId
+        ) {
+          throw new Error(
+            `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
+          );
+        }
+
+        if (!signedData.encappedPublic) {
+          throw new Error('missing "encappedPublic" in bundle signed data');
+        }
+        if (!signedData.ciphertext) {
+          throw new Error('missing "ciphertext" in bundle signed data');
+        }
+        encappedKeyBuf = TKHQ.uint8arrayFromHexString(
+          signedData.encappedPublic
+        );
+        ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       }
-      if (!signedData.ciphertext) {
-        throw new Error('missing "ciphertext" in bundle signed data');
-      }
-      encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
-      ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       break;
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
@@ -269,13 +271,13 @@ async function onSignMessage(requestId, serializedMessage, address) {
     // Set up sha512 for nobleEd25519 (required for signing)
     nobleEd25519.etc.sha512Sync = (...m) =>
       nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
-    
+
     // Extract the 32-byte private key from the 64-byte secretKey
     // Solana keypair.secretKey format: [32-byte private key][32-byte public key]
     const privateKey = keypair.secretKey.slice(0, 32);
     // Sign the message using nobleEd25519
     const signature = nobleEd25519.sign(messageBytes, privateKey);
-    
+
     // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
     // Clients can verify the signature returned.
 
@@ -391,7 +393,9 @@ function clearAllExpiredKeys() {
  */
 function validateKey(key, keyAddress) {
   if (!key) {
-    throw new Error( `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`).toString();
+    throw new Error(
+      `key bytes not found. Please re-inject export bundle for address ${keyAddress} into iframe. Note that address is case sensitive.`
+    ).toString();
   }
 
   const now = new Date().getTime();
@@ -521,10 +525,12 @@ function initMessageEventListener(HpkeDecrypt) {
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
       );
       try {
-        await onInjectWalletBundle(
-          event.data["value"],
-          event.data["organizationId"],
+        await onInjectKeyBundle(
           event.data["requestId"],
+          event.data["organizationId"],
+          event.data["value"],
+          undefined, // keyFormat - default to HEXADECIMAL
+          undefined, // address - default to "default"
           HpkeDecrypt
         );
       } catch (e) {

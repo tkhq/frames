@@ -1,0 +1,19 @@
+name: "Git check"
+description: "Git sanity checks"
+
+runs:
+  using: "composite"
+
+  steps:
+    - name: Is Git clean?
+      run: |
+        if [ -z "$( git status --porcelain )" ]; then
+          echo "Git is clean!"
+          exit 0
+        else
+          echo "Git is dirty!"
+          git add -A
+          git --no-pager diff HEAD
+          exit 1
+        fi
+      shell: bash
