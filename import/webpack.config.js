@@ -107,13 +107,14 @@ module.exports = (env, argv) => {
         : []),
     ],
     resolve: {
-      extensions: [".js"],
+      extensions: [".js", ".mjs"],
       fallback: {
         crypto: false,
       },
       alias: {
         "@shared": path.resolve(__dirname, "../shared"),
       },
+      conditionNames: ["import", "require", "node", "default"],
     },
     optimization: {
       splitChunks: {
