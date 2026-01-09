@@ -82,6 +82,9 @@ module.exports = (env, argv) => {
       fallback: {
         crypto: false,
       },
+      alias: {
+        "@shared": path.resolve(__dirname, "../shared"),
+      },
     },
     optimization: {
       // Reproducible builds so CI "dist matches committed" check passes

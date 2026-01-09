@@ -20,6 +20,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
@@ -56,6 +57,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
@@ -88,6 +90,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
