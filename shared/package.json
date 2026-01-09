@@ -22,6 +22,7 @@
     "regenerator-runtime": "^0.14.1"
   },
   "dependencies": {
-    "@hpke/core": "1.7.5"
+    "@hpke/core": "1.7.5",
+    "bech32": "^2.0.0"
   }
 }

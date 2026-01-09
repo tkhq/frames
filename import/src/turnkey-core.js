@@ -18,6 +18,7 @@ const {
   uint8arrayFromHexString,
   uint8arrayToHexString,
   base58Decode,
+  base58CheckDecode,
   decodeKey,
   setParentFrameMessageChannelPort,
   normalizePadding,

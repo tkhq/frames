@@ -927,6 +927,7 @@ export {
   p256JWKPrivateToPublic,
   base58Encode,
   base58Decode,
+  base58CheckDecode,
   decodeKey,
   encodeKey,
   parsePrivateKey,
