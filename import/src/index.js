@@ -1,6 +1,6 @@
 import "./styles.css";
-import * as hpke from "@hpke/core";
 import * as TKHQ from "./turnkey-core.js";
+import { HpkeEncrypt } from "@shared/crypto-utils.js";
 
 // Make TKHQ available globally for backwards compatibility
 window.TKHQ = TKHQ;
@@ -347,61 +347,4 @@ async function onApplySettings(settings, requestId) {
   TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
 }
 
-async function HpkeEncrypt({ plaintextBuf, receiverPubJwk }) {
-  const kemContext = new hpke.DhkemP256HkdfSha256();
-  const receiverPub = await kemContext.importKey(
-    "jwk",
-    { ...receiverPubJwk },
-    true
-  );
-
-  const suite = new hpke.CipherSuite({
-    kem: kemContext,
-    kdf: new hpke.HkdfSha256(),
-    aead: new hpke.Aes256Gcm(),
-  });
-
-  const senderCtx = await suite.createSenderContext({
-    recipientPublicKey: receiverPub,
-    info: new TextEncoder().encode("turnkey_hpke"),
-  });
-
-  // Need to import the key again as a JWK to export as a raw key, the format needed to
-  // create the aad with the newly generated raw encapped key.
-  const receiverPubCryptoKey = await crypto.subtle.importKey(
-    "jwk",
-    receiverPubJwk,
-    {
-      name: "ECDSA",
-      namedCurve: "P-256",
-    },
-    true,
-    []
-  );
-  const receiverPubRaw = await crypto.subtle.exportKey(
-    "raw",
-    receiverPubCryptoKey
-  );
-  const receiverPubBuf = new Uint8Array(receiverPubRaw);
-
-  const encappedKeyBuf = new Uint8Array(senderCtx.enc);
-
-  const aad = TKHQ.additionalAssociatedData(encappedKeyBuf, receiverPubBuf);
-
-  var ciphertextBuf;
-  try {
-    ciphertextBuf = await senderCtx.seal(plaintextBuf, aad);
-  } catch (e) {
-    throw new Error("failed to encrypt import bundle: " + e.toString());
-  }
-
-  const ciphertextHex = TKHQ.uint8arrayToHexString(
-    new Uint8Array(ciphertextBuf)
-  );
-  const encappedKeyBufHex = TKHQ.uint8arrayToHexString(encappedKeyBuf);
-  const encryptedBundle = JSON.stringify({
-    encappedPublic: encappedKeyBufHex,
-    ciphertext: ciphertextHex,
-  });
-  return encryptedBundle;
-}
+// HpkeEncrypt is now imported from @shared/crypto-utils.js
