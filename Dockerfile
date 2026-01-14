@@ -3,6 +3,10 @@ FROM node:18-bullseye-slim AS builder
 
 WORKDIR /app
 
+# Copy shared directory first (needed by export-and-sign and import)
+COPY shared ./shared/
+RUN cd shared && npm ci
+
 # Copy export-and-sign module and build
 COPY export-and-sign ./export-and-sign/
 RUN cd export-and-sign && npm ci && npm run build
