@@ -130,6 +130,10 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install Dependencies for shared
+        working-directory: ./shared
+        run: npm install
+
       - name: Install Dependencies for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
         run: npm install
