@@ -1,11 +1,5 @@
-/**
- * Turnkey Core Module - Import Frame
- * Imports shared core functionality and adds frame-specific features
- */
-
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 
-// Re-export shared functions
 const {
   setCryptoProvider,
   loadTargetKey,
@@ -25,18 +19,12 @@ const {
   fromDerSignature,
   additionalAssociatedData,
   verifyEnclaveSignature,
-  validateStyles: sharedValidateStyles,
+  validateStyles,
 } = SharedTKHQ;
-
-// Frame-specific: validateStyles wrapper (import uses labelColor)
-function validateStyles(styles) {
-  return sharedValidateStyles(styles);
-}
 
 /**
  * Function to apply settings on this page. For now, the only settings that can be applied
  * are for "styles". Upon successful application, return the valid, sanitized settings JSON string.
- * Frame-specific implementation for import (applies to "plaintext" and "passphrase" elements).
  * @param {string} settings
  * @return {string}
  */
