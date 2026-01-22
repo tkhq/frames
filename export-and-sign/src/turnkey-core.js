@@ -1,14 +1,8 @@
-/**
- * Turnkey Core Module - Export-and-Sign Frame
- * Imports shared core functionality and adds frame-specific features
- */
-
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 import { fromDerSignature } from "@turnkey/crypto";
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 
-// Re-export shared functions
 const {
   initEmbeddedKey: sharedInitEmbeddedKey,
   generateTargetKey,
@@ -32,12 +26,14 @@ const {
   getSettings,
   setSettings,
   parsePrivateKey,
-  validateStyles: sharedValidateStyles,
+  validateStyles,
   isDoublyIframed,
   loadQuorumKey,
 } = SharedTKHQ;
 
-// Frame-specific: use shared initEmbeddedKey but with frame-specific check
+/**
+ * Creates a new public/private key pair and persists it in localStorage
+ */
 async function initEmbeddedKey() {
   if (isDoublyIframed()) {
     throw new Error("Doubly iframed");
@@ -45,7 +41,12 @@ async function initEmbeddedKey() {
   return await sharedInitEmbeddedKey();
 }
 
-// Frame-specific: verifyEnclaveSignature that uses fromDerSignature from @turnkey/crypto
+/**
+ * Function to verify enclave signature on import bundle received from the server.
+ * @param {string} enclaveQuorumPublic uncompressed public key for the quorum key which produced the signature
+ * @param {string} publicSignature signature bytes encoded as a hexadecimal string
+ * @param {string} signedData signed bytes encoded as a hexadecimal string. This could be public key bytes directly, or JSON-encoded bytes
+ */
 async function verifyEnclaveSignature(
   enclaveQuorumPublic,
   publicSignature,
@@ -109,14 +110,8 @@ async function verifyEnclaveSignature(
   );
 }
 
-// Frame-specific: validateStyles wrapper (export-and-sign doesn't use labelColor)
-function validateStyles(styles) {
-  return sharedValidateStyles(styles);
-}
-
 /**
  * Returns the public key bytes for a hex-encoded Ed25519 private key.
- * Frame-specific function for export-and-sign.
  * @param {string} privateKeyHex
  */
 function getEd25519PublicKey(privateKeyHex) {
@@ -128,7 +123,6 @@ function getEd25519PublicKey(privateKeyHex) {
 /**
  * Function to apply settings on this page. For now, the only settings that can be applied
  * are for "styles". Upon successful application, return the valid, sanitized settings JSON string.
- * Frame-specific implementation for export-and-sign (applies to "key-div" element).
  * @param {string} settings
  * @return {string}
  */

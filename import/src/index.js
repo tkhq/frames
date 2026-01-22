@@ -346,5 +346,3 @@ async function onApplySettings(settings, requestId) {
   // Send up SETTINGS_APPLIED message
   TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
 }
-
-// HpkeEncrypt is now imported from @shared/crypto-utils.js
