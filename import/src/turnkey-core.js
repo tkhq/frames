@@ -229,10 +229,13 @@ async function base58CheckDecode(s) {
   const computedChecksum = hash2.subarray(0, 4);
 
   // Verify checksum
-  for (let i = 0; i < 4; i++) {
-    if (checksum[i] !== computedChecksum[i]) {
-      throw new Error("invalid base58check checksum");
-    }
+  const mismatch =
+    (checksum[0] ^ computedChecksum[0]) |
+    (checksum[1] ^ computedChecksum[1]) |
+    (checksum[2] ^ computedChecksum[2]) |
+    (checksum[3] ^ computedChecksum[3]);
+  if (mismatch !== 0) {
+    throw new Error("invalid base58check checksum");
   }
 
   return payload;
@@ -252,7 +255,7 @@ async function decodeKey(privateKey, keyFormat) {
       const decodedKeyBytes = base58Decode(privateKey);
       if (decodedKeyBytes.length !== 64) {
         throw new Error(
-          `invalid key length. Expected 64 bytes. Got ${decodedKeyBytes.length()}.`
+          `invalid key length. Expected 64 bytes. Got ${decodedKeyBytes.length}.`
         );
       }
       return decodedKeyBytes.subarray(0, 32);
@@ -262,31 +265,55 @@ async function decodeKey(privateKey, keyFormat) {
         return uint8arrayFromHexString(privateKey.slice(2));
       }
       return uint8arrayFromHexString(privateKey);
-    case "BITCOIN_MAINNET_WIF":
+    case "BITCOIN_MAINNET_WIF": {
+      const payload = await base58CheckDecode(privateKey);
+
+      const version = payload[0];
+      const keyAndFlags = payload.subarray(1);
+
+      // 0x80 = mainnet
+      if (version !== 0x80) {
+        throw new Error(
+          `invalid WIF version byte: ${version}. Expected 0x80 (mainnet).`
+        );
+      }
+
+      // Check for common mistake: uncompressed keys
+      if (keyAndFlags.length === 32) {
+        throw new Error("uncompressed WIF keys not supported");
+      }
+
+      // Validate compressed format
+      if (keyAndFlags.length !== 33 || keyAndFlags[32] !== 0x01) {
+        throw new Error("invalid WIF format: expected compressed private key");
+      }
+
+      return keyAndFlags.subarray(0, 32);
+    }
     case "BITCOIN_TESTNET_WIF": {
       const payload = await base58CheckDecode(privateKey);
 
       const version = payload[0];
       const keyAndFlags = payload.subarray(1);
 
-      // 0x80 = mainnet, 0xEF = testnet
-      if (version !== 0x80 && version !== 0xef) {
+      // 0xEF = testnet
+      if (version !== 0xef) {
         throw new Error(
-          `invalid WIF version byte: ${version}. Expected 0x80 (mainnet) or 0xEF (testnet).`
+          `invalid WIF version byte: ${version}. Expected 0xEF (testnet).`
         );
       }
 
+      // Check for common mistake: uncompressed keys
       if (keyAndFlags.length === 32) {
-        throw new Error(
-          "uncompressed WIF not supported; please use a compressed WIF key"
-        );
+        throw new Error("uncompressed WIF keys not supported");
       }
 
-      if (keyAndFlags.length === 33 && keyAndFlags[32] === 0x01) {
-        return keyAndFlags.subarray(0, 32);
+      // Validate compressed format
+      if (keyAndFlags.length !== 33 || keyAndFlags[32] !== 0x01) {
+        throw new Error("invalid WIF format: expected compressed private key");
       }
 
-      throw new Error("invalid WIF payload format");
+      return keyAndFlags.subarray(0, 32);
     }
     case "SUI_BECH32": {
       const { prefix, words } = bech32.decode(privateKey);
