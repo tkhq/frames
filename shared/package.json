@@ -10,9 +10,6 @@
     "prettier:write": "prettier --write \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore"
   },
   "license": "MIT",
-  "dependencies": {
-    "@hpke/core": "1.7.5"
-  },
   "devDependencies": {
     "@babel/core": "^7.23.0",
     "@babel/preset-env": "^7.22.20",
