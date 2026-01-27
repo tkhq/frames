@@ -120,6 +120,67 @@ describe("TKHQ", () => {
     expect(encodedKey).toEqual(keySol);
   });
 
+  it("encodes bitcoin WIF private key correctly", async () => {
+    const keyWif = "L1sF5SF3CnCN9gA7vh7MAtbiVu9igdr3C1BYPKZduw4yaezdeCTV";
+    const keyWifBytes = TKHQ.base58Decode(keyWif).subarray(0, -4); // remove 4 byte checksum
+    expect(keyWifBytes.length).toEqual(34); // 1 byte version + 32 byte privkey + 1 byte compressed flag
+    const keyPrivBytes = keyWifBytes.subarray(1, 33);
+    const encodedKey = await TKHQ.encodeKey(
+      keyPrivBytes,
+      "BITCOIN_MAINNET_WIF"
+    );
+    expect(encodedKey).toEqual(keyWif);
+  });
+
+  // Bitcoin WIF export negative tests
+  it("rejects bitcoin WIF encoding with wrong private key length", async () => {
+    const tooShortKey = new Uint8Array(31).fill(0x42);
+    await expect(
+      TKHQ.encodeKey(tooShortKey, "BITCOIN_MAINNET_WIF")
+    ).rejects.toThrow("invalid private key length. Expected 32 bytes. Got 31.");
+
+    const tooLongKey = new Uint8Array(33).fill(0x42);
+    await expect(
+      TKHQ.encodeKey(tooLongKey, "BITCOIN_MAINNET_WIF")
+    ).rejects.toThrow("invalid private key length. Expected 32 bytes. Got 33.");
+  });
+
+  // Encodes Testnet WIF correctly
+  it("encodes bitcoin Testnet WIF private key correctly", async () => {
+    const keyWif = "cTVYYVnHVzNepyxZhB7fzRuneC6RVDJETJdGAoDc4RrirgghQxyR";
+    const keyWifBytes = TKHQ.base58Decode(keyWif).subarray(0, -4); // remove 4 byte checksum
+    expect(keyWifBytes.length).toEqual(34); // 1 byte version + 32 byte privkey + 1 byte compressed flag
+    const keyPrivBytes = keyWifBytes.subarray(1, 33);
+    const encodedKey = await TKHQ.encodeKey(
+      keyPrivBytes,
+      "BITCOIN_TESTNET_WIF"
+    );
+    expect(encodedKey).toEqual(keyWif);
+  });
+
+  it("encodes sui bech32 private key correctly", async () => {
+    const keySui =
+      "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
+    const { words } = TKHQ.decodeBech32(keySui);
+    const keySuiBytes = TKHQ.bech32FromWords(words).subarray(1); // remove 1 byte scheme flag
+    expect(keySuiBytes.length).toEqual(32);
+    const encodedKey = await TKHQ.encodeKey(keySuiBytes, "SUI_BECH32");
+    expect(encodedKey).toEqual(keySui);
+  });
+
+  // SUI Bech32 export negative tests
+  it("rejects sui bech32 encoding with wrong private key length", async () => {
+    const tooShortKey = new Uint8Array(31).fill(0x42);
+    await expect(TKHQ.encodeKey(tooShortKey, "SUI_BECH32")).rejects.toThrow(
+      "invalid private key length. Expected 32 bytes. Got 31."
+    );
+
+    const tooLongKey = new Uint8Array(33).fill(0x42);
+    await expect(TKHQ.encodeKey(tooLongKey, "SUI_BECH32")).rejects.toThrow(
+      "invalid private key length. Expected 32 bytes. Got 33."
+    );
+  });
+
   it("encodes wallet with only mnemonic correctly", async () => {
     const mnemonic =
       "suffer surround soup duck goose patrol add unveil appear eye neglect hurry alpha project tomorrow embody hen wish twenty join notable amused burden treat";

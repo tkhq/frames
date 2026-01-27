@@ -313,7 +313,7 @@ async function onExtractKeyEncryptedBundle(keyFormat, requestId) {
   if (!plaintext) {
     throw new Error("no private key entered");
   }
-  const plaintextBuf = TKHQ.decodeKey(plaintext, keyFormat);
+  const plaintextBuf = await TKHQ.decodeKey(plaintext, keyFormat);
 
   // Encrypt the bundle using the enclave target public key
   const encryptedBundle = await HpkeEncrypt({

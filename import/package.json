@@ -17,7 +17,8 @@
   "description": "Import iframe with webpack-managed dependencies",
   "license": "MIT",
   "dependencies": {
-    "@hpke/core": "1.7.5"
+    "@hpke/core": "1.7.5",
+    "bech32": "2.0.0"
   },
   "devDependencies": {
     "@babel/core": "7.23.0",
