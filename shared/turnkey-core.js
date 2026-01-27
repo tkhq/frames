@@ -594,7 +594,6 @@ function base58Decode(s) {
   return new Uint8Array(result);
 }
 
-
 /**
  * Decodes a base58check-encoded string and verifies the checksum.
  * Base58Check encoding includes a 4-byte checksum at the end to detect errors.
