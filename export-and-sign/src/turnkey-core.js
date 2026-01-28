@@ -289,10 +289,23 @@ async function verifyEnclaveSignature(
       "04f3422b8afbe425d6ece77b8d2469954715a2ff273ab7ac89f1ed70e0a9325eaa1698b4351fd1b23734e65c0b6a86b62dd49d70b37c94606aac402cbd84353212",
   };
 
-  // Use window.__TURNKEY_SIGNER_ENVIRONMENT__ if available (for testing), otherwise use the webpack replacement
-  const environment =
-    (typeof window !== "undefined" && window.__TURNKEY_SIGNER_ENVIRONMENT__) ||
-    "__TURNKEY_SIGNER_ENVIRONMENT__";
+  // Read environment from meta tag (templated at deploy time), fall back to window variable (for testing)
+  let environment = null;
+  if (typeof document !== "undefined") {
+    const meta = document.querySelector(
+      'meta[name="turnkey-signer-environment"]'
+    );
+    if (
+      meta &&
+      meta.content &&
+      meta.content !== "__TURNKEY_SIGNER_ENVIRONMENT__"
+    ) {
+      environment = meta.content;
+    }
+  }
+  if (!environment && typeof window !== "undefined") {
+    environment = window.__TURNKEY_SIGNER_ENVIRONMENT__;
+  }
   const TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY =
     TURNKEY_SIGNERS_ENCLAVES[environment];
 

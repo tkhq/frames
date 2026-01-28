@@ -84,6 +84,9 @@ module.exports = (env, argv) => {
       },
     },
     optimization: {
+      // Reproducible builds so CI "dist matches committed" check passes
+      moduleIds: "deterministic",
+      chunkIds: "deterministic",
       splitChunks: {
         chunks: "all",
         cacheGroups: {
