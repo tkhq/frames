@@ -32,6 +32,13 @@ jobs:
         with:
           node-version: 20
 
+      # Some frames (like import/export-and-sign) depend on code in ./shared.
+      # Ensure shared's dependencies (including bech32) are installed before running their tests.
+      - name: Install Dependencies for shared (for dependent frames)
+        if: ${{ matrix.directory == 'import' || matrix.directory == 'export-and-sign' }}
+        working-directory: ./shared
+        run: npm install
+
       - name: Install Dependencies for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
         run: npm install
