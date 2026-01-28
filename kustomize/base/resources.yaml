@@ -24,14 +24,15 @@ spec:
                 
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
 
-                # For export-and-sign, copy the webpack-built files and template the environment variable in JS files
+                # For export-and-sign, copy the webpack-built files and template the environment variable in HTML files
+                # Note: We template HTML instead of JS to preserve Subresource Integrity (SRI) hashes
                 if [ -d "export-and-sign" ]; then
                   cp -r export-and-sign/. templated/export-and-sign/;
                   ls -la templated/export-and-sign/
                 fi
 
-                # Template the environment variable in the built JavaScript files
-                for file in templated/export-and-sign/*.js; do
+                # Template the environment variable in the HTML files (not JS, to preserve SRI)
+                for file in templated/export-and-sign/*.html; do
                   if [ -f "$file" ]; then
                     if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
                       mv "$file.tmp" "$file"
