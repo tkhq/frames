@@ -18,6 +18,7 @@
   "license": "MIT",
   "dependencies": {
     "@hpke/core": "1.7.5",
+    "bech32": "2.0.0",
     "@noble/ed25519": "2.0.0",
     "@noble/hashes": "1.8.0",
     "@solana/web3.js": "1.98.4",
