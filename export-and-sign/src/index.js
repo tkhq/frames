@@ -3,7 +3,7 @@
 // Import relevant modules
 import { TKHQ } from "./turnkey-core.js";
 import { initEventHandlers } from "./event-handlers.js";
-import { HpkeDecrypt } from "./crypto-utils.js";
+import { HpkeDecrypt } from "@shared/crypto-utils.js";
 import "./styles.css";
 
 // Surface TKHQ for external access

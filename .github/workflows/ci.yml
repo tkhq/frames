@@ -20,6 +20,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
@@ -30,6 +31,13 @@ jobs:
         uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
         with:
           node-version: 20
+
+      # Some frames (like import/export-and-sign) depend on code in ./shared.
+      # Ensure shared's dependencies (including bech32) are installed before running their tests.
+      - name: Install Dependencies for shared (for dependent frames)
+        if: ${{ matrix.directory == 'import' || matrix.directory == 'export-and-sign' }}
+        working-directory: ./shared
+        run: npm install
 
       - name: Install Dependencies for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
@@ -56,6 +64,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
@@ -88,6 +97,7 @@ jobs:
             'export-and-sign',
             'oauth-origin',
             'oauth-redirect',
+            'shared',
           ]
 
     steps:
@@ -126,6 +136,10 @@ jobs:
         uses: actions/setup-node@8c91899e586c5b171469028077307d293428b516 # v3.5.1
         with:
           node-version: 20
+
+      - name: Install Dependencies for shared
+        working-directory: ./shared
+        run: npm install
 
       - name: Install Dependencies for ${{ matrix.directory }}
         working-directory: ./${{ matrix.directory }}
