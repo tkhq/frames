@@ -22,7 +22,6 @@ const {
   setParentFrameMessageChannelPort,
   normalizePadding,
   additionalAssociatedData,
-  verifyEnclaveSignature: sharedVerifyEnclaveSignature,
   getSettings,
   setSettings,
   parsePrivateKey,

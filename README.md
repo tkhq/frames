@@ -37,6 +37,18 @@ This self-contained HTML page processes OAuth callbacks from identity providers 
 
 This page is hosted at https://oauth-redirect.turnkey.com/
 
+# Subfolders and build status
+
+| Subfolder        | Build in Docker | Notes |
+|------------------|-----------------|--------|
+| `shared`         | No              | Dependencies only (`npm ci`). Consumed by `export-and-sign` and `import`. |
+| `auth`           | No              | Static files, copied as-is. Also served at `/recovery` for compatibility. |
+| `export`         | No              | Static files, copied as-is. |
+| `export-and-sign`| Yes             | Webpack build; output in `dist/`. |
+| `import`         | Yes             | Webpack build; output in `dist/`. |
+| `oauth-origin`   | No              | Static files, copied as-is. |
+| `oauth-redirect` | No              | Static files, copied as-is. |
+
 # Getting Started
 
 Clone the repo:
