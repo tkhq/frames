@@ -1644,6 +1644,7 @@
         passphraseInput.placeholder = "Enter passphrase (min 8 characters)";
         passphraseInput.required = true;
         passphraseInput.setAttribute("aria-required", "true");
+        passphraseInput.setAttribute("autocomplete", "new-password");
         passphraseInput.minLength = 8;
         formDiv.appendChild(passphraseInput);
 
@@ -1659,6 +1660,7 @@
         confirmInput.placeholder = "Confirm passphrase";
         confirmInput.required = true;
         confirmInput.setAttribute("aria-required", "true");
+        confirmInput.setAttribute("autocomplete", "new-password");
         formDiv.appendChild(confirmInput);
 
         // Create error message paragraph
