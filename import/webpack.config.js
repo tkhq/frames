@@ -8,6 +8,7 @@ module.exports = (env, argv) => {
 
   return {
     mode: isProduction ? "production" : "development",
+    context: __dirname, // Set context to frame directory so module resolution works correctly
     entry: {
       index: "./src/index.js",
       standalone: "./src/standalone.js",
@@ -107,10 +108,23 @@ module.exports = (env, argv) => {
         : []),
     ],
     resolve: {
-      extensions: [".js"],
+      extensions: [".js", ".mjs"],
       fallback: {
         crypto: false,
       },
+      alias: {
+        "@shared": path.resolve(__dirname, "../shared"),
+      },
+      conditionNames: ["import", "require", "node", "default"],
+      // Ensure modules are resolved from frame's node_modules, not shared folder's
+      modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
+      // Don't use package.json from shared folder for module resolution
+      descriptionFiles: ["package.json"],
+      // Force resolution to start from context (frame directory) not file location
+      symlinks: false,
+    },
+    resolveLoader: {
+      modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
     },
     optimization: {
       splitChunks: {
