@@ -556,7 +556,7 @@ describe("Passphrase Form Validation", () => {
 
   // Helper to create the passphrase form elements (mimics displayPassphraseForm)
   function createPassphraseForm() {
-    const formDiv = document.createElement("div");
+    const formDiv = document.createElement("form");
     formDiv.id = "passphrase-form-div";
 
     const passphraseInput = document.createElement("input");
@@ -575,7 +575,7 @@ describe("Passphrase Form Validation", () => {
     formDiv.appendChild(errorMsg);
 
     const submitButton = document.createElement("button");
-    submitButton.type = "button";
+    submitButton.type = "submit";
     submitButton.id = "encrypt-and-export";
     formDiv.appendChild(submitButton);
 
@@ -584,11 +584,18 @@ describe("Passphrase Form Validation", () => {
     return { formDiv, passphraseInput, confirmInput, errorMsg, submitButton };
   }
 
-  // Helper to create click handler that mimics displayPassphraseForm logic
-  function addValidationHandler(elements, mnemonic, onSuccess) {
-    const { passphraseInput, confirmInput, errorMsg, submitButton } = elements;
+  // Helper to submit form (triggers validation)
+  function submitForm(elements) {
+    const event = new dom.window.Event("submit", { bubbles: true, cancelable: true });
+    elements.formDiv.dispatchEvent(event);
+  }
 
-    submitButton.addEventListener("click", async () => {
+  // Helper to create submit handler that mimics displayPassphraseForm logic
+  function addValidationHandler(elements, mnemonic, onSuccess) {
+    const { formDiv, passphraseInput, confirmInput, errorMsg } = elements;
+
+    formDiv.addEventListener("submit", async (event) => {
+      event.preventDefault();
       const passphrase = passphraseInput.value;
       const confirmPassphrase = confirmInput.value;
 
@@ -641,8 +648,8 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "short";
     elements.confirmInput.value = "short";
 
-    // Click submit
-    elements.submitButton.click();
+    // Submit form
+    submitForm(elements);
 
     // Error should be displayed
     expect(elements.errorMsg.style.display).toBe("block");
@@ -659,7 +666,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "1234567";
     elements.confirmInput.value = "1234567";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     expect(elements.errorMsg.style.display).toBe("block");
     expect(elements.errorMsg.innerText).toBe(
@@ -679,7 +686,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "12345678";
     elements.confirmInput.value = "12345678";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     // Allow async handler to complete
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -696,7 +703,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "password123";
     elements.confirmInput.value = "password456";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     expect(elements.errorMsg.style.display).toBe("block");
     expect(elements.errorMsg.innerText).toBe("Passphrases do not match.");
@@ -710,7 +717,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "short";
     elements.confirmInput.value = "diff";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     // Length error should take precedence
     expect(elements.errorMsg.style.display).toBe("block");
@@ -726,13 +733,13 @@ describe("Passphrase Form Validation", () => {
     // First trigger an error
     elements.passphraseInput.value = "short";
     elements.confirmInput.value = "short";
-    elements.submitButton.click();
+    submitForm(elements);
     expect(elements.errorMsg.style.display).toBe("block");
 
     // Now enter valid passphrases
     elements.passphraseInput.value = "validpassword123";
     elements.confirmInput.value = "validpassword123";
-    elements.submitButton.click();
+    submitForm(elements);
 
     // Allow async handler to complete
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -749,7 +756,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "short";
     elements.confirmInput.value = "";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     // Should show length error, not mismatch
     expect(elements.errorMsg.innerText).toBe(
@@ -770,7 +777,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = specialPass;
     elements.confirmInput.value = specialPass;
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -791,7 +798,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = unicodePass;
     elements.confirmInput.value = unicodePass;
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -807,7 +814,7 @@ describe("Passphrase Form Validation", () => {
     elements.passphraseInput.value = "Password123";
     elements.confirmInput.value = "password123";
 
-    elements.submitButton.click();
+    submitForm(elements);
 
     expect(elements.errorMsg.style.display).toBe("block");
     expect(elements.errorMsg.innerText).toBe("Passphrases do not match.");

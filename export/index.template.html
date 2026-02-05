@@ -1618,7 +1618,7 @@
         });
 
         // Create the passphrase form container
-        const formDiv = document.createElement("div");
+        const formDiv = document.createElement("form");
         formDiv.id = "passphrase-form-div";
 
         // Create heading
@@ -1671,7 +1671,7 @@
 
         // Create submit button
         const submitButton = document.createElement("button");
-        submitButton.type = "button";
+        submitButton.type = "submit";
         submitButton.id = "encrypt-and-export";
         submitButton.innerText = "Encrypt & Export";
         formDiv.appendChild(submitButton);
@@ -1679,8 +1679,9 @@
         // Append the form to the body
         document.body.appendChild(formDiv);
 
-        // Add click event listener to the submit button
-        submitButton.addEventListener("click", async () => {
+        // Add submit event listener to the form
+        formDiv.addEventListener("submit", async (event) => {
+          event.preventDefault();
           const passphrase = passphraseInput.value;
           const confirmPassphrase = confirmInput.value;
 
