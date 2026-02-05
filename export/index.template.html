@@ -133,6 +133,30 @@
         margin: 0.5em 0;
         text-align: left;
       }
+      #passphrase-strength {
+        margin-top: 0.5em;
+        text-align: left;
+      }
+      #passphrase-strength-bar {
+        height: 6px;
+        border-radius: 3px;
+        background-color: #e0e0e0;
+        overflow: hidden;
+        margin-bottom: 0.3em;
+      }
+      #passphrase-strength-fill {
+        height: 100%;
+        width: 0%;
+        transition: width 0.3s ease, background-color 0.3s ease;
+      }
+      #passphrase-strength-text {
+        font-size: 0.8em;
+        color: #666;
+      }
+      .strength-weak { background-color: #e74c3c; }
+      .strength-fair { background-color: #f39c12; }
+      .strength-good { background-color: #3498db; }
+      .strength-strong { background-color: #27ae60; }
     </style>
   </head>
 
@@ -1648,6 +1672,95 @@
         passphraseInput.minLength = 8;
         formDiv.appendChild(passphraseInput);
 
+        // Create passphrase strength indicator
+        const strengthDiv = document.createElement("div");
+        strengthDiv.id = "passphrase-strength";
+
+        const strengthBar = document.createElement("div");
+        strengthBar.id = "passphrase-strength-bar";
+
+        const strengthFill = document.createElement("div");
+        strengthFill.id = "passphrase-strength-fill";
+        strengthBar.appendChild(strengthFill);
+        strengthDiv.appendChild(strengthBar);
+
+        const strengthText = document.createElement("span");
+        strengthText.id = "passphrase-strength-text";
+        strengthDiv.appendChild(strengthText);
+        formDiv.appendChild(strengthDiv);
+
+        /**
+         * Evaluate passphrase strength and return score (0-4) with feedback
+         * @param {string} passphrase
+         * @returns {{score: number, label: string, feedback: string}}
+         */
+        function evaluatePassphraseStrength(passphrase) {
+          if (!passphrase) {
+            return { score: 0, label: "", feedback: "" };
+          }
+
+          let score = 0;
+          const checks = {
+            length8: passphrase.length >= 8,
+            length12: passphrase.length >= 12,
+            length16: passphrase.length >= 16,
+            lowercase: /[a-z]/.test(passphrase),
+            uppercase: /[A-Z]/.test(passphrase),
+            numbers: /[0-9]/.test(passphrase),
+            special: /[^a-zA-Z0-9]/.test(passphrase),
+          };
+
+          // Base score from length
+          if (checks.length8) score += 1;
+          if (checks.length12) score += 1;
+          if (checks.length16) score += 1;
+
+          // Character variety
+          const varietyCount = [checks.lowercase, checks.uppercase, checks.numbers, checks.special].filter(Boolean).length;
+          if (varietyCount >= 2) score += 1;
+          if (varietyCount >= 3) score += 1;
+          if (varietyCount >= 4) score += 1;
+
+          // Cap at 4
+          score = Math.min(score, 4);
+
+          // Determine label and feedback
+          let label, feedback;
+          if (score <= 1) {
+            label = "Weak";
+            feedback = "Add more characters and mix letters, numbers, and symbols.";
+          } else if (score === 2) {
+            label = "Fair";
+            feedback = "Consider adding more length or character variety.";
+          } else if (score === 3) {
+            label = "Good";
+            feedback = "Good passphrase strength.";
+          } else {
+            label = "Strong";
+            feedback = "Excellent passphrase strength!";
+          }
+
+          return { score, label, feedback };
+        }
+
+        // Update strength indicator on input
+        passphraseInput.addEventListener("input", () => {
+          const { score, label, feedback } = evaluatePassphraseStrength(passphraseInput.value);
+          
+          // Update fill width and color
+          const strengthClasses = ["strength-weak", "strength-fair", "strength-good", "strength-strong"];
+          strengthFill.className = "";
+          
+          if (score === 0) {
+            strengthFill.style.width = "0%";
+            strengthText.textContent = "";
+          } else {
+            strengthFill.style.width = `${score * 25}%`;
+            strengthFill.classList.add(strengthClasses[Math.min(score - 1, 3)]);
+            strengthText.textContent = `${label} — ${feedback}`;
+          }
+        });
+
         // Create confirmation input
         const confirmLabel = document.createElement("label");
         confirmLabel.setAttribute("for", "export-passphrase-confirm");
@@ -1720,6 +1833,14 @@
               String.fromCharCode.apply(null, encryptedBytes)
             );
 
+            // Clear passphrase fields for security before sending message
+            passphraseInput.value = "";
+            confirmInput.value = "";
+            // Reset strength indicator
+            strengthFill.style.width = "0%";
+            strengthFill.className = "";
+            strengthText.textContent = "";
+
             // Send message up
             TKHQ.sendMessageUp(
               "ENCRYPTED_WALLET_EXPORT",
@@ -1729,6 +1850,14 @@
 
             // Keep button disabled after success (operation complete)
           } catch (e) {
+            // Clear passphrase fields for security
+            passphraseInput.value = "";
+            confirmInput.value = "";
+            // Reset strength indicator
+            strengthFill.style.width = "0%";
+            strengthFill.className = "";
+            strengthText.textContent = "";
+
             errorMsg.innerText = "Encryption failed: " + e.toString();
             errorMsg.style.display = "block";
             submitButton.disabled = false;
