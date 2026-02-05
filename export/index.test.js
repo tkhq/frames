@@ -1,44 +1,25 @@
 import "@testing-library/jest-dom";
-import { JSDOM } from "jsdom";
-import fs from "fs";
-import path from "path";
 import * as crypto from "crypto";
+import * as TKHQ from "./src/turnkey-core.js";
 
-const html = fs
-  .readFileSync(path.resolve(__dirname, "./index.template.html"), "utf8")
-  .replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
-
-let dom;
-let TKHQ;
 
 describe("TKHQ", () => {
   beforeEach(() => {
-    dom = new JSDOM(html, {
-      // Necessary to run script tags
-      runScripts: "dangerously",
-      // Necessary to have access to localStorage
-      url: "http://localhost",
-      // Necessary for TextDecoder to be available.
-      // See https://github.com/jsdom/jsdom/issues/2524
-      beforeParse(window) {
-        window.TextDecoder = TextDecoder;
-        window.TextEncoder = TextEncoder;
-      },
-    });
+    window.TextDecoder = global.TextDecoder;
+    window.TextEncoder = global.TextEncoder;
+    window.__TURNKEY_SIGNER_ENVIRONMENT__ = "prod";
 
-    // Necessary for crypto to be available.
-    // See https://github.com/jsdom/jsdom/issues/1612
-    Object.defineProperty(dom.window, "crypto", {
-      value: crypto.webcrypto,
-    });
+    global.crypto = crypto.webcrypto;
+    window.crypto = crypto.webcrypto;
+    TKHQ.setCryptoProvider(crypto.webcrypto);
 
-    TKHQ = dom.window.TKHQ;
+    window.localStorage.clear();
   });
 
   it("gets and sets items with expiry localStorage", async () => {
     // Set a TTL of 1000ms
     TKHQ.setItemWithExpiry("k", "v", 1000);
-    let item = JSON.parse(dom.window.localStorage.getItem("k"));
+    let item = JSON.parse(window.localStorage.getItem("k"));
     expect(item.value).toBe("v");
     expect(item.expiry).toBeTruthy();
 

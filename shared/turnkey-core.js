@@ -640,6 +640,28 @@ async function base58CheckDecode(s) {
 }
 
 /**
+ * Encodes a Uint8Array into a base58-check-encoded string
+ * Throws an error if the input is invalid or the checksum is invalid.
+ * @param {Uint8Array} payload The raw payload to encode.
+ * @return {Promise<string>} The base58check-encoded string.
+ */
+async function base58CheckEncode(payload) {
+  const hash1Buf = await crypto.subtle.digest("SHA-256", payload);
+  const hash1 = new Uint8Array(hash1Buf);
+
+  const hash2Buf = await crypto.subtle.digest("SHA-256", hash1);
+  const hash2 = new Uint8Array(hash2Buf);
+
+  const checksum = hash2.slice(0, 4);
+
+  const full = new Uint8Array(payload.length + 4);
+  full.set(payload, 0);
+  full.set(checksum, payload.length);
+
+  return base58Encode(full);
+}
+
+/**
  * Returns private key bytes from a private key, represented in
  * the encoding and format specified by `keyFormat`. Defaults to
  * hex-encoding if `keyFormat` isn't passed.
@@ -757,13 +779,15 @@ async function decodeKey(privateKey, keyFormat) {
  * the encoding and format specified by `keyFormat`. Defaults to
  * hex-encoding if `keyFormat` isn't passed.
  * @param {Uint8Array} privateKeyBytes
- * @param {string} keyFormat Can be "HEXADECIMAL" or "SOLANA"
+ * @param {string} keyFormat Can be "HEXADECIMAL", "SUI_BECH32", "BITCOIN_MAINNET_WIF", "BITCOIN_TESTNET_WIF" or "SOLANA"
  */
 async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
   switch (keyFormat) {
     case "SOLANA":
       if (!publicKeyBytes) {
-        throw new Error("public key must be specified for SOLANA key format");
+        throw new Error(
+          "public key must be specified for SOLANA key format"
+        );
       }
       if (privateKeyBytes.length !== 32) {
         throw new Error(
@@ -775,17 +799,42 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
           `invalid public key length. Expected 32 bytes. Got ${publicKeyBytes.length}.`
         );
       }
-      {
-        const concatenatedBytes = new Uint8Array(64);
-        concatenatedBytes.set(privateKeyBytes, 0);
-        concatenatedBytes.set(publicKeyBytes, 32);
-        return base58Encode(concatenatedBytes);
-      }
+      const concatenatedBytes = new Uint8Array(64);
+      concatenatedBytes.set(privateKeyBytes, 0);
+      concatenatedBytes.set(publicKeyBytes, 32);
+      return base58Encode(concatenatedBytes);
     case "HEXADECIMAL":
       return "0x" + uint8arrayToHexString(privateKeyBytes);
+    case "BITCOIN_MAINNET_WIF":
+    case "BITCOIN_TESTNET_WIF": {
+      if (privateKeyBytes.length !== 32) {
+        throw new Error(
+          `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
+        );
+      }
+
+      const version = keyFormat === "BITCOIN_MAINNET_WIF" ? 0x80 : 0xef;
+      const wifPayload = new Uint8Array(34);
+      wifPayload[0] = version;
+      wifPayload.set(privateKeyBytes, 1);
+      wifPayload[33] = 0x01; // compressed flag
+
+      return await base58CheckEncode(wifPayload);
+    }
+    case "SUI_BECH32":
+      if (privateKeyBytes.length !== 32) {
+        throw new Error(
+          `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
+        );
+      }
+
+      const schemeFlag = 0x00; // ED25519 | We only support ED25519 keys for Sui currently
+      const bech32Payload = new Uint8Array(1 + 32);
+      bech32Payload[0] = schemeFlag;
+      bech32Payload.set(privateKeyBytes, 1);
+
+      return encodeBech32("suiprivkey", bech32Payload);
     default:
-      // keeping console.warn for debugging purposes.
-      // eslint-disable-next-line no-console
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
       );
@@ -927,6 +976,7 @@ export {
   base58Encode,
   base58Decode,
   base58CheckDecode,
+  base58CheckEncode,
   decodeKey,
   encodeKey,
   parsePrivateKey,
