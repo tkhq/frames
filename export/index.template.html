@@ -153,10 +153,18 @@
         font-size: 0.8em;
         color: #666;
       }
-      .strength-weak { background-color: #e74c3c; }
-      .strength-fair { background-color: #f39c12; }
-      .strength-good { background-color: #3498db; }
-      .strength-strong { background-color: #27ae60; }
+      .strength-weak {
+        background-color: #e74c3c;
+      }
+      .strength-fair {
+        background-color: #f39c12;
+      }
+      .strength-good {
+        background-color: #3498db;
+      }
+      .strength-strong {
+        background-color: #27ae60;
+      }
     </style>
   </head>
 
@@ -1494,7 +1502,10 @@
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
-        if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE_ENCRYPTED") {
+        if (
+          event.data &&
+          event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE_ENCRYPTED"
+        ) {
           TKHQ.logMessage(
             `⬇️ Received message ${event.data["type"]}:  ${event.data["value"]}, ${event.data["organizationId"]}`
           );
@@ -1716,7 +1727,12 @@
           if (checks.length16) score += 1;
 
           // Character variety
-          const varietyCount = [checks.lowercase, checks.uppercase, checks.numbers, checks.special].filter(Boolean).length;
+          const varietyCount = [
+            checks.lowercase,
+            checks.uppercase,
+            checks.numbers,
+            checks.special,
+          ].filter(Boolean).length;
           if (varietyCount >= 2) score += 1;
           if (varietyCount >= 3) score += 1;
           if (varietyCount >= 4) score += 1;
@@ -1728,7 +1744,8 @@
           let label, feedback;
           if (score <= 1) {
             label = "Weak";
-            feedback = "Add more characters and mix letters, numbers, and symbols.";
+            feedback =
+              "Add more characters and mix letters, numbers, and symbols.";
           } else if (score === 2) {
             label = "Fair";
             feedback = "Consider adding more length or character variety.";
@@ -1745,12 +1762,19 @@
 
         // Update strength indicator on input
         passphraseInput.addEventListener("input", () => {
-          const { score, label, feedback } = evaluatePassphraseStrength(passphraseInput.value);
-          
+          const { score, label, feedback } = evaluatePassphraseStrength(
+            passphraseInput.value
+          );
+
           // Update fill width and color
-          const strengthClasses = ["strength-weak", "strength-fair", "strength-good", "strength-strong"];
+          const strengthClasses = [
+            "strength-weak",
+            "strength-fair",
+            "strength-good",
+            "strength-strong",
+          ];
           strengthFill.className = "";
-          
+
           if (score === 0) {
             strengthFill.style.width = "0%";
             strengthText.textContent = "";
@@ -1845,7 +1869,8 @@
 
             // Zero out sensitive byte arrays (mutable, so we can wipe them)
             for (let i = 0; i < mnemonicBytes.length; i++) mnemonicBytes[i] = 0;
-            for (let i = 0; i < encryptedBytes.length; i++) encryptedBytes[i] = 0;
+            for (let i = 0; i < encryptedBytes.length; i++)
+              encryptedBytes[i] = 0;
 
             // Clear the mnemonic closure reference (can't truly zero a JS string, but removes the easy reference)
             mnemonic = "";
@@ -1862,10 +1887,12 @@
           } catch (e) {
             // Zero out sensitive byte arrays if they were created
             if (mnemonicBytes) {
-              for (let i = 0; i < mnemonicBytes.length; i++) mnemonicBytes[i] = 0;
+              for (let i = 0; i < mnemonicBytes.length; i++)
+                mnemonicBytes[i] = 0;
             }
             if (encryptedBytes) {
-              for (let i = 0; i < encryptedBytes.length; i++) encryptedBytes[i] = 0;
+              for (let i = 0; i < encryptedBytes.length; i++)
+                encryptedBytes[i] = 0;
             }
 
             // Clear passphrase fields for security

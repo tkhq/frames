@@ -466,7 +466,8 @@ describe("TKHQ", () => {
   });
 
   it("decrypts data encrypted by encryptWithPassphrase correctly", async () => {
-    const originalText = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+    const originalText =
+      "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     const plaintext = new TextEncoder().encode(originalText);
     const passphrase = "mySecurePassphrase!";
 
@@ -486,7 +487,10 @@ describe("TKHQ", () => {
     const correctPassphrase = "correctPassphrase";
     const wrongPassphrase = "wrongPassphrase";
 
-    const encrypted = await TKHQ.encryptWithPassphrase(plaintext, correctPassphrase);
+    const encrypted = await TKHQ.encryptWithPassphrase(
+      plaintext,
+      correctPassphrase
+    );
 
     // Attempting to decrypt with wrong passphrase should throw
     await expect(
@@ -523,10 +527,15 @@ describe("TKHQ", () => {
     const mnemonicBytes = new TextEncoder().encode(mnemonic);
 
     // Encrypt
-    const encrypted = await TKHQ.encryptWithPassphrase(mnemonicBytes, passphrase);
+    const encrypted = await TKHQ.encryptWithPassphrase(
+      mnemonicBytes,
+      passphrase
+    );
 
     // Convert to base64 (as would be done in displayPassphraseForm)
-    const encryptedBase64 = btoa(Array.from(encrypted, (b) => String.fromCharCode(b)).join(""));
+    const encryptedBase64 = btoa(
+      Array.from(encrypted, (b) => String.fromCharCode(b)).join("")
+    );
     expect(typeof encryptedBase64).toBe("string");
     expect(encryptedBase64.length).toBeGreaterThan(0);
 
@@ -538,7 +547,10 @@ describe("TKHQ", () => {
     );
 
     // Decrypt
-    const decrypted = await TKHQ.decryptWithPassphrase(encryptedFromBase64, passphrase);
+    const decrypted = await TKHQ.decryptWithPassphrase(
+      encryptedFromBase64,
+      passphrase
+    );
     const decryptedMnemonic = new TextDecoder().decode(decrypted);
 
     expect(decryptedMnemonic).toBe(mnemonic);
@@ -586,7 +598,10 @@ describe("Passphrase Form Validation", () => {
 
   // Helper to submit form (triggers validation)
   function submitForm(elements) {
-    const event = new dom.window.Event("submit", { bubbles: true, cancelable: true });
+    const event = new dom.window.Event("submit", {
+      bubbles: true,
+      cancelable: true,
+    });
     elements.formDiv.dispatchEvent(event);
   }
 
