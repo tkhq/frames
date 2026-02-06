@@ -2,6 +2,7 @@ import "./styles.css";
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes"
+import { sha512 } from "@noble/hashes/sha2.js";
 
 const {
   getSettings,
@@ -73,7 +74,8 @@ function applySettings(settings) {
  */
 function getEd25519PublicKey(privateKeyHex) {
   nobleEd25519.etc.sha512Sync = (...m) =>
-    nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
+    sha512(nobleEd25519.etc.concatBytes(...m));
+
   return nobleEd25519.getPublicKey(privateKeyHex);
 }
 

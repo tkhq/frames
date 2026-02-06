@@ -833,7 +833,7 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
       bech32Payload[0] = schemeFlag;
       bech32Payload.set(privateKeyBytes, 1);
 
-      return encodeBech32("suiprivkey", bech32Payload);
+      return bech32.encode("suiprivkey", bech32.toWords(bech32Payload));
     default:
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`
