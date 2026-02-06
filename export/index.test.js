@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom";
 import * as crypto from "crypto";
 import * as TKHQ from "./src/turnkey-core.js";
+import { bech32 } from "bech32";
 
 describe("TKHQ", () => {
   beforeEach(() => {
@@ -34,7 +35,7 @@ describe("TKHQ", () => {
     }, 600); // Wait for 600ms to ensure the item has expired
 
     // Returns null if getItemWithExpiry is called for item without expiry
-    dom.window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
+    window.localStorage.setItem("k", JSON.stringify({ value: "v" }));
     item = TKHQ.getItemWithExpiry("k");
     expect(item).toBeNull();
   });
@@ -141,10 +142,10 @@ describe("TKHQ", () => {
   it("encodes sui bech32 private key correctly", async () => {
     const keySui =
       "suiprivkey1qpj5xd9396rxsu7h45tzccalhuf95e4pygls3ps9txszn9ywpwsnznaeq0l";
-    const { words } = TKHQ.decodeBech32(keySui);
-    const keySuiBytes = TKHQ.bech32FromWords(words).subarray(1); // remove 1 byte scheme flag
-    expect(keySuiBytes.length).toEqual(32);
-    const encodedKey = await TKHQ.encodeKey(keySuiBytes, "SUI_BECH32");
+    const { words } = bech32.decode(keySui);
+    const keyBytes = Uint8Array.from(bech32.fromWords(words)).subarray(1); // remove 1 byte scheme flag
+    expect(keyBytes.length).toEqual(32);
+    const encodedKey = await TKHQ.encodeKey(keyBytes, "SUI_BECH32");
     expect(encodedKey).toEqual(keySui);
   });
 

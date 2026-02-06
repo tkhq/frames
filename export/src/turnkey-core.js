@@ -1,4 +1,3 @@
-import "./styles.css";
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 import * as nobleEd25519 from "@noble/ed25519";
 import { sha512 } from "@noble/hashes/sha2.js";
@@ -27,6 +26,7 @@ const {
   generateTargetKey,
   initEmbeddedKey,
   logMessage,
+  setCryptoProvider,
 } = SharedTKHQ;
 
 /**
@@ -151,6 +151,7 @@ export {
   getSettings,
   setSettings,
   logMessage,
+  setCryptoProvider,
   getItemWithExpiry,
   getEd25519PublicKey,
   applySettings,
