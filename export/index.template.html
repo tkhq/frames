@@ -1817,13 +1817,15 @@
           errorMsg.style.display = "none";
           submitButton.disabled = true;
 
+          let mnemonicBytes;
+          let encryptedBytes;
           try {
             // Encode mnemonic to Uint8Array
             const encoder = new TextEncoder();
-            const mnemonicBytes = encoder.encode(mnemonic);
+            mnemonicBytes = encoder.encode(mnemonic);
 
             // Encrypt with passphrase
-            const encryptedBytes = await TKHQ.encryptWithPassphrase(
+            encryptedBytes = await TKHQ.encryptWithPassphrase(
               mnemonicBytes,
               passphrase
             );
@@ -1841,6 +1843,13 @@
             strengthFill.className = "";
             strengthText.textContent = "";
 
+            // Zero out sensitive byte arrays (mutable, so we can wipe them)
+            for (let i = 0; i < mnemonicBytes.length; i++) mnemonicBytes[i] = 0;
+            for (let i = 0; i < encryptedBytes.length; i++) encryptedBytes[i] = 0;
+
+            // Clear the mnemonic closure reference (can't truly zero a JS string, but removes the easy reference)
+            mnemonic = "";
+
             // Send message up
             TKHQ.sendMessageUp(
               "ENCRYPTED_WALLET_EXPORT",
@@ -1848,8 +1857,17 @@
               requestId
             );
 
-            // Keep button disabled after success (operation complete)
+            // Remove the entire form from the DOM — no sensitive material should linger
+            formDiv.remove();
           } catch (e) {
+            // Zero out sensitive byte arrays if they were created
+            if (mnemonicBytes) {
+              for (let i = 0; i < mnemonicBytes.length; i++) mnemonicBytes[i] = 0;
+            }
+            if (encryptedBytes) {
+              for (let i = 0; i < encryptedBytes.length; i++) encryptedBytes[i] = 0;
+            }
+
             // Clear passphrase fields for security
             passphraseInput.value = "";
             confirmInput.value = "";
