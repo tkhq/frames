@@ -526,7 +526,7 @@ describe("TKHQ", () => {
     const encrypted = await TKHQ.encryptWithPassphrase(mnemonicBytes, passphrase);
 
     // Convert to base64 (as would be done in displayPassphraseForm)
-    const encryptedBase64 = btoa(String.fromCharCode.apply(null, encrypted));
+    const encryptedBase64 = btoa(Array.from(encrypted, (b) => String.fromCharCode(b)).join(""));
     expect(typeof encryptedBase64).toBe("string");
     expect(encryptedBase64.length).toBeGreaterThan(0);
 

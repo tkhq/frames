@@ -1832,7 +1832,7 @@
 
             // Convert to base64
             const encryptedBase64 = btoa(
-              String.fromCharCode.apply(null, encryptedBytes)
+              Array.from(encryptedBytes, (b) => String.fromCharCode(b)).join("")
             );
 
             // Clear passphrase fields for security before sending message
