@@ -13,47 +13,6 @@ const messageListenerController = new AbortController();
 const turnkeyInitController = new AbortController();
 
 /**
- * DOM Event handlers to power the export flow in standalone mode
- * Instead of receiving events from the parent page, forms trigger them.
- * This is useful for debugging as well.
- */
-var addDOMEventListeners = function () {
-  document.getElementById("inject-key").addEventListener(
-    "click",
-    async (e) => {
-      e.preventDefault();
-      window.postMessage({
-        type: "INJECT_KEY_EXPORT_BUNDLE",
-        value: document.getElementById("key-export-bundle").value,
-        keyFormat: document.getElementById("key-export-format").value,
-        organizationId: document.getElementById("key-organization-id").value,
-      });
-    },
-    false
-  );
-  document.getElementById("inject-wallet").addEventListener(
-    "click",
-    async (e) => {
-      e.preventDefault();
-      window.postMessage({
-        type: "INJECT_WALLET_EXPORT_BUNDLE",
-        value: document.getElementById("wallet-export-bundle").value,
-        organizationId: document.getElementById("wallet-organization-id").value,
-      });
-    },
-    false
-  );
-  document.getElementById("reset").addEventListener(
-    "click",
-    async (e) => {
-      e.preventDefault();
-      window.postMessage({ type: "RESET_EMBEDDED_KEY" });
-    },
-    false
-  );
-};
-
-/**
  * Message Event Handlers to process messages from the parent frame
  */
 var messageEventListener = async function (event) {
@@ -119,8 +78,6 @@ document.addEventListener(
       capture: false,
       signal: messageListenerController.signal,
     });
-
-    addDOMEventListeners();
 
     if (!messageListenerController.signal.aborted) {
       // If styles are saved in local storage, sanitize and apply them.
