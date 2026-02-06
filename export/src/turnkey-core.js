@@ -1,7 +1,6 @@
 import "./styles.css";
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 import * as nobleEd25519 from "@noble/ed25519";
-import * as nobleHashes from "@noble/hashes"
 import { sha512 } from "@noble/hashes/sha2.js";
 
 const {
@@ -116,7 +115,7 @@ function getItemWithExpiry(key) {
     return null;
   }
   const item = JSON.parse(itemStr);
-  if (!item.hasOwnProperty("expiry") || !item.hasOwnProperty("value")) {
+  if (!Object.hasOwn(item, "expiry") || !Object.hasOwn(item, "value")) {
     window.localStorage.removeItem(key);
     return null;
   }

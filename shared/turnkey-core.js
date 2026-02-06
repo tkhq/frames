@@ -783,11 +783,9 @@ async function decodeKey(privateKey, keyFormat) {
  */
 async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
   switch (keyFormat) {
-    case "SOLANA":
+    case "SOLANA": {
       if (!publicKeyBytes) {
-        throw new Error(
-          "public key must be specified for SOLANA key format"
-        );
+        throw new Error("public key must be specified for SOLANA key format");
       }
       if (privateKeyBytes.length !== 32) {
         throw new Error(
@@ -803,6 +801,7 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
       concatenatedBytes.set(privateKeyBytes, 0);
       concatenatedBytes.set(publicKeyBytes, 32);
       return base58Encode(concatenatedBytes);
+    }
     case "HEXADECIMAL":
       return "0x" + uint8arrayToHexString(privateKeyBytes);
     case "BITCOIN_MAINNET_WIF":
@@ -821,7 +820,7 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
 
       return await base58CheckEncode(wifPayload);
     }
-    case "SUI_BECH32":
+    case "SUI_BECH32": {
       if (privateKeyBytes.length !== 32) {
         throw new Error(
           `invalid private key length. Expected 32 bytes. Got ${privateKeyBytes.length}.`
@@ -834,6 +833,7 @@ async function encodeKey(privateKeyBytes, keyFormat, publicKeyBytes) {
       bech32Payload.set(privateKeyBytes, 1);
 
       return bech32.encode("suiprivkey", bech32.toWords(bech32Payload));
+    }
     default:
       console.warn(
         `invalid key format: ${keyFormat}. Defaulting to HEXADECIMAL.`

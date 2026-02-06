@@ -11,7 +11,7 @@ module.exports = (env, argv) => {
     context: __dirname, // Set context to frame directory so module resolution works correctly
     entry: {
       index: "./src/index.js",
-    //   standalone: "./src/standalone.js",
+      //   standalone: "./src/standalone.js",
     },
     output: {
       path: path.resolve(__dirname, "dist"),

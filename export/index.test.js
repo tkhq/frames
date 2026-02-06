@@ -2,7 +2,6 @@ import "@testing-library/jest-dom";
 import * as crypto from "crypto";
 import * as TKHQ from "./src/turnkey-core.js";
 
-
 describe("TKHQ", () => {
   beforeEach(() => {
     window.TextDecoder = global.TextDecoder;

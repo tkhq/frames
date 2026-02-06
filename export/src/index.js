@@ -2,7 +2,6 @@
 
 import * as TKHQ from "./turnkey-core.js";
 import { HpkeDecrypt } from "@shared/crypto-utils.js";
-import * as hpke from "@hpke/core";
 
 window.TKHQ = TKHQ;
 
@@ -219,7 +218,7 @@ async function decryptBundle(bundle, organizationId) {
   // Parse the import bundle
   const bundleObj = JSON.parse(bundle);
   switch (bundleObj.version) {
-    case "v1.0.0":
+    case "v1.0.0": {
       // Validate fields exist
       if (!bundleObj.data) {
         throw new Error('missing "data" in bundle');
@@ -273,6 +272,7 @@ async function decryptBundle(bundle, organizationId) {
       encappedKeyBuf = TKHQ.uint8arrayFromHexString(signedData.encappedPublic);
       ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
       break;
+    }
     default:
       throw new Error(`unsupported version: ${bundleObj.version}`);
   }
