@@ -15,6 +15,10 @@ RUN cd export-and-sign && npm ci && npm run build
 COPY import ./import/
 RUN cd import && npm ci && npm run build
 
+#Copy export module and build
+COPY export ./export/
+RUN cd export && npm ci && npm run build
+
 # Second stage: nginx runtime
 # This is nginx 1.24.0 on bullseye.
 # https://hub.docker.com/layers/nginxinc/nginx-unprivileged/1.24.0-bullseye/images/sha256-a8ec652916ce1e7ab2ab624fe59bb8dfc16a018fd489c6fb979fe35c5dd3ec50
@@ -31,11 +35,10 @@ COPY nginx.conf /etc/nginx/nginx.conf
 COPY auth /usr/share/nginx/auth
 COPY auth /usr/share/nginx/recovery
 
-COPY export /usr/share/nginx/export
-
 # Copy built export-and-sign and import files from builder stage
 COPY --from=builder /app/export-and-sign/dist /usr/share/nginx/export-and-sign
 COPY --from=builder /app/import/dist /usr/share/nginx/import
+COPY --from=builder /app/export/dist /usr/share/nginx/export
 
 # oauth
 COPY oauth-origin /usr/share/nginx/oauth-origin
