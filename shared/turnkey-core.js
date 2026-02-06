@@ -640,16 +640,19 @@ async function base58CheckDecode(s) {
 }
 
 /**
- * Encodes a Uint8Array into a base58-check-encoded string
- * Throws an error if the input is invalid or the checksum is invalid.
+ * Encodes a Uint8Array into a Base58Check-encoded string.
+ * Computes a 4-byte checksum as the first 4 bytes of SHA256(SHA256(payload))
+ * and appends it to the payload before base58 encoding.
  * @param {Uint8Array} payload The raw payload to encode.
- * @return {Promise<string>} The base58check-encoded string.
+ * @return {Promise<string>} The Base58Check-encoded string.
  */
 async function base58CheckEncode(payload) {
-  const hash1Buf = await crypto.subtle.digest("SHA-256", payload);
+  const subtle = getSubtleCrypto();
+
+  const hash1Buf = await subtle.digest("SHA-256", payload);
   const hash1 = new Uint8Array(hash1Buf);
 
-  const hash2Buf = await crypto.subtle.digest("SHA-256", hash1);
+  const hash2Buf = await subtle.digest("SHA-256", hash1);
   const hash2 = new Uint8Array(hash2Buf);
 
   const checksum = hash2.slice(0, 4);
