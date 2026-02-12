@@ -508,7 +508,7 @@ async function onInjectDecryptionKeyBundle(
         );
 
         // HPKE-decrypt using the key
-        const keyBytes = await HpkeDecrypt({
+        const bytes = await HpkeDecrypt({
           ciphertextBuf,
           encappedKeyBuf,
           receiverPrivJwk: decryptionKey,
@@ -517,7 +517,7 @@ async function onInjectDecryptionKeyBundle(
         // Load the decrypted key into memory
         await loadKeyIntoMemory(
           addr,
-          keyBytes,
+          bytes,
           bundleData.keyFormat,
           bundleData.organizationId
         );
