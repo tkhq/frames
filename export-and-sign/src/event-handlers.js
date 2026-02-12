@@ -47,7 +47,9 @@ async function verifyAndParseBundleData(bundle, organizationId) {
     bundleObj.data
   );
   if (!verified) {
-    throw new Error(`failed to verify enclave signature: ${bundle}`);
+    throw new Error(
+      `failed to verify enclave signature: ${bundleObj.dataSignature}`
+    );
   }
 
   const signedData = JSON.parse(
@@ -413,12 +415,29 @@ async function rawP256PrivateKeyToJwk(rawPrivateKeyBytes) {
     );
   }
 
-  // PKCS8 DER prefix for a P-256 private key (without optional public key field)
-  // SEQUENCE {
-  //   INTEGER 0 (version)
-  //   SEQUENCE { OID ecPublicKey, OID P-256 }
-  //   OCTET STRING { SEQUENCE { INTEGER 1, OCTET STRING(32) <key> } }
-  // }
+  // Fixed PKCS#8 DER prefix for a P-256 private key (36 bytes).
+  // This wraps a raw 32-byte scalar into the PrivateKeyInfo structure
+  // that WebCrypto's importKey("pkcs8", ...) expects.
+  //
+  // Structure (per RFC 5958 §2 / RFC 5208 §5):
+  //   SEQUENCE {
+  //     INTEGER 0                              -- version (v1)
+  //     SEQUENCE {                             -- AlgorithmIdentifier (RFC 5480 §2.1.1)
+  //       OID 1.2.840.10045.2.1               -- id-ecPublicKey
+  //       OID 1.2.840.10045.3.1.7             -- secp256r1 (P-256)
+  //     }
+  //     OCTET STRING {                         -- privateKey (SEC 1 §C.4 / RFC 5915 §3)
+  //       SEQUENCE {
+  //         INTEGER 1                          -- version
+  //         OCTET STRING (32 bytes)            -- raw private key scalar
+  //       }
+  //     }
+  //   }
+  //
+  // References:
+  //   - RFC 5958 / RFC 5208: PKCS#8 PrivateKeyInfo
+  //   - RFC 5480 §2.1.1: ECC AlgorithmIdentifier (OIDs)
+  //   - RFC 5915 / SEC 1 v2 §C.4: ECPrivateKey encoding
   const pkcs8Prefix = new Uint8Array([
     0x30, 0x41, 0x02, 0x01, 0x00, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48,
     0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03,
