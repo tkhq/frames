@@ -8,6 +8,11 @@ import {
   onInjectKeyBundle,
   onSignTransaction,
   getKeyNotFoundErrorMessage,
+  onStoreEncryptedBundle,
+  onInjectDecryptionKeyBundle,
+  onBurnSession,
+  onGetStoredWalletAddresses,
+  onClearStoredBundles,
 } from "./src/event-handlers.js";
 
 jest.mock("@solana/web3.js", () => {
@@ -850,5 +855,791 @@ describe("Event Handler Expiration Flow", () => {
       expect(e.toString()).toContain("key bytes not found");
       expect(e.toString()).not.toContain("expired");
     }
+  });
+});
+
+describe("Encryption Escrow", () => {
+  const requestId = "test-request-id";
+  const serializedTransaction = JSON.stringify({
+    type: "SOLANA",
+    transaction: "00",
+  });
+
+  let dom;
+  let TKHQ;
+  let sendMessageSpy;
+
+  // Mock raw 32-byte P-256 private key (escrow decryption key)
+  // This is what Turnkey exports after HPKE decryption - raw key bytes, not a JWK.
+  const mockEscrowKeyBytes = new Uint8Array(32).fill(42);
+
+  function buildBundle(organizationId = "org-test") {
+    const signedData = {
+      organizationId,
+      encappedPublic: "aa",
+      ciphertext: "bb",
+    };
+
+    const signedDataHex = Buffer.from(
+      JSON.stringify(signedData),
+      "utf8"
+    ).toString("hex");
+
+    return JSON.stringify({
+      version: "v1.0.0",
+      data: signedDataHex,
+      dataSignature: "30440220773382ac",
+      enclaveQuorumPublic: "04e479640d6d34",
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+
+    dom = new JSDOM(
+      `<!doctype html><html><body><div id="key-div"></div><input id="embedded-key" /></body></html>`,
+      {
+        url: "http://localhost",
+      }
+    );
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQ = module.TKHQ;
+    dom.window.TKHQ = TKHQ;
+
+    sendMessageSpy = jest
+      .spyOn(TKHQ, "sendMessageUp")
+      .mockImplementation(() => {});
+
+    jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+    jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
+    jest.spyOn(TKHQ, "uint8arrayFromHexString").mockImplementation((hex) => {
+      if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0) {
+        throw new Error("cannot create uint8array from invalid hex string");
+      }
+      return new Uint8Array(Buffer.from(hex, "hex"));
+    });
+    jest
+      .spyOn(TKHQ, "uint8arrayToHexString")
+      .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
+    jest
+      .spyOn(TKHQ, "getEd25519PublicKey")
+      .mockReturnValue(new Uint8Array(32).fill(3));
+    jest
+      .spyOn(TKHQ, "encodeKey")
+      .mockImplementation(async (keyBytes, format) => {
+        if (format === "SOLANA") {
+          return "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+        }
+        return "encoded-key-material";
+      });
+    jest
+      .spyOn(TKHQ, "parsePrivateKey")
+      .mockReturnValue(new Uint8Array(64).fill(5));
+  });
+
+  afterEach(() => {
+    // Reset module-level state (decryptionKey + inMemoryKeys)
+    onBurnSession("cleanup");
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+  });
+
+  describe("Encrypted Bundle Storage (TKHQ helpers)", () => {
+    it("returns null when no bundles stored", () => {
+      expect(TKHQ.getEncryptedBundles()).toBeNull();
+    });
+
+    it("stores and retrieves an encrypted bundle", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles).not.toBeNull();
+      expect(bundles["addr1"]).toEqual({
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+    });
+
+    it("stores multiple bundles and retrieves all", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "HEXADECIMAL",
+      });
+      TKHQ.setEncryptedBundle("addr3", {
+        encappedPublic: "ee",
+        ciphertext: "ff",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(Object.keys(bundles)).toHaveLength(3);
+    });
+
+    it("removes a single bundle by address", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      TKHQ.removeEncryptedBundle("addr1", "org1");
+
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles["addr1"]).toBeUndefined();
+      expect(bundles["addr2"]).toBeDefined();
+    });
+
+    it("clears localStorage key when last bundle removed", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      TKHQ.removeEncryptedBundle("addr1", "org1");
+      expect(TKHQ.getEncryptedBundles()).toBeNull();
+    });
+
+    it("clears all bundles", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      TKHQ.clearAllEncryptedBundles("org1");
+      expect(TKHQ.getEncryptedBundles()).toBeNull();
+    });
+  });
+
+  describe("STORE_ENCRYPTED_BUNDLE handler", () => {
+    it("verifies enclave signature and stores bundle", async () => {
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-addr-1"
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "ENCRYPTED_BUNDLE_STORED",
+        true,
+        requestId
+      );
+
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles["wallet-addr-1"]).toBeDefined();
+      expect(bundles["wallet-addr-1"].encappedPublic).toBe("aa");
+      expect(bundles["wallet-addr-1"].ciphertext).toBe("bb");
+      expect(bundles["wallet-addr-1"].organizationId).toBe("org-test");
+      expect(bundles["wallet-addr-1"].keyFormat).toBe("SOLANA");
+    });
+
+    it("rejects bundle with invalid enclave signature", async () => {
+      jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(false);
+
+      await expect(
+        onStoreEncryptedBundle(
+          requestId,
+          "org-test",
+          buildBundle(),
+          "SOLANA",
+          "wallet-addr-1"
+        )
+      ).rejects.toThrow("failed to verify enclave signature");
+    });
+
+    it("requires address parameter", async () => {
+      await expect(
+        onStoreEncryptedBundle(
+          requestId,
+          "org-test",
+          buildBundle(),
+          "SOLANA",
+          undefined
+        )
+      ).rejects.toThrow("address is required for STORE_ENCRYPTED_BUNDLE");
+    });
+
+    it("defaults keyFormat to HEXADECIMAL when not provided", async () => {
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        undefined,
+        "wallet-addr-1"
+      );
+
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles["wallet-addr-1"].keyFormat).toBe("HEXADECIMAL");
+    });
+
+    it("auto-decrypts and loads key into memory when decryption key is available", async () => {
+      // First inject a decryption key so it's in memory
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // Escrow key decryption
+          return Promise.resolve(mockEscrowKeyBytes);
+        }
+        // Wallet bundle decryption
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // Now store a new bundle mid-session with HpkeDecrypt
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "new-wallet",
+        HpkeDecryptMock
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "ENCRYPTED_BUNDLE_STORED",
+        true,
+        requestId
+      );
+
+      // Key should be immediately signable (no need for another INJECT_DECRYPTION_KEY_BUNDLE)
+      await onSignTransaction(requestId, serializedTransaction, "new-wallet");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
+
+    it("stores without decrypting when no decryption key in memory", async () => {
+      const HpkeDecryptMock = jest.fn();
+
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-addr-1",
+        HpkeDecryptMock
+      );
+
+      // Bundle stored in localStorage
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles["wallet-addr-1"]).toBeDefined();
+
+      // HpkeDecrypt should NOT have been called (no decryption key)
+      expect(HpkeDecryptMock).not.toHaveBeenCalled();
+
+      // Signing should fail (key not in memory)
+      try {
+        await onSignTransaction(
+          requestId,
+          serializedTransaction,
+          "wallet-addr-1"
+        );
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+    });
+  });
+
+  describe("INJECT_DECRYPTION_KEY_BUNDLE handler", () => {
+    it("decrypts escrow key and loads all stored bundles into memory", async () => {
+      // Pre-store 3 encrypted bundles
+      TKHQ.setEncryptedBundle("wallet1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("wallet2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("wallet3", {
+        encappedPublic: "ee",
+        ciphertext: "ff",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: decrypting the escrow key bundle -> returns JWK bytes
+          return Promise.resolve(mockEscrowKeyBytes);
+        }
+        // Subsequent calls: decrypting wallet bundles -> returns key bytes
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // 1 call for escrow key + 3 calls for wallet bundles
+      expect(HpkeDecryptMock).toHaveBeenCalledTimes(4);
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "DECRYPTION_KEY_INJECTED",
+        3,
+        requestId
+      );
+
+      // Verify keys are usable by signing
+      await onSignTransaction(requestId, serializedTransaction, "wallet1");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
+
+    it("handles empty localStorage gracefully", async () => {
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEscrowKeyBytes);
+
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // Only 1 call for the escrow key, no wallet bundles
+      expect(HpkeDecryptMock).toHaveBeenCalledTimes(1);
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "DECRYPTION_KEY_INJECTED",
+        0,
+        requestId
+      );
+    });
+
+    it("continues past individual bundle failures", async () => {
+      TKHQ.setEncryptedBundle("wallet1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("wallet2-bad", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("wallet3", {
+        encappedPublic: "ee",
+        ciphertext: "ff",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: escrow key
+          return Promise.resolve(mockEscrowKeyBytes);
+        }
+        // Fail for the second wallet bundle (callCount 3 = wallet2-bad)
+        if (callCount === 3) {
+          return Promise.reject(new Error("decryption failed for bad bundle"));
+        }
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // Should report 2 successful decryptions (wallet1 + wallet3)
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "DECRYPTION_KEY_INJECTED",
+        2,
+        requestId
+      );
+    });
+
+    it("rejects invalid escrow key length", async () => {
+      // Return 16 bytes instead of 32 - invalid P-256 key length
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(16).fill(1));
+
+      await expect(
+        onInjectDecryptionKeyBundle(
+          requestId,
+          "org-test",
+          buildBundle(),
+          HpkeDecryptMock
+        )
+      ).rejects.toThrow("invalid decryption key length");
+    });
+  });
+
+  describe("BURN_SESSION handler", () => {
+    it("clears in-memory keys but preserves localStorage bundles", async () => {
+      // Store a bundle in localStorage
+      TKHQ.setEncryptedBundle("wallet1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org-test",
+        keyFormat: "SOLANA",
+      });
+
+      // Inject a key into memory via normal flow
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet1",
+        HpkeDecryptMock
+      );
+
+      // Verify key is usable
+      await onSignTransaction(requestId, serializedTransaction, "wallet1");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+
+      // Burn session
+      onBurnSession(requestId);
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "SESSION_BURNED",
+        true,
+        requestId
+      );
+
+      // Signing should fail after burn
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet1");
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+
+      // Encrypted bundles should still be in localStorage
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles).not.toBeNull();
+      expect(bundles["wallet1"]).toBeDefined();
+    });
+  });
+
+  describe("GET_STORED_WALLET_ADDRESSES handler", () => {
+    it("returns stored addresses as JSON array", () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr3", {
+        encappedPublic: "ee",
+        ciphertext: "ff",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      onGetStoredWalletAddresses(requestId, "org1");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "STORED_WALLET_ADDRESSES",
+        JSON.stringify(["addr1", "addr2", "addr3"]),
+        requestId
+      );
+    });
+
+    it("returns empty array when no bundles stored", () => {
+      onGetStoredWalletAddresses(requestId, "org1");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "STORED_WALLET_ADDRESSES",
+        JSON.stringify([]),
+        requestId
+      );
+    });
+  });
+
+  describe("CLEAR_STORED_BUNDLES handler", () => {
+    it("clears a single address from localStorage and memory", async () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      // Load addr1 into memory via normal key injection
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+      await onInjectKeyBundle(
+        requestId,
+        "org1",
+        buildBundle("org1"),
+        "SOLANA",
+        "addr1",
+        HpkeDecryptMock
+      );
+
+      // Verify addr1 is signable
+      await onSignTransaction(requestId, serializedTransaction, "addr1");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+
+      // Clear addr1
+      onClearStoredBundles(requestId, "addr1", "org1");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "STORED_BUNDLES_CLEARED",
+        true,
+        requestId
+      );
+
+      // localStorage: addr1 gone, addr2 still present
+      const bundles = TKHQ.getEncryptedBundles();
+      expect(bundles["addr1"]).toBeUndefined();
+      expect(bundles["addr2"]).toBeDefined();
+
+      // Memory: signing with addr1 should fail
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "addr1");
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+    });
+
+    it("clears all bundles and all in-memory keys when no address provided", async () => {
+      TKHQ.setEncryptedBundle("addr1", {
+        encappedPublic: "aa",
+        ciphertext: "bb",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+      TKHQ.setEncryptedBundle("addr2", {
+        encappedPublic: "cc",
+        ciphertext: "dd",
+        organizationId: "org1",
+        keyFormat: "SOLANA",
+      });
+
+      // Load both into memory
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+      await onInjectKeyBundle(
+        requestId,
+        "org1",
+        buildBundle("org1"),
+        "SOLANA",
+        "addr1",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org1",
+        buildBundle("org1"),
+        "SOLANA",
+        "addr2",
+        HpkeDecryptMock
+      );
+
+      // Clear all
+      onClearStoredBundles(requestId, undefined, "org1");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "STORED_BUNDLES_CLEARED",
+        true,
+        requestId
+      );
+      expect(TKHQ.getEncryptedBundles()).toBeNull();
+
+      // Memory: signing with either address should fail
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "addr1");
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "addr2");
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+    });
+  });
+
+  describe("Full Escrow Lifecycle", () => {
+    it("store -> decrypt -> sign -> burn -> re-decrypt -> sign", async () => {
+      // 1. Store 2 encrypted bundles
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-a"
+      );
+      await onStoreEncryptedBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-b"
+      );
+
+      expect(TKHQ.getEncryptedBundles()).not.toBeNull();
+      expect(Object.keys(TKHQ.getEncryptedBundles())).toHaveLength(2);
+
+      // 2. Inject decryption key -> decrypt all bundles
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve(mockEscrowKeyBytes);
+        }
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "DECRYPTION_KEY_INJECTED",
+        2,
+        requestId
+      );
+
+      // 3. Sign a transaction
+      await onSignTransaction(requestId, serializedTransaction, "wallet-a");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+
+      // 4. Burn session
+      onBurnSession(requestId);
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "SESSION_BURNED",
+        true,
+        requestId
+      );
+
+      // Signing should fail after burn
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-a");
+      } catch (e) {
+        expect(e.toString()).toContain("key bytes not found");
+      }
+
+      // 5. Re-inject decryption key (bundles survived the burn)
+      callCount = 0;
+      await onInjectDecryptionKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "DECRYPTION_KEY_INJECTED",
+        2,
+        requestId
+      );
+
+      // 6. Sign again - should work
+      await onSignTransaction(requestId, serializedTransaction, "wallet-b");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
   });
 });
