@@ -9,6 +9,7 @@ import { bech32 } from "bech32";
 const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
 const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
+const TURNKEY_ENCRYPTED_BUNDLES = "TURNKEY_ENCRYPTED_BUNDLES";
 /** 48 hours in milliseconds */
 const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 const TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
@@ -212,6 +213,57 @@ function getSettings() {
  */
 function setSettings(settings) {
   window.localStorage.setItem(TURNKEY_SETTINGS, JSON.stringify(settings));
+}
+
+/**
+ * Gets all encrypted bundles from localStorage.
+ * Returns an object mapping address -> {encappedPublic, ciphertext, organizationId, keyFormat}
+ * or null if no bundles are stored.
+ * @returns {Object|null}
+ */
+function getEncryptedBundles() {
+  const data = window.localStorage.getItem(TURNKEY_ENCRYPTED_BUNDLES);
+  return data ? JSON.parse(data) : null;
+}
+
+/**
+ * Stores or updates an encrypted bundle for a given address.
+ * @param {string} address - The wallet address
+ * @param {Object} bundleData - {encappedPublic, ciphertext, organizationId, keyFormat}
+ */
+function setEncryptedBundle(address, bundleData) {
+  const bundles = getEncryptedBundles() || {};
+  bundles[address] = bundleData;
+  window.localStorage.setItem(
+    TURNKEY_ENCRYPTED_BUNDLES,
+    JSON.stringify(bundles)
+  );
+}
+
+/**
+ * Removes a single encrypted bundle by address.
+ * @param {string} address - The wallet address to remove
+ */
+function removeEncryptedBundle(address) {
+  const bundles = getEncryptedBundles();
+  if (bundles && bundles[address]) {
+    delete bundles[address];
+    if (Object.keys(bundles).length === 0) {
+      window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
+    } else {
+      window.localStorage.setItem(
+        TURNKEY_ENCRYPTED_BUNDLES,
+        JSON.stringify(bundles)
+      );
+    }
+  }
+}
+
+/**
+ * Removes all encrypted bundles from localStorage.
+ */
+function clearAllEncryptedBundles() {
+  window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
 }
 
 /**
@@ -931,4 +983,8 @@ export {
   encodeKey,
   parsePrivateKey,
   validateStyles,
+  getEncryptedBundles,
+  setEncryptedBundle,
+  removeEncryptedBundle,
+  clearAllEncryptedBundles,
 };
