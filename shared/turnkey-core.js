@@ -223,7 +223,16 @@ function setSettings(settings) {
  */
 function getEncryptedBundles() {
   const data = window.localStorage.getItem(TURNKEY_ENCRYPTED_BUNDLES);
-  return data ? JSON.parse(data) : null;
+  if (!data) {
+    return null;
+  }
+  try {
+    return JSON.parse(data);
+  } catch (e) {
+    // If the stored data is corrupted or not valid JSON, remove it to self-heal.
+    window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
+    return null;
+  }
 }
 
 /**
@@ -242,28 +251,52 @@ function setEncryptedBundle(address, bundleData) {
 
 /**
  * Removes a single encrypted bundle by address.
+ * Only removes the bundle if it belongs to the specified organization.
  * @param {string} address - The wallet address to remove
+ * @param {string} organizationId - Only remove if the bundle belongs to this org
  */
-function removeEncryptedBundle(address) {
+function removeEncryptedBundle(address, organizationId) {
   const bundles = getEncryptedBundles();
-  if (bundles && bundles[address]) {
-    delete bundles[address];
-    if (Object.keys(bundles).length === 0) {
-      window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
-    } else {
-      window.localStorage.setItem(
-        TURNKEY_ENCRYPTED_BUNDLES,
-        JSON.stringify(bundles)
-      );
-    }
+  if (!bundles || !bundles[address]) return;
+
+  // Only remove if the bundle belongs to the specified organization
+  if (bundles[address].organizationId !== organizationId) return;
+
+  delete bundles[address];
+  if (Object.keys(bundles).length === 0) {
+    window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
+  } else {
+    window.localStorage.setItem(
+      TURNKEY_ENCRYPTED_BUNDLES,
+      JSON.stringify(bundles)
+    );
   }
 }
 
 /**
- * Removes all encrypted bundles from localStorage.
+ * Removes all encrypted bundles belonging to the specified organization.
+ * Bundles from other organizations are preserved.
+ * @param {string} organizationId - Remove bundles belonging to this org
  */
-function clearAllEncryptedBundles() {
-  window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
+function clearAllEncryptedBundles(organizationId) {
+  const bundles = getEncryptedBundles();
+  if (!bundles) return;
+
+  // Keep only bundles that do NOT belong to this organization
+  const remaining = Object.fromEntries(
+    Object.entries(bundles).filter(
+      ([, bundle]) => bundle.organizationId !== organizationId
+    )
+  );
+
+  if (Object.keys(remaining).length === 0) {
+    window.localStorage.removeItem(TURNKEY_ENCRYPTED_BUNDLES);
+  } else {
+    window.localStorage.setItem(
+      TURNKEY_ENCRYPTED_BUNDLES,
+      JSON.stringify(remaining)
+    );
+  }
 }
 
 /**

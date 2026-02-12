@@ -1018,7 +1018,7 @@ describe("Encryption Escrow", () => {
         keyFormat: "SOLANA",
       });
 
-      TKHQ.removeEncryptedBundle("addr1");
+      TKHQ.removeEncryptedBundle("addr1", "org1");
 
       const bundles = TKHQ.getEncryptedBundles();
       expect(bundles["addr1"]).toBeUndefined();
@@ -1033,7 +1033,7 @@ describe("Encryption Escrow", () => {
         keyFormat: "SOLANA",
       });
 
-      TKHQ.removeEncryptedBundle("addr1");
+      TKHQ.removeEncryptedBundle("addr1", "org1");
       expect(TKHQ.getEncryptedBundles()).toBeNull();
     });
 
@@ -1051,7 +1051,7 @@ describe("Encryption Escrow", () => {
         keyFormat: "SOLANA",
       });
 
-      TKHQ.clearAllEncryptedBundles();
+      TKHQ.clearAllEncryptedBundles("org1");
       expect(TKHQ.getEncryptedBundles()).toBeNull();
     });
   });
@@ -1414,7 +1414,7 @@ describe("Encryption Escrow", () => {
         keyFormat: "SOLANA",
       });
 
-      onGetStoredWalletAddresses(requestId);
+      onGetStoredWalletAddresses(requestId, "org1");
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
         "STORED_WALLET_ADDRESSES",
@@ -1424,7 +1424,7 @@ describe("Encryption Escrow", () => {
     });
 
     it("returns empty array when no bundles stored", () => {
-      onGetStoredWalletAddresses(requestId);
+      onGetStoredWalletAddresses(requestId, "org1");
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
         "STORED_WALLET_ADDRESSES",
@@ -1471,7 +1471,7 @@ describe("Encryption Escrow", () => {
       );
 
       // Clear addr1
-      onClearStoredBundles(requestId, "addr1");
+      onClearStoredBundles(requestId, "addr1", "org1");
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
         "STORED_BUNDLES_CLEARED",
@@ -1528,7 +1528,7 @@ describe("Encryption Escrow", () => {
       );
 
       // Clear all
-      onClearStoredBundles(requestId, undefined);
+      onClearStoredBundles(requestId, undefined, "org1");
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
         "STORED_BUNDLES_CLEARED",

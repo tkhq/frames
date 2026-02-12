@@ -477,6 +477,10 @@ async function onInjectDecryptionKeyBundle(
       const bundleData = storedBundles[addr];
 
       try {
+        const bundleOrgId = bundleData.organizationId;
+
+        if (organizationId !== bundleOrgId) continue; // skip bundles that don't match the organization ID of the decryption key
+
         const encappedKeyBuf = TKHQ.uint8arrayFromHexString(
           bundleData.encappedPublic
         );
@@ -527,10 +531,15 @@ function onBurnSession(requestId) {
  * Handler for GET_STORED_WALLET_ADDRESSES events.
  * Returns a JSON array of all wallet addresses that have encrypted bundles in localStorage.
  * @param {string} requestId
+ * @param {string} organizationId - Organization ID to filter addresses by (only return addresses with bundles matching the organization ID)
  */
-function onGetStoredWalletAddresses(requestId) {
+function onGetStoredWalletAddresses(requestId, organizationId) {
   const bundles = TKHQ.getEncryptedBundles();
-  const addresses = bundles ? Object.keys(bundles) : [];
+  const addresses = bundles
+    ? Object.entries(bundles)
+        .filter(([, bundle]) => bundle.organizationId === organizationId)
+        .map(([address]) => address)
+    : [];
   TKHQ.sendMessageUp(
     "STORED_WALLET_ADDRESSES",
     JSON.stringify(addresses),
@@ -544,14 +553,15 @@ function onGetStoredWalletAddresses(requestId) {
  * in-memory keys. If address is provided, removes only that address.
  * If no address, removes ALL encrypted bundles and ALL in-memory keys.
  * @param {string} requestId
+ * @param {string} organizationId - Organization ID to filter addresses by (only remove bundles matching the organization ID)
  * @param {string|undefined} address - Optional wallet address
  */
-function onClearStoredBundles(requestId, address) {
+function onClearStoredBundles(requestId, address, organizationId) {
   if (address) {
-    TKHQ.removeEncryptedBundle(address);
+    TKHQ.removeEncryptedBundle(address, organizationId);
     delete inMemoryKeys[address];
   } else {
-    TKHQ.clearAllEncryptedBundles();
+    TKHQ.clearAllEncryptedBundles(organizationId);
     inMemoryKeys = {};
   }
   TKHQ.sendMessageUp("STORED_BUNDLES_CLEARED", true, requestId);
@@ -873,7 +883,10 @@ function initMessageEventListener(HpkeDecrypt) {
     if (event.data && event.data["type"] == "GET_STORED_WALLET_ADDRESSES") {
       TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
-        onGetStoredWalletAddresses(event.data["requestId"]);
+        onGetStoredWalletAddresses(
+          event.data["requestId"],
+          event.data["organizationId"]
+        );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
@@ -883,7 +896,11 @@ function initMessageEventListener(HpkeDecrypt) {
         `⬇️ Received message ${event.data["type"]}: address=${event.data["address"]}`
       );
       try {
-        onClearStoredBundles(event.data["requestId"], event.data["address"]);
+        onClearStoredBundles(
+          event.data["requestId"],
+          event.data["address"],
+          event.data["organizationId"]
+        );
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
