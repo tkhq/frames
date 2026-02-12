@@ -1185,7 +1185,11 @@ describe("Encryption Escrow", () => {
 
       // Signing should fail (key not in memory)
       try {
-        await onSignTransaction(requestId, serializedTransaction, "wallet-addr-1");
+        await onSignTransaction(
+          requestId,
+          serializedTransaction,
+          "wallet-addr-1"
+        );
       } catch (e) {
         expect(e.toString()).toContain("key bytes not found");
       }
@@ -1219,9 +1223,7 @@ describe("Encryption Escrow", () => {
         callCount++;
         if (callCount === 1) {
           // First call: decrypting the escrow key bundle -> returns JWK bytes
-          return Promise.resolve(
-            mockEscrowKeyBytes
-          );
+          return Promise.resolve(mockEscrowKeyBytes);
         }
         // Subsequent calls: decrypting wallet bundles -> returns key bytes
         return Promise.resolve(new Uint8Array(64).fill(9));
@@ -1253,9 +1255,7 @@ describe("Encryption Escrow", () => {
     });
 
     it("handles empty localStorage gracefully", async () => {
-      const HpkeDecryptMock = jest.fn().mockResolvedValue(
-        mockEscrowKeyBytes
-      );
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEscrowKeyBytes);
 
       await onInjectDecryptionKeyBundle(
         requestId,
@@ -1299,9 +1299,7 @@ describe("Encryption Escrow", () => {
         callCount++;
         if (callCount === 1) {
           // First call: escrow key
-          return Promise.resolve(
-            mockEscrowKeyBytes
-          );
+          return Promise.resolve(mockEscrowKeyBytes);
         }
         // Fail for the second wallet bundle (callCount 3 = wallet2-bad)
         if (callCount === 3) {
@@ -1579,9 +1577,7 @@ describe("Encryption Escrow", () => {
       const HpkeDecryptMock = jest.fn().mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
-          return Promise.resolve(
-            mockEscrowKeyBytes
-          );
+          return Promise.resolve(mockEscrowKeyBytes);
         }
         return Promise.resolve(new Uint8Array(64).fill(9));
       });

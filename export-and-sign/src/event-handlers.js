@@ -388,7 +388,12 @@ async function onStoreEncryptedBundle(
       receiverPrivJwk: decryptionKey,
     });
 
-    await loadKeyIntoMemory(address, keyBytes, resolvedKeyFormat, organizationId);
+    await loadKeyIntoMemory(
+      address,
+      keyBytes,
+      resolvedKeyFormat,
+      organizationId
+    );
   }
 
   TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_STORED", true, requestId);
@@ -453,16 +458,10 @@ async function onInjectDecryptionKeyBundle(
 ) {
   // Decrypt the private key using the iframe's embedded key.
   // The decrypted payload is a raw 32-byte P-256 private key scalar.
-  const keyBytes = await decryptBundle(
-    bundle,
-    organizationId,
-    HpkeDecrypt
-  );
+  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
   // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
-  const keyJwk = await rawP256PrivateKeyToJwk(
-    new Uint8Array(keyBytes)
-  );
+  const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
 
   // Store in module-level variable (memory only)
   decryptionKey = keyJwk;
@@ -851,9 +850,7 @@ function initMessageEventListener(HpkeDecrypt) {
       }
     }
     if (event.data && event.data["type"] == "INJECT_DECRYPTION_KEY_BUNDLE") {
-      TKHQ.logMessage(
-        `⬇️ Received message ${event.data["type"]}`
-      );
+      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
         await onInjectDecryptionKeyBundle(
           event.data["requestId"],
