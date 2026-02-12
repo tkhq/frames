@@ -445,4 +445,86 @@ describe("Shared TKHQ Utilities", () => {
       expect(publicKey.length).toBe(65); // Uncompressed P-256 public key
     });
   });
+
+  describe("Encrypted bundle org isolation", () => {
+    const orgA = "org-alpha";
+    const orgB = "org-beta";
+
+    const bundleA1 = {
+      encappedPublic: "aa",
+      ciphertext: "bb",
+      organizationId: orgA,
+      keyFormat: "SOLANA",
+    };
+    const bundleA2 = {
+      encappedPublic: "cc",
+      ciphertext: "dd",
+      organizationId: orgA,
+      keyFormat: "HEXADECIMAL",
+    };
+    const bundleB1 = {
+      encappedPublic: "ee",
+      ciphertext: "ff",
+      organizationId: orgB,
+      keyFormat: "SOLANA",
+    };
+
+    beforeEach(() => {
+      SharedTKHQ.setEncryptedBundle("addrA1", bundleA1);
+      SharedTKHQ.setEncryptedBundle("addrA2", bundleA2);
+      SharedTKHQ.setEncryptedBundle("addrB1", bundleB1);
+    });
+
+    it("removeEncryptedBundle refuses to delete another org's bundle", () => {
+      // orgB tries to remove addrA1 (belongs to orgA)
+      SharedTKHQ.removeEncryptedBundle("addrA1", orgB);
+
+      const bundles = SharedTKHQ.getEncryptedBundles();
+      expect(bundles["addrA1"]).toEqual(bundleA1); // still present
+      expect(bundles["addrB1"]).toEqual(bundleB1);
+    });
+
+    it("removeEncryptedBundle succeeds when orgId matches", () => {
+      SharedTKHQ.removeEncryptedBundle("addrA1", orgA);
+
+      const bundles = SharedTKHQ.getEncryptedBundles();
+      expect(bundles["addrA1"]).toBeUndefined(); // gone
+      expect(bundles["addrA2"]).toEqual(bundleA2); // other orgA bundle untouched
+      expect(bundles["addrB1"]).toEqual(bundleB1);
+    });
+
+    it("clearAllEncryptedBundles only removes the target org's bundles", () => {
+      SharedTKHQ.clearAllEncryptedBundles(orgA);
+
+      const bundles = SharedTKHQ.getEncryptedBundles();
+      // orgA bundles are gone
+      expect(bundles["addrA1"]).toBeUndefined();
+      expect(bundles["addrA2"]).toBeUndefined();
+      // orgB bundle is still present
+      expect(bundles["addrB1"]).toEqual(bundleB1);
+    });
+
+    it("clearAllEncryptedBundles removes localStorage key when all remaining bundles are cleared", () => {
+      // Clear orgA first
+      SharedTKHQ.clearAllEncryptedBundles(orgA);
+      expect(SharedTKHQ.getEncryptedBundles()).not.toBeNull();
+
+      // Clear orgB — now nothing should remain
+      SharedTKHQ.clearAllEncryptedBundles(orgB);
+      expect(SharedTKHQ.getEncryptedBundles()).toBeNull();
+    });
+
+    it("orgB cannot peek at orgA's bundle data via getEncryptedBundles", () => {
+      // getEncryptedBundles returns everything (it's a raw accessor),
+      // but the handler layer in event-handlers.js filters by orgId.
+      // At the storage layer, verify that removing orgB's data doesn't
+      // leak or corrupt orgA's entries.
+      SharedTKHQ.clearAllEncryptedBundles(orgB);
+
+      const bundles = SharedTKHQ.getEncryptedBundles();
+      expect(Object.keys(bundles)).toEqual(["addrA1", "addrA2"]);
+      expect(bundles["addrA1"]).toEqual(bundleA1);
+      expect(bundles["addrA2"]).toEqual(bundleA2);
+    });
+  });
 });
