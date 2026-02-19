@@ -28,10 +28,6 @@ const {
   validateStyles,
   isDoublyIframed,
   loadQuorumKey,
-  getEncryptedBundles,
-  setEncryptedBundle,
-  removeEncryptedBundle,
-  clearAllEncryptedBundles,
 } = SharedTKHQ;
 
 /**
@@ -181,8 +177,4 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
-  getEncryptedBundles,
-  setEncryptedBundle,
-  removeEncryptedBundle,
-  clearAllEncryptedBundles,
 };

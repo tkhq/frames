@@ -6,8 +6,8 @@ import * as nobleHashes from "@noble/hashes/sha512";
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
-// Decryption key -- held in memory only, never persisted to localStorage.
-// This is a P-256 private key in JWK format used to decrypt stored bundles.
+// Injected decryption key -- held in memory only, never persisted.
+// When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
 let decryptionKey = null;
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
@@ -95,12 +95,12 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
   );
   const ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
 
-  // Decrypt the ciphertext
-  const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+  // Use the injected decryption key if available, otherwise fall back to the embedded key
+  const receiverPrivJwk = decryptionKey || (await TKHQ.getEmbeddedKey());
   return await HpkeDecrypt({
     ciphertextBuf,
     encappedKeyBuf,
-    receiverPrivJwk: embeddedKeyJwk,
+    receiverPrivJwk,
   });
 }
 
@@ -340,65 +340,61 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
 }
 
 /**
- * Handler for STORE_ENCRYPTED_BUNDLE events.
- * Verifies the enclave signature on an encrypted bundle and stores
- * the encrypted payload in localStorage for later decryption.
- * If the decryption key is already in memory, also decrypts and loads
- * the key into memory immediately.
+ * Handler for REPLACE_EMBEDDED_KEY events.
+ * Decrypts a P-256 private key bundle using the iframe's embedded key and
+ * replaces the embedded key with it for subsequent bundle decryptions.
  * @param {string} requestId
  * @param {string} organizationId
- * @param {string} bundle - v1.0.0 bundle JSON
- * @param {string} keyFormat - "SOLANA" | "HEXADECIMAL"
- * @param {string} address - Wallet address
+ * @param {string} bundle - v1.0.0 bundle containing the P-256 private key
  * @param {Function} HpkeDecrypt
  */
-async function onStoreEncryptedBundle(
+async function onReplaceEmbeddedKey(
   requestId,
   organizationId,
   bundle,
-  keyFormat,
-  address,
   HpkeDecrypt
 ) {
-  if (!address) {
-    throw new Error("address is required for STORE_ENCRYPTED_BUNDLE");
+  // Decrypt the private key using the iframe's embedded key.
+  // The decrypted payload is a raw 32-byte P-256 private key scalar.
+  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+
+  // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
+  const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
+
+  // Store in module-level variable (memory only)
+  decryptionKey = keyJwk;
+
+  TKHQ.sendMessageUp("DECRYPTION_KEY_INJECTED", true, requestId);
+}
+
+/**
+ * Handler for RESET_TO_DEFAULT_EMBEDDED_KEY events.
+ * Clears the embedded decryption key from memory, replacing it with the iframe's default embedded key.
+ * @param {string} requestId
+ */
+function onResetToDefaultEmbeddedKey(requestId) {
+  decryptionKey = null;
+  TKHQ.sendMessageUp("RESET_TO_DEFAULT_EMBEDDED_KEY", true, requestId);
+}
+
+// Utility functions
+async function createSolanaKeypair(privateKey) {
+  const privateKeyBytes = TKHQ.parsePrivateKey(privateKey);
+
+  let keypair;
+  if (privateKeyBytes.length === 32) {
+    // 32-byte private key (seed)
+    keypair = Keypair.fromSeed(privateKeyBytes);
+  } else if (privateKeyBytes.length === 64) {
+    // 64-byte secret key (private + public)
+    keypair = Keypair.fromSecretKey(privateKeyBytes);
+  } else {
+    throw new Error(
+      `Invalid private key length: ${privateKeyBytes.length}. Expected 32 or 64 bytes.`
+    );
   }
 
-  // Verify enclave signature and parse the signed data
-  const signedData = await verifyAndParseBundleData(bundle, organizationId);
-
-  const resolvedKeyFormat = keyFormat || "HEXADECIMAL";
-
-  // Store the encrypted fields in localStorage (just what's needed for decryption)
-  TKHQ.setEncryptedBundle(address, {
-    encappedPublic: signedData.encappedPublic,
-    ciphertext: signedData.ciphertext,
-    organizationId: organizationId,
-    keyFormat: resolvedKeyFormat,
-  });
-
-  // If the decryption key is already in memory, decrypt and load immediately
-  if (decryptionKey && HpkeDecrypt) {
-    const encappedKeyBuf = TKHQ.uint8arrayFromHexString(
-      signedData.encappedPublic
-    );
-    const ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
-
-    const keyBytes = await HpkeDecrypt({
-      ciphertextBuf,
-      encappedKeyBuf,
-      receiverPrivJwk: decryptionKey,
-    });
-
-    await loadKeyIntoMemory(
-      address,
-      keyBytes,
-      resolvedKeyFormat,
-      organizationId
-    );
-  }
-
-  TKHQ.sendMessageUp("ENCRYPTED_BUNDLE_STORED", true, requestId);
+  return keypair;
 }
 
 /**
@@ -457,153 +453,6 @@ async function rawP256PrivateKeyToJwk(rawPrivateKeyBytes) {
   );
 
   return await crypto.subtle.exportKey("jwk", cryptoKey);
-}
-
-/**
- * Handler for INJECT_DECRYPTION_KEY_BUNDLE events.
- * Decrypts the P-256 private key using the iframe's embedded key,
- * then iterates all stored encrypted bundles, HPKE-decrypts each one
- * with the key, and loads them into inMemoryKeys.
- * @param {string} requestId
- * @param {string} organizationId
- * @param {string} bundle - v1.0.0 bundle containing the private key
- * @param {Function} HpkeDecrypt
- */
-async function onInjectDecryptionKeyBundle(
-  requestId,
-  organizationId,
-  bundle,
-  HpkeDecrypt
-) {
-  // Decrypt the private key using the iframe's embedded key.
-  // The decrypted payload is a raw 32-byte P-256 private key scalar.
-  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
-
-  // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
-  const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
-
-  // Store in module-level variable (memory only)
-  decryptionKey = keyJwk;
-
-  // Iterate all stored encrypted bundles and decrypt each one
-  const storedBundles = TKHQ.getEncryptedBundles();
-  let decryptedCount = 0;
-
-  if (storedBundles) {
-    const addresses = Object.keys(storedBundles);
-
-    for (const addr of addresses) {
-      const bundleData = storedBundles[addr];
-
-      try {
-        const bundleOrgId = bundleData.organizationId;
-
-        if (organizationId !== bundleOrgId) continue; // skip bundles that don't match the organization ID of the decryption key
-
-        const encappedKeyBuf = TKHQ.uint8arrayFromHexString(
-          bundleData.encappedPublic
-        );
-        const ciphertextBuf = TKHQ.uint8arrayFromHexString(
-          bundleData.ciphertext
-        );
-
-        // HPKE-decrypt using the key
-        const bytes = await HpkeDecrypt({
-          ciphertextBuf,
-          encappedKeyBuf,
-          receiverPrivJwk: decryptionKey,
-        });
-
-        // Load the decrypted key into memory
-        await loadKeyIntoMemory(
-          addr,
-          bytes,
-          bundleData.keyFormat,
-          bundleData.organizationId
-        );
-
-        decryptedCount++;
-      } catch (e) {
-        TKHQ.logMessage(
-          `Failed to decrypt bundle for address ${addr}: ${e.toString()}`
-        );
-      }
-    }
-  }
-
-  TKHQ.sendMessageUp("DECRYPTION_KEY_INJECTED", decryptedCount, requestId);
-}
-
-/**
- * Handler for BURN_SESSION events.
- * Clears the decryption key and all in-memory wallet keys.
- * Encrypted bundles in localStorage are preserved for the next session.
- * @param {string} requestId
- */
-function onBurnSession(requestId) {
-  decryptionKey = null;
-  inMemoryKeys = {};
-  TKHQ.sendMessageUp("SESSION_BURNED", true, requestId);
-}
-
-/**
- * Handler for GET_STORED_WALLET_ADDRESSES events.
- * Returns a JSON array of all wallet addresses that have encrypted bundles in localStorage.
- * @param {string} requestId
- * @param {string} organizationId - Organization ID to filter addresses by (only return addresses with bundles matching the organization ID)
- */
-function onGetStoredWalletAddresses(requestId, organizationId) {
-  const bundles = TKHQ.getEncryptedBundles();
-  const addresses = bundles
-    ? Object.entries(bundles)
-        .filter(([, bundle]) => bundle.organizationId === organizationId)
-        .map(([address]) => address)
-    : [];
-  TKHQ.sendMessageUp(
-    "STORED_WALLET_ADDRESSES",
-    JSON.stringify(addresses),
-    requestId
-  );
-}
-
-/**
- * Handler for CLEAR_STORED_BUNDLES events.
- * Removes encrypted bundles from localStorage AND the corresponding
- * in-memory keys. If address is provided, removes only that address.
- * If no address, removes ALL encrypted bundles and ALL in-memory keys.
- * @param {string} requestId
- * @param {string} organizationId - Organization ID to filter addresses by (only remove bundles matching the organization ID)
- * @param {string|undefined} address - Optional wallet address
- */
-function onClearStoredBundles(requestId, address, organizationId) {
-  if (address) {
-    TKHQ.removeEncryptedBundle(address, organizationId);
-    delete inMemoryKeys[address];
-  } else {
-    TKHQ.clearAllEncryptedBundles(organizationId);
-    inMemoryKeys = {};
-  }
-  TKHQ.sendMessageUp("STORED_BUNDLES_CLEARED", true, requestId);
-}
-
-// Utility functions
-async function createSolanaKeypair(privateKey) {
-  const privateKeyBytes = TKHQ.parsePrivateKey(privateKey);
-
-  let keypair;
-  if (privateKeyBytes.length === 32) {
-    // 32-byte private key (seed)
-    keypair = Keypair.fromSeed(privateKeyBytes);
-  } else if (privateKeyBytes.length === 64) {
-    // 64-byte secret key (private + public)
-    keypair = Keypair.fromSecretKey(privateKeyBytes);
-  } else {
-    throw new Error(
-      `Invalid private key length: ${privateKeyBytes.length}. Expected 32 or 64 bytes.`
-    );
-  }
-
-  return keypair;
 }
 
 /**
@@ -861,27 +710,10 @@ function initMessageEventListener(HpkeDecrypt) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
     }
-    if (event.data && event.data["type"] == "STORE_ENCRYPTED_BUNDLE") {
-      TKHQ.logMessage(
-        `⬇️ Received message ${event.data["type"]}: address=${event.data["address"]}`
-      );
-      try {
-        await onStoreEncryptedBundle(
-          event.data["requestId"],
-          event.data["organizationId"],
-          event.data["value"],
-          event.data["keyFormat"],
-          event.data["address"],
-          HpkeDecrypt
-        );
-      } catch (e) {
-        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
-      }
-    }
-    if (event.data && event.data["type"] == "INJECT_DECRYPTION_KEY_BUNDLE") {
+    if (event.data && event.data["type"] == "REPLACE_EMBEDDED_KEY") {
       TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
-        await onInjectDecryptionKeyBundle(
+        await onReplaceEmbeddedKey(
           event.data["requestId"],
           event.data["organizationId"],
           event.data["value"],
@@ -891,35 +723,10 @@ function initMessageEventListener(HpkeDecrypt) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
     }
-    if (event.data && event.data["type"] == "BURN_SESSION") {
+    if (event.data && event.data["type"] == "RESET_TO_DEFAULT_EMBEDDED_KEY") {
       TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
-        onBurnSession(event.data["requestId"]);
-      } catch (e) {
-        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
-      }
-    }
-    if (event.data && event.data["type"] == "GET_STORED_WALLET_ADDRESSES") {
-      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
-      try {
-        onGetStoredWalletAddresses(
-          event.data["requestId"],
-          event.data["organizationId"]
-        );
-      } catch (e) {
-        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
-      }
-    }
-    if (event.data && event.data["type"] == "CLEAR_STORED_BUNDLES") {
-      TKHQ.logMessage(
-        `⬇️ Received message ${event.data["type"]}: address=${event.data["address"]}`
-      );
-      try {
-        onClearStoredBundles(
-          event.data["requestId"],
-          event.data["address"],
-          event.data["organizationId"]
-        );
+        onResetToDefaultEmbeddedKey(event.data["requestId"]);
       } catch (e) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
@@ -995,9 +802,6 @@ export {
   onSignTransaction,
   onSignMessage,
   onClearEmbeddedPrivateKey,
-  onStoreEncryptedBundle,
-  onInjectDecryptionKeyBundle,
-  onBurnSession,
-  onGetStoredWalletAddresses,
-  onClearStoredBundles,
+  onReplaceEmbeddedKey,
+  onResetToDefaultEmbeddedKey,
 };
