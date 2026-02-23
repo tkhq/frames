@@ -8,7 +8,7 @@ let inMemoryKeys = {};
 
 // Injected decryption key -- held in memory only, never persisted.
 // When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
-let decryptionKey = null;
+let injectedDecryptionKey = null;
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
@@ -39,7 +39,7 @@ async function verifyAndParseBundleData(bundle, organizationId) {
   }
 
   if (!TKHQ.verifyEnclaveSignature) {
-    throw new Error("method not loaded");
+    throw new Error("method TKHQ.verifyEnclaveSignature not loaded");
   }
   const verified = await TKHQ.verifyEnclaveSignature(
     bundleObj.enclaveQuorumPublic,
@@ -48,7 +48,7 @@ async function verifyAndParseBundleData(bundle, organizationId) {
   );
   if (!verified) {
     throw new Error(
-      `failed to verify enclave signature: ${bundleObj.dataSignature}`
+      `failed to verify enclave signature. Got signature: ${bundleObj.dataSignature}, enclaveQuorumPublic: ${bundleObj.enclaveQuorumPublic}`
     );
   }
 
@@ -96,7 +96,8 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
   const ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
 
   // Use the injected decryption key if available, otherwise fall back to the embedded key
-  const receiverPrivJwk = decryptionKey || (await TKHQ.getEmbeddedKey());
+  const receiverPrivJwk =
+    injectedDecryptionKey || (await TKHQ.getEmbeddedKey());
   return await HpkeDecrypt({
     ciphertextBuf,
     encappedKeyBuf,
@@ -340,15 +341,15 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
 }
 
 /**
- * Handler for REPLACE_EMBEDDED_KEY events.
+ * Handler for SET_EMBEDDED_KEY_OVERRIDE events.
  * Decrypts a P-256 private key bundle using the iframe's embedded key and
- * replaces the embedded key with it for subsequent bundle decryptions.
+ * overrides the embedded key with it for subsequent bundle decryptions.
  * @param {string} requestId
  * @param {string} organizationId
  * @param {string} bundle - v1.0.0 bundle containing the P-256 private key
  * @param {Function} HpkeDecrypt
  */
-async function onReplaceEmbeddedKey(
+async function onSetEmbeddedKeyOverride(
   requestId,
   organizationId,
   bundle,
@@ -362,9 +363,9 @@ async function onReplaceEmbeddedKey(
   const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
 
   // Store in module-level variable (memory only)
-  decryptionKey = keyJwk;
+  injectedDecryptionKey = keyJwk;
 
-  TKHQ.sendMessageUp("DECRYPTION_KEY_INJECTED", true, requestId);
+  TKHQ.sendMessageUp("EMBEDDED_KEY_OVERRIDE_SET", true, requestId);
 }
 
 /**
@@ -373,7 +374,7 @@ async function onReplaceEmbeddedKey(
  * @param {string} requestId
  */
 function onResetToDefaultEmbeddedKey(requestId) {
-  decryptionKey = null;
+  injectedDecryptionKey = null;
   TKHQ.sendMessageUp("RESET_TO_DEFAULT_EMBEDDED_KEY", true, requestId);
 }
 
@@ -710,10 +711,10 @@ function initMessageEventListener(HpkeDecrypt) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
     }
-    if (event.data && event.data["type"] == "REPLACE_EMBEDDED_KEY") {
+    if (event.data && event.data["type"] == "SET_EMBEDDED_KEY_OVERRIDE") {
       TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
       try {
-        await onReplaceEmbeddedKey(
+        await onSetEmbeddedKeyOverride(
           event.data["requestId"],
           event.data["organizationId"],
           event.data["value"],
@@ -802,6 +803,6 @@ export {
   onSignTransaction,
   onSignMessage,
   onClearEmbeddedPrivateKey,
-  onReplaceEmbeddedKey,
+  onSetEmbeddedKeyOverride,
   onResetToDefaultEmbeddedKey,
 };

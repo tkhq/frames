@@ -8,8 +8,8 @@ import {
   onInjectKeyBundle,
   onSignTransaction,
   getKeyNotFoundErrorMessage,
-  onReplaceEmbeddedKey,
   onResetToDefaultEmbeddedKey,
+  onSetEmbeddedKeyOverride,
 } from "./src/event-handlers.js";
 
 jest.mock("@solana/web3.js", () => {
@@ -944,7 +944,7 @@ describe("Decryption Key Override", () => {
   });
 
   afterEach(() => {
-    // Reset module-level decryptionKey
+    // Reset module-level injectedDecryptionKey
     onResetToDefaultEmbeddedKey("cleanup");
     jest.useRealTimers();
     jest.restoreAllMocks();
@@ -954,13 +954,13 @@ describe("Decryption Key Override", () => {
     delete global.crypto;
   });
 
-  describe("REPLACE_EMBEDDED_KEY handler", () => {
+  describe("SET_EMBEDDED_KEY_OVERRIDE handler", () => {
     it("decrypts and stores the decryption key", async () => {
       const HpkeDecryptMock = jest
         .fn()
         .mockResolvedValue(mockDecryptionKeyBytes);
 
-      await onReplaceEmbeddedKey(
+      await onSetEmbeddedKeyOverride(
         requestId,
         "org-test",
         buildBundle(),
@@ -969,7 +969,7 @@ describe("Decryption Key Override", () => {
 
       expect(HpkeDecryptMock).toHaveBeenCalledTimes(1);
       expect(sendMessageSpy).toHaveBeenCalledWith(
-        "DECRYPTION_KEY_INJECTED",
+        "EMBEDDED_KEY_OVERRIDE_SET",
         true,
         requestId
       );
@@ -981,7 +981,7 @@ describe("Decryption Key Override", () => {
         .mockResolvedValue(new Uint8Array(16).fill(1));
 
       await expect(
-        onReplaceEmbeddedKey(
+        onSetEmbeddedKeyOverride(
           requestId,
           "org-test",
           buildBundle(),
@@ -1003,7 +1003,7 @@ describe("Decryption Key Override", () => {
         return Promise.resolve(new Uint8Array(64).fill(9));
       });
 
-      await onReplaceEmbeddedKey(
+      await onSetEmbeddedKeyOverride(
         requestId,
         "org-test",
         buildBundle(),
@@ -1043,7 +1043,7 @@ describe("Decryption Key Override", () => {
         .fn()
         .mockResolvedValue(mockDecryptionKeyBytes);
 
-      await onReplaceEmbeddedKey(
+      await onSetEmbeddedKeyOverride(
         requestId,
         "org-test",
         buildBundle(),
@@ -1088,7 +1088,7 @@ describe("Decryption Key Override", () => {
         return Promise.resolve(new Uint8Array(64).fill(9));
       });
 
-      await onReplaceEmbeddedKey(
+      await onSetEmbeddedKeyOverride(
         requestId,
         "org-test",
         buildBundle(),
@@ -1096,7 +1096,7 @@ describe("Decryption Key Override", () => {
       );
 
       expect(sendMessageSpy).toHaveBeenCalledWith(
-        "DECRYPTION_KEY_INJECTED",
+        "EMBEDDED_KEY_OVERRIDE_SET",
         true,
         requestId
       );
