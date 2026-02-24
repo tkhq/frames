@@ -8,6 +8,8 @@ import {
   onInjectKeyBundle,
   onSignTransaction,
   getKeyNotFoundErrorMessage,
+  onResetToDefaultEmbeddedKey,
+  onSetEmbeddedKeyOverride,
 } from "./src/event-handlers.js";
 
 jest.mock("@solana/web3.js", () => {
@@ -850,5 +852,305 @@ describe("Event Handler Expiration Flow", () => {
       expect(e.toString()).toContain("key bytes not found");
       expect(e.toString()).not.toContain("expired");
     }
+  });
+});
+
+describe("Embedded Key Override", () => {
+  const requestId = "test-request-id";
+  const serializedTransaction = JSON.stringify({
+    type: "SOLANA",
+    transaction: "00",
+  });
+
+  let dom;
+  let TKHQ;
+  let sendMessageSpy;
+
+  // Mock raw 32-byte P-256 private key (embedded key)
+  // This is what Turnkey exports after HPKE decryption - raw key bytes, not a JWK.
+  const mockEmbeddedKeyBytes = new Uint8Array(32).fill(42);
+
+  function buildBundle(organizationId = "org-test") {
+    const signedData = {
+      organizationId,
+      encappedPublic: "aa",
+      ciphertext: "bb",
+    };
+
+    const signedDataHex = Buffer.from(
+      JSON.stringify(signedData),
+      "utf8"
+    ).toString("hex");
+
+    return JSON.stringify({
+      version: "v1.0.0",
+      data: signedDataHex,
+      dataSignature: "30440220773382ac",
+      enclaveQuorumPublic: "04e479640d6d34",
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+
+    dom = new JSDOM(
+      `<!doctype html><html><body><div id="key-div"></div><input id="embedded-key" /></body></html>`,
+      {
+        url: "http://localhost",
+      }
+    );
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQ = module.TKHQ;
+    dom.window.TKHQ = TKHQ;
+
+    sendMessageSpy = jest
+      .spyOn(TKHQ, "sendMessageUp")
+      .mockImplementation(() => {});
+
+    jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+    jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
+    jest.spyOn(TKHQ, "uint8arrayFromHexString").mockImplementation((hex) => {
+      if (typeof hex !== "string" || hex.length === 0 || hex.length % 2 !== 0) {
+        throw new Error("cannot create uint8array from invalid hex string");
+      }
+      return new Uint8Array(Buffer.from(hex, "hex"));
+    });
+    jest
+      .spyOn(TKHQ, "uint8arrayToHexString")
+      .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
+    jest
+      .spyOn(TKHQ, "getEd25519PublicKey")
+      .mockReturnValue(new Uint8Array(32).fill(3));
+    jest
+      .spyOn(TKHQ, "encodeKey")
+      .mockImplementation(async (keyBytes, format) => {
+        if (format === "SOLANA") {
+          return "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM";
+        }
+        return "encoded-key-material";
+      });
+    jest
+      .spyOn(TKHQ, "parsePrivateKey")
+      .mockReturnValue(new Uint8Array(64).fill(5));
+  });
+
+  afterEach(() => {
+    // Reset module-level injectedEmbeddedKey
+    onResetToDefaultEmbeddedKey("cleanup");
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+  });
+
+  describe("SET_EMBEDDED_KEY_OVERRIDE handler", () => {
+    it("decrypts and stores the embedded key", async () => {
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
+
+      await onSetEmbeddedKeyOverride(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      expect(HpkeDecryptMock).toHaveBeenCalledTimes(1);
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_KEY_OVERRIDE_SET",
+        true,
+        requestId
+      );
+    });
+
+    it("rejects invalid decryption key length", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(16).fill(1));
+
+      await expect(
+        onSetEmbeddedKeyOverride(
+          requestId,
+          "org-test",
+          buildBundle(),
+          HpkeDecryptMock
+        )
+      ).rejects.toThrow("invalid decryption key length");
+    });
+
+    it("uses injected key for subsequent bundle decryptions", async () => {
+      // 1. Replace embedded key with embedded key
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First call: decrypting the embedded key bundle itself (uses embedded key)
+          return Promise.resolve(mockEmbeddedKeyBytes);
+        }
+        // Subsequent calls: decrypting wallet bundles (should use the injected key)
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onSetEmbeddedKeyOverride(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // 2. Inject a wallet bundle normally — decryptBundle should use the injected key
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet1",
+        HpkeDecryptMock
+      );
+
+      // Verify the second HpkeDecrypt call used the injected key (not the embedded key)
+      const secondCall = HpkeDecryptMock.mock.calls[1][0];
+      expect(secondCall.receiverPrivJwk).not.toEqual({ foo: "bar" }); // not the embedded key
+      expect(secondCall.receiverPrivJwk.kty).toBe("EC");
+      expect(secondCall.receiverPrivJwk.crv).toBe("P-256");
+
+      // 3. Verify key is usable by signing
+      await onSignTransaction(requestId, serializedTransaction, "wallet1");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
+  });
+
+  describe("RESET_TO_DEFAULT_EMBEDDED_KEY handler", () => {
+    it("clears the injected embedded key", async () => {
+      // 1. Replace embedded key
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
+
+      await onSetEmbeddedKeyOverride(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      // 2. Reset to default
+      onResetToDefaultEmbeddedKey(requestId);
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "RESET_TO_DEFAULT_EMBEDDED_KEY",
+        true,
+        requestId
+      );
+
+      // 3. Next bundle decryption should use the embedded key again
+      HpkeDecryptMock.mockResolvedValue(new Uint8Array(64).fill(9));
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet1",
+        HpkeDecryptMock
+      );
+
+      const lastCall =
+        HpkeDecryptMock.mock.calls[HpkeDecryptMock.mock.calls.length - 1][0];
+      expect(lastCall.receiverPrivJwk).toEqual({ foo: "bar" }); // back to the embedded key
+    });
+  });
+
+  describe("Full Lifecycle", () => {
+    it("replace key -> inject bundles -> sign -> reset -> inject uses embedded key", async () => {
+      // 1. Replace embedded key with injected embedded key
+      let callCount = 0;
+      const HpkeDecryptMock = jest.fn().mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return Promise.resolve(mockEmbeddedKeyBytes);
+        }
+        return Promise.resolve(new Uint8Array(64).fill(9));
+      });
+
+      await onSetEmbeddedKeyOverride(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_KEY_OVERRIDE_SET",
+        true,
+        requestId
+      );
+
+      // 2. Inject wallet bundles normally (decrypted with injected key)
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-a",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-b",
+        HpkeDecryptMock
+      );
+
+      // 3. Sign transactions
+      await onSignTransaction(requestId, serializedTransaction, "wallet-a");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+
+      await onSignTransaction(requestId, serializedTransaction, "wallet-b");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+
+      // 4. Reset to default embedded key
+      onResetToDefaultEmbeddedKey(requestId);
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "RESET_TO_DEFAULT_EMBEDDED_KEY",
+        true,
+        requestId
+      );
+
+      // 5. Next inject uses embedded key (not the injected one)
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-c",
+        HpkeDecryptMock
+      );
+
+      const lastCall =
+        HpkeDecryptMock.mock.calls[HpkeDecryptMock.mock.calls.length - 1][0];
+      expect(lastCall.receiverPrivJwk).toEqual({ foo: "bar" }); // embedded key
+    });
   });
 });

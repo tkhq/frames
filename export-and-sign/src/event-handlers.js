@@ -6,11 +6,78 @@ import * as nobleHashes from "@noble/hashes/sha512";
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
+// Injected embedded key -- held in memory only, never persisted.
+// When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
+let injectedEmbeddedKey = null;
+
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+
+/**
+ * Verifies the enclave signature on a v1.0.0 bundle and returns the parsed signed data.
+ * @param {string} bundle - JSON-stringified bundle
+ * @param {string} organizationId - Expected organization ID
+ * @returns {Promise<Object>} - The parsed signed data {organizationId, encappedPublic, ciphertext}
+ */
+async function verifyAndParseBundleData(bundle, organizationId) {
+  const bundleObj = JSON.parse(bundle);
+
+  if (bundleObj.version !== "v1.0.0") {
+    throw new Error(`unsupported version: ${bundleObj.version}`);
+  }
+  if (!bundleObj.data) {
+    throw new Error('missing "data" in bundle');
+  }
+  if (!bundleObj.dataSignature) {
+    throw new Error('missing "dataSignature" in bundle');
+  }
+  if (!bundleObj.enclaveQuorumPublic) {
+    throw new Error('missing "enclaveQuorumPublic" in bundle');
+  }
+
+  if (!TKHQ.verifyEnclaveSignature) {
+    throw new Error("method TKHQ.verifyEnclaveSignature not loaded");
+  }
+  const verified = await TKHQ.verifyEnclaveSignature(
+    bundleObj.enclaveQuorumPublic,
+    bundleObj.dataSignature,
+    bundleObj.data
+  );
+  if (!verified) {
+    throw new Error(
+      `failed to verify enclave signature. Got signature: ${bundleObj.dataSignature}, enclaveQuorumPublic: ${bundleObj.enclaveQuorumPublic}`
+    );
+  }
+
+  const signedData = JSON.parse(
+    textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
+  );
+
+  if (!organizationId) {
+    throw new Error(
+      `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
+    );
+  } else if (
+    !signedData.organizationId ||
+    signedData.organizationId !== organizationId
+  ) {
+    throw new Error(
+      `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
+    );
+  }
+
+  if (!signedData.encappedPublic) {
+    throw new Error('missing "encappedPublic" in bundle signed data');
+  }
+  if (!signedData.ciphertext) {
+    throw new Error('missing "ciphertext" in bundle signed data');
+  }
+
+  return signedData;
+}
 
 /**
  * Parse and decrypt the export bundle.
@@ -21,80 +88,19 @@ const textDecoder = new TextDecoder();
  * @param {Function} HpkeDecrypt
  */
 async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
-  let encappedKeyBuf;
-  let ciphertextBuf;
-  let verified;
+  const signedData = await verifyAndParseBundleData(bundle, organizationId);
 
-  // Parse the import bundle
-  const bundleObj = JSON.parse(bundle);
-  switch (bundleObj.version) {
-    case "v1.0.0":
-      // Validate fields exist
-      if (!bundleObj.data) {
-        throw new Error('missing "data" in bundle');
-      }
-      if (!bundleObj.dataSignature) {
-        throw new Error('missing "dataSignature" in bundle');
-      }
-      if (!bundleObj.enclaveQuorumPublic) {
-        throw new Error('missing "enclaveQuorumPublic" in bundle');
-      }
+  const encappedKeyBuf = TKHQ.uint8arrayFromHexString(
+    signedData.encappedPublic
+  );
+  const ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
 
-      // Verify enclave signature
-      if (!TKHQ.verifyEnclaveSignature) {
-        throw new Error("method not loaded");
-      }
-      verified = await TKHQ.verifyEnclaveSignature(
-        bundleObj.enclaveQuorumPublic,
-        bundleObj.dataSignature,
-        bundleObj.data
-      );
-      if (!verified) {
-        throw new Error(`failed to verify enclave signature: ${bundle}`);
-      }
-
-      // Parse the signed data. The data is produced by JSON encoding followed by hex encoding. We reverse this here.
-      {
-        const signedData = JSON.parse(
-          textDecoder.decode(TKHQ.uint8arrayFromHexString(bundleObj.data))
-        );
-
-        // Validate fields match
-        if (!organizationId) {
-          throw new Error(
-            `organization id is required. Please ensure you are using @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.`
-          );
-        } else if (
-          !signedData.organizationId ||
-          signedData.organizationId !== organizationId
-        ) {
-          throw new Error(
-            `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
-          );
-        }
-
-        if (!signedData.encappedPublic) {
-          throw new Error('missing "encappedPublic" in bundle signed data');
-        }
-        if (!signedData.ciphertext) {
-          throw new Error('missing "ciphertext" in bundle signed data');
-        }
-        encappedKeyBuf = TKHQ.uint8arrayFromHexString(
-          signedData.encappedPublic
-        );
-        ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
-      }
-      break;
-    default:
-      throw new Error(`unsupported version: ${bundleObj.version}`);
-  }
-
-  // Decrypt the ciphertext
-  const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+  // Use the injected embedded key if available, otherwise fall back to the embedded key
+  const receiverPrivJwk = injectedEmbeddedKey || (await TKHQ.getEmbeddedKey());
   return await HpkeDecrypt({
     ciphertextBuf,
     encappedKeyBuf,
-    receiverPrivJwk: embeddedKeyJwk,
+    receiverPrivJwk,
   });
 }
 
@@ -119,26 +125,13 @@ async function onGetPublicEmbeddedKey(requestId) {
 }
 
 /**
- * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
- * @param {string} requestId
- * @param {string} organizationId
- * @param {string} bundle
- * @param {string} keyFormat
- * @param {string} address
- * @param {Function} HpkeDecrypt // TODO: import this directly (instead of passing around)
+ * Encodes raw key bytes and loads them into the in-memory key store.
+ * @param {string} address - Wallet address (case-sensitive)
+ * @param {ArrayBuffer} keyBytes - Raw decrypted private key bytes
+ * @param {string} keyFormat - "SOLANA" | "HEXADECIMAL"
+ * @param {string} organizationId - Organization ID
  */
-async function onInjectKeyBundle(
-  requestId,
-  organizationId,
-  bundle,
-  keyFormat,
-  address,
-  HpkeDecrypt
-) {
-  // Decrypt the export bundle
-  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
-
-  // Parse the decrypted key bytes
+async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
   let key;
   const privateKeyBytes = new Uint8Array(keyBytes);
 
@@ -152,8 +145,6 @@ async function onInjectKeyBundle(
     key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
   }
 
-  // Set in memory
-  // If no address provided, use a default key
   const keyAddress = address || "default";
 
   // Cache keypair for improved signing perf
@@ -173,9 +164,33 @@ async function onInjectKeyBundle(
       privateKey: key,
       format: keyFormat,
       expiry: new Date().getTime() + DEFAULT_TTL_MILLISECONDS,
-      keypair: cachedKeypair, // Cache the keypair for performance
+      keypair: cachedKeypair,
     },
   };
+}
+
+/**
+ * Function triggered when INJECT_KEY_EXPORT_BUNDLE event is received.
+ * @param {string} requestId
+ * @param {string} organizationId
+ * @param {string} bundle
+ * @param {string} keyFormat
+ * @param {string} address
+ * @param {Function} HpkeDecrypt // TODO: import this directly (instead of passing around)
+ */
+async function onInjectKeyBundle(
+  requestId,
+  organizationId,
+  bundle,
+  keyFormat,
+  address,
+  HpkeDecrypt
+) {
+  // Decrypt the export bundle
+  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+
+  // Load decrypted key into memory
+  await loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId);
 
   // Send up BUNDLE_INJECTED message
   TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
@@ -324,6 +339,44 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 }
 
+/**
+ * Handler for SET_EMBEDDED_KEY_OVERRIDE events.
+ * Decrypts a P-256 private key bundle using the iframe's embedded key and
+ * overrides the embedded key with it for subsequent bundle decryptions.
+ * @param {string} requestId
+ * @param {string} organizationId
+ * @param {string} bundle - v1.0.0 bundle containing the P-256 private key
+ * @param {Function} HpkeDecrypt
+ */
+async function onSetEmbeddedKeyOverride(
+  requestId,
+  organizationId,
+  bundle,
+  HpkeDecrypt
+) {
+  // Decrypt the private key using the iframe's embedded key.
+  // The decrypted payload is a raw 32-byte P-256 private key scalar.
+  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+
+  // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
+  const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
+
+  // Store in module-level variable (memory only)
+  injectedEmbeddedKey = keyJwk;
+
+  TKHQ.sendMessageUp("EMBEDDED_KEY_OVERRIDE_SET", true, requestId);
+}
+
+/**
+ * Handler for RESET_TO_DEFAULT_EMBEDDED_KEY events.
+ * Clears the embedded key from memory, replacing it with the iframe's default embedded key.
+ * @param {string} requestId
+ */
+function onResetToDefaultEmbeddedKey(requestId) {
+  injectedEmbeddedKey = null;
+  TKHQ.sendMessageUp("RESET_TO_DEFAULT_EMBEDDED_KEY", true, requestId);
+}
+
 // Utility functions
 async function createSolanaKeypair(privateKey) {
   const privateKeyBytes = TKHQ.parsePrivateKey(privateKey);
@@ -342,6 +395,64 @@ async function createSolanaKeypair(privateKey) {
   }
 
   return keypair;
+}
+
+/**
+ * Converts raw P-256 private key bytes (32-byte scalar) to a JWK.
+ * Constructs a PKCS8 wrapper around the raw bytes, imports via WebCrypto
+ * (which derives the public key), then exports as JWK.
+ * @param {Uint8Array} rawPrivateKeyBytes - 32-byte P-256 private key scalar
+ * @returns {Promise<JsonWebKey>} - Full P-256 ECDH private key JWK
+ */
+async function rawP256PrivateKeyToJwk(rawPrivateKeyBytes) {
+  if (rawPrivateKeyBytes.length !== 32) {
+    throw new Error(
+      `invalid decryption key length: expected 32 bytes, got ${rawPrivateKeyBytes.length}`
+    );
+  }
+
+  // Fixed PKCS#8 DER prefix for a P-256 private key (36 bytes).
+  // This wraps a raw 32-byte scalar into the PrivateKeyInfo structure
+  // that WebCrypto's importKey("pkcs8", ...) expects.
+  //
+  // Structure (per RFC 5958 §2 / RFC 5208 §5):
+  //   SEQUENCE {
+  //     INTEGER 0                              -- version (v1)
+  //     SEQUENCE {                             -- AlgorithmIdentifier (RFC 5480 §2.1.1)
+  //       OID 1.2.840.10045.2.1               -- id-ecPublicKey
+  //       OID 1.2.840.10045.3.1.7             -- secp256r1 (P-256)
+  //     }
+  //     OCTET STRING {                         -- privateKey (SEC 1 §C.4 / RFC 5915 §3)
+  //       SEQUENCE {
+  //         INTEGER 1                          -- version
+  //         OCTET STRING (32 bytes)            -- raw private key scalar
+  //       }
+  //     }
+  //   }
+  //
+  // References:
+  //   - RFC 5958 / RFC 5208: PKCS#8 PrivateKeyInfo
+  //   - RFC 5480 §2.1.1: ECC AlgorithmIdentifier (OIDs)
+  //   - RFC 5915 / SEC 1 v2 §C.4: ECPrivateKey encoding
+  const pkcs8Prefix = new Uint8Array([
+    0x30, 0x41, 0x02, 0x01, 0x00, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48,
+    0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03,
+    0x01, 0x07, 0x04, 0x27, 0x30, 0x25, 0x02, 0x01, 0x01, 0x04, 0x20,
+  ]);
+
+  const pkcs8 = new Uint8Array(pkcs8Prefix.length + 32);
+  pkcs8.set(pkcs8Prefix);
+  pkcs8.set(rawPrivateKeyBytes, pkcs8Prefix.length);
+
+  const cryptoKey = await crypto.subtle.importKey(
+    "pkcs8",
+    pkcs8,
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"]
+  );
+
+  return await crypto.subtle.exportKey("jwk", cryptoKey);
 }
 
 /**
@@ -599,6 +710,27 @@ function initMessageEventListener(HpkeDecrypt) {
         TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
       }
     }
+    if (event.data && event.data["type"] == "SET_EMBEDDED_KEY_OVERRIDE") {
+      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+      try {
+        await onSetEmbeddedKeyOverride(
+          event.data["requestId"],
+          event.data["organizationId"],
+          event.data["value"],
+          HpkeDecrypt
+        );
+      } catch (e) {
+        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+      }
+    }
+    if (event.data && event.data["type"] == "RESET_TO_DEFAULT_EMBEDDED_KEY") {
+      TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+      try {
+        onResetToDefaultEmbeddedKey(event.data["requestId"]);
+      } catch (e) {
+        TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+      }
+    }
   };
 }
 
@@ -670,4 +802,6 @@ export {
   onSignTransaction,
   onSignMessage,
   onClearEmbeddedPrivateKey,
+  onSetEmbeddedKeyOverride,
+  onResetToDefaultEmbeddedKey,
 };
