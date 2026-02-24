@@ -855,7 +855,7 @@ describe("Event Handler Expiration Flow", () => {
   });
 });
 
-describe("Decryption Key Override", () => {
+describe("Embedded Key Override", () => {
   const requestId = "test-request-id";
   const serializedTransaction = JSON.stringify({
     type: "SOLANA",
@@ -866,9 +866,9 @@ describe("Decryption Key Override", () => {
   let TKHQ;
   let sendMessageSpy;
 
-  // Mock raw 32-byte P-256 private key (decryption key)
+  // Mock raw 32-byte P-256 private key (embedded key)
   // This is what Turnkey exports after HPKE decryption - raw key bytes, not a JWK.
-  const mockDecryptionKeyBytes = new Uint8Array(32).fill(42);
+  const mockEmbeddedKeyBytes = new Uint8Array(32).fill(42);
 
   function buildBundle(organizationId = "org-test") {
     const signedData = {
@@ -944,7 +944,7 @@ describe("Decryption Key Override", () => {
   });
 
   afterEach(() => {
-    // Reset module-level injectedDecryptionKey
+    // Reset module-level injectedEmbeddedKey
     onResetToDefaultEmbeddedKey("cleanup");
     jest.useRealTimers();
     jest.restoreAllMocks();
@@ -955,10 +955,8 @@ describe("Decryption Key Override", () => {
   });
 
   describe("SET_EMBEDDED_KEY_OVERRIDE handler", () => {
-    it("decrypts and stores the decryption key", async () => {
-      const HpkeDecryptMock = jest
-        .fn()
-        .mockResolvedValue(mockDecryptionKeyBytes);
+    it("decrypts and stores the embedded key", async () => {
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
 
       await onSetEmbeddedKeyOverride(
         requestId,
@@ -991,13 +989,13 @@ describe("Decryption Key Override", () => {
     });
 
     it("uses injected key for subsequent bundle decryptions", async () => {
-      // 1. Replace embedded key with decryption key
+      // 1. Replace embedded key with embedded key
       let callCount = 0;
       const HpkeDecryptMock = jest.fn().mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
-          // First call: decrypting the decryption key bundle itself (uses embedded key)
-          return Promise.resolve(mockDecryptionKeyBytes);
+          // First call: decrypting the embedded key bundle itself (uses embedded key)
+          return Promise.resolve(mockEmbeddedKeyBytes);
         }
         // Subsequent calls: decrypting wallet bundles (should use the injected key)
         return Promise.resolve(new Uint8Array(64).fill(9));
@@ -1037,11 +1035,9 @@ describe("Decryption Key Override", () => {
   });
 
   describe("RESET_TO_DEFAULT_EMBEDDED_KEY handler", () => {
-    it("clears the injected decryption key", async () => {
+    it("clears the injected embedded key", async () => {
       // 1. Replace embedded key
-      const HpkeDecryptMock = jest
-        .fn()
-        .mockResolvedValue(mockDecryptionKeyBytes);
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
 
       await onSetEmbeddedKeyOverride(
         requestId,
@@ -1078,12 +1074,12 @@ describe("Decryption Key Override", () => {
 
   describe("Full Lifecycle", () => {
     it("replace key -> inject bundles -> sign -> reset -> inject uses embedded key", async () => {
-      // 1. Replace embedded key with decryption key
+      // 1. Replace embedded key with injected embedded key
       let callCount = 0;
       const HpkeDecryptMock = jest.fn().mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
-          return Promise.resolve(mockDecryptionKeyBytes);
+          return Promise.resolve(mockEmbeddedKeyBytes);
         }
         return Promise.resolve(new Uint8Array(64).fill(9));
       });

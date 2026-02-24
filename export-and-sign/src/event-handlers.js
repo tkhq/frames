@@ -6,9 +6,9 @@ import * as nobleHashes from "@noble/hashes/sha512";
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
 
-// Injected decryption key -- held in memory only, never persisted.
+// Injected embedded key -- held in memory only, never persisted.
 // When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
-let injectedDecryptionKey = null;
+let injectedEmbeddedKey = null;
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
@@ -95,9 +95,8 @@ async function decryptBundle(bundle, organizationId, HpkeDecrypt) {
   );
   const ciphertextBuf = TKHQ.uint8arrayFromHexString(signedData.ciphertext);
 
-  // Use the injected decryption key if available, otherwise fall back to the embedded key
-  const receiverPrivJwk =
-    injectedDecryptionKey || (await TKHQ.getEmbeddedKey());
+  // Use the injected embedded key if available, otherwise fall back to the embedded key
+  const receiverPrivJwk = injectedEmbeddedKey || (await TKHQ.getEmbeddedKey());
   return await HpkeDecrypt({
     ciphertextBuf,
     encappedKeyBuf,
@@ -363,18 +362,18 @@ async function onSetEmbeddedKeyOverride(
   const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
 
   // Store in module-level variable (memory only)
-  injectedDecryptionKey = keyJwk;
+  injectedEmbeddedKey = keyJwk;
 
   TKHQ.sendMessageUp("EMBEDDED_KEY_OVERRIDE_SET", true, requestId);
 }
 
 /**
  * Handler for RESET_TO_DEFAULT_EMBEDDED_KEY events.
- * Clears the embedded decryption key from memory, replacing it with the iframe's default embedded key.
+ * Clears the embedded key from memory, replacing it with the iframe's default embedded key.
  * @param {string} requestId
  */
 function onResetToDefaultEmbeddedKey(requestId) {
-  injectedDecryptionKey = null;
+  injectedEmbeddedKey = null;
   TKHQ.sendMessageUp("RESET_TO_DEFAULT_EMBEDDED_KEY", true, requestId);
 }
 
