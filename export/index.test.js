@@ -8,6 +8,41 @@ const html = fs
   .readFileSync(path.resolve(__dirname, "./index.template.html"), "utf8")
   .replace("${TURNKEY_SIGNER_ENVIRONMENT}", "prod");
 
+/**
+ * Mirror of the iframe's encryptWithPassphrase, used to verify round-trips in tests.
+ * Kept here rather than exported from TKHQ to avoid exposing decrypt on the global
+ * in production.
+ */
+async function decryptWithPassphrase(encryptedBuf, passphrase) {
+  const salt = encryptedBuf.slice(0, 16);
+  const iv = encryptedBuf.slice(16, 28);
+  const ciphertext = encryptedBuf.slice(28);
+
+  const keyMaterial = await crypto.webcrypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(passphrase.normalize("NFC")),
+    "PBKDF2",
+    false,
+    ["deriveBits", "deriveKey"]
+  );
+
+  const aesKey = await crypto.webcrypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: 600000, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["decrypt"]
+  );
+
+  const decrypted = await crypto.webcrypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
+    aesKey,
+    ciphertext
+  );
+
+  return new Uint8Array(decrypted);
+}
+
 let dom;
 let TKHQ;
 
@@ -475,7 +510,7 @@ describe("TKHQ", () => {
     const encrypted = await TKHQ.encryptWithPassphrase(plaintext, passphrase);
 
     // Decrypt
-    const decrypted = await TKHQ.decryptWithPassphrase(encrypted, passphrase);
+    const decrypted = await decryptWithPassphrase(encrypted, passphrase);
 
     // Verify
     const decryptedText = new TextDecoder().decode(decrypted);
@@ -494,7 +529,7 @@ describe("TKHQ", () => {
 
     // Attempting to decrypt with wrong passphrase should throw
     await expect(
-      TKHQ.decryptWithPassphrase(encrypted, wrongPassphrase)
+      decryptWithPassphrase(encrypted, wrongPassphrase)
     ).rejects.toThrow();
   });
 
@@ -511,8 +546,8 @@ describe("TKHQ", () => {
     );
 
     // But both should decrypt to the same plaintext
-    const decrypted1 = await TKHQ.decryptWithPassphrase(encrypted1, passphrase);
-    const decrypted2 = await TKHQ.decryptWithPassphrase(encrypted2, passphrase);
+    const decrypted1 = await decryptWithPassphrase(encrypted1, passphrase);
+    const decrypted2 = await decryptWithPassphrase(encrypted2, passphrase);
 
     expect(new TextDecoder().decode(decrypted1)).toBe("same plaintext");
     expect(new TextDecoder().decode(decrypted2)).toBe("same plaintext");
@@ -547,7 +582,7 @@ describe("TKHQ", () => {
     );
 
     // Decrypt
-    const decrypted = await TKHQ.decryptWithPassphrase(
+    const decrypted = await decryptWithPassphrase(
       encryptedFromBase64,
       passphrase
     );

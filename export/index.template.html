@@ -1315,10 +1315,12 @@
           const salt = crypto.getRandomValues(new Uint8Array(16));
           const iv = crypto.getRandomValues(new Uint8Array(12));
 
-          // Import passphrase as PBKDF2 key material
+          // Import passphrase as PBKDF2 key material.
+          // Normalize to NFC so the same visual passphrase always produces the
+          // same bytes regardless of OS/keyboard Unicode decomposition form.
           const keyMaterial = await crypto.subtle.importKey(
             "raw",
-            new TextEncoder().encode(passphrase),
+            new TextEncoder().encode(passphrase.normalize("NFC")),
             "PBKDF2",
             false,
             ["deriveBits", "deriveKey"]
@@ -1369,10 +1371,10 @@
           const iv = encryptedBuf.slice(16, 28);
           const ciphertext = encryptedBuf.slice(28);
 
-          // Import passphrase as PBKDF2 key material
+          // Import passphrase as PBKDF2 key material (NFC-normalized, matching encryptWithPassphrase).
           const keyMaterial = await crypto.subtle.importKey(
             "raw",
-            new TextEncoder().encode(passphrase),
+            new TextEncoder().encode(passphrase.normalize("NFC")),
             "PBKDF2",
             false,
             ["deriveBits", "deriveKey"]
@@ -1433,7 +1435,6 @@
           getSettings,
           setSettings,
           encryptWithPassphrase,
-          decryptWithPassphrase,
         };
       })();
     </script>
@@ -1547,10 +1548,7 @@
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
-        if (
-          event.data &&
-          event.data["type"] == "CONFIRM_PASSPHRASE_EXPORT"
-        ) {
+        if (event.data && event.data["type"] == "CONFIRM_PASSPHRASE_EXPORT") {
           TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
           try {
             await onConfirmPassphraseExport(event.data["requestId"]);
