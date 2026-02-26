@@ -655,6 +655,20 @@ describe("Passphrase Form Validation", () => {
     TKHQ = dom.window.TKHQ;
   });
 
+  it("contains hidden static passphrase form elements", () => {
+    const form = document.getElementById("passphrase-form-div");
+    expect(form).toBeInTheDocument();
+    expect(form.classList.contains("hidden")).toBe(true);
+    expect(
+      document.getElementById("passphrase-description")
+    ).toBeInTheDocument();
+    expect(document.getElementById("export-passphrase")).toBeInTheDocument();
+    expect(
+      document.getElementById("export-passphrase-confirm")
+    ).toBeInTheDocument();
+    expect(document.getElementById("encrypt-and-export")).toBeInTheDocument();
+  });
+
   it("shows error when passphrase is too short", () => {
     const elements = createPassphraseForm();
     addValidationHandler(elements, "test mnemonic");
