@@ -456,10 +456,13 @@ async function onSetEmbeddedKeyOverride(
   bundle,
   HpkeDecrypt
 ) {
+  let keyBytes = null;
   try {
     // Decrypt the private key using the iframe's embedded key.
     // The decrypted payload is a raw 32-byte P-256 private key scalar.
-    const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+    const decrypted = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+    keyBytes =
+      decrypted instanceof Uint8Array ? decrypted : new Uint8Array(decrypted);
 
     // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
     const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
@@ -474,6 +477,11 @@ async function onSetEmbeddedKeyOverride(
     // we must not leave stale key material in the module variable.
     injectedEmbeddedKey = null;
     throw e;
+  } finally {
+    // SECURITY: Zero decrypted key bytes on all paths once we've derived the JWK.
+    if (keyBytes) {
+      keyBytes.fill(0);
+    }
   }
 }
 
