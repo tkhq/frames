@@ -445,4 +445,102 @@ describe("Shared TKHQ Utilities", () => {
       expect(publicKey.length).toBe(65); // Uncompressed P-256 public key
     });
   });
+
+  describe("Parent origin management", () => {
+    beforeEach(() => {
+      // Reset parent origin before each test
+      SharedTKHQ.setParentOrigin(null);
+    });
+
+    it("returns null when no origin has been set", () => {
+      expect(SharedTKHQ.getParentOrigin()).toBeNull();
+    });
+
+    it("stores and retrieves a parent origin", () => {
+      SharedTKHQ.setParentOrigin("https://app.example.com");
+      expect(SharedTKHQ.getParentOrigin()).toBe("https://app.example.com");
+    });
+
+    it("overwrites a previously set origin", () => {
+      SharedTKHQ.setParentOrigin("https://first.example.com");
+      SharedTKHQ.setParentOrigin("https://second.example.com");
+      expect(SharedTKHQ.getParentOrigin()).toBe("https://second.example.com");
+    });
+
+    it("can be cleared back to null", () => {
+      SharedTKHQ.setParentOrigin("https://app.example.com");
+      SharedTKHQ.setParentOrigin(null);
+      expect(SharedTKHQ.getParentOrigin()).toBeNull();
+    });
+  });
+
+  describe("sendMessageUp uses captured parent origin as targetOrigin", () => {
+    let postMessageSpy;
+    let originalParent;
+
+    beforeEach(() => {
+      SharedTKHQ.setParentOrigin(null);
+      // Simulate being inside an iframe by making window.parent !== window
+      originalParent = Object.getOwnPropertyDescriptor(window, "parent");
+      postMessageSpy = jest.fn();
+      Object.defineProperty(window, "parent", {
+        configurable: true,
+        get: () => ({ postMessage: postMessageSpy }),
+      });
+    });
+
+    afterEach(() => {
+      if (originalParent) {
+        Object.defineProperty(window, "parent", originalParent);
+      } else {
+        delete window.parent;
+      }
+    });
+
+    it("uses wildcard '*' when no parent origin is set", () => {
+      SharedTKHQ.sendMessageUp("TEST_TYPE", "test-value", "req-1");
+      // Note: window.parent.postMessage path sends { type, value } without requestId
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        { type: "TEST_TYPE", value: "test-value" },
+        "*"
+      );
+    });
+
+    it("uses captured parent origin when set", () => {
+      SharedTKHQ.setParentOrigin("https://app.example.com");
+      SharedTKHQ.sendMessageUp("TEST_TYPE", "test-value", "req-2");
+      // Note: window.parent.postMessage path sends { type, value } without requestId
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        { type: "TEST_TYPE", value: "test-value" },
+        "https://app.example.com"
+      );
+    });
+
+    it("omits requestId from postMessage payload", () => {
+      SharedTKHQ.setParentOrigin("https://app.example.com");
+      SharedTKHQ.sendMessageUp("TEST_TYPE", "test-value");
+      const [payload] = postMessageSpy.mock.calls[0];
+      expect(payload).not.toHaveProperty("requestId");
+    });
+  });
+
+  describe("Embedded key TTL", () => {
+    it("embedded key expires after 4 hours", async () => {
+      jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+      // Initialize an embedded key
+      await SharedTKHQ.initEmbeddedKey();
+      const key = SharedTKHQ.getEmbeddedKey();
+      expect(key).not.toBeNull();
+
+      // Advance time by 4 hours minus 1 ms -- key should still be valid
+      jest.advanceTimersByTime(1000 * 60 * 60 * 4 - 1);
+      expect(SharedTKHQ.getEmbeddedKey()).not.toBeNull();
+
+      // Advance past the 4-hour TTL -- key should have expired
+      jest.advanceTimersByTime(2);
+      expect(SharedTKHQ.getEmbeddedKey()).toBeNull();
+
+      jest.useRealTimers();
+    });
+  });
 });
