@@ -3,6 +3,28 @@ import * as nobleHashes from "@noble/hashes/sha512";
 import { fromDerSignature } from "@turnkey/crypto";
 import * as SharedTKHQ from "@shared/turnkey-core.js";
 
+/**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ * See event-handlers.js for detailed rationale.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function timingSafeEqual(a, b) {
+  const enc = new TextEncoder();
+  const aBuf = enc.encode(a);
+  const bBuf = enc.encode(b);
+  if (aBuf.length !== bBuf.length) {
+    let diff = 1;
+    const len = Math.min(aBuf.length, bBuf.length);
+    for (let i = 0; i < len; i++) { diff |= aBuf[i] ^ bBuf[i]; }
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < aBuf.length; i++) { diff |= aBuf[i] ^ bBuf[i]; }
+  return diff === 0;
+}
+
 const {
   initEmbeddedKey: sharedInitEmbeddedKey,
   generateTargetKey,
@@ -28,6 +50,8 @@ const {
   validateStyles,
   isDoublyIframed,
   loadQuorumKey,
+  setParentOrigin,
+  getParentOrigin,
 } = SharedTKHQ;
 
 /**
@@ -84,7 +108,9 @@ async function verifyEnclaveSignature(
     );
   }
 
-  if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
+  // SECURITY: Use constant-time comparison to prevent timing side-channel
+  // attacks that could leak the enclave quorum public key byte-by-byte.
+  if (!timingSafeEqual(enclaveQuorumPublic, TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY)) {
     throw new Error(
       `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
     );
@@ -177,4 +203,6 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
+  setParentOrigin,
+  getParentOrigin,
 };

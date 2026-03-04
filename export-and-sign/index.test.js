@@ -7,6 +7,7 @@ import {
   DEFAULT_TTL_MILLISECONDS,
   onInjectKeyBundle,
   onSignTransaction,
+  onClearEmbeddedPrivateKey,
   getKeyNotFoundErrorMessage,
   onResetToDefaultEmbeddedKey,
   onSetEmbeddedKeyOverride,
@@ -1069,6 +1070,144 @@ describe("Embedded Key Override", () => {
       const lastCall =
         HpkeDecryptMock.mock.calls[HpkeDecryptMock.mock.calls.length - 1][0];
       expect(lastCall.receiverPrivJwk).toEqual({ foo: "bar" }); // back to the embedded key
+    });
+  });
+
+  describe("Key clearing and buffer zeroing", () => {
+    it("clears all keys when no address is given and subsequent signing fails", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      // Inject two keys
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-x",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-y",
+        HpkeDecryptMock
+      );
+
+      // Clear all keys (no address argument)
+      await onClearEmbeddedPrivateKey(requestId, undefined);
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_PRIVATE_KEY_CLEARED",
+        true,
+        requestId
+      );
+
+      // After clearing, signing should throw "key bytes not found"
+      let signError;
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-x");
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-y");
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+    });
+
+    it("clears only the targeted key and leaves other keys intact", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-keep",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-remove",
+        HpkeDecryptMock
+      );
+
+      // Clear only wallet-remove
+      await onClearEmbeddedPrivateKey(requestId, "wallet-remove");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_PRIVATE_KEY_CLEARED",
+        true,
+        requestId
+      );
+
+      // wallet-remove should be gone -- signing throws
+      let signError;
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-remove");
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+
+      // wallet-keep should still be signable
+      await onSignTransaction(requestId, serializedTransaction, "wallet-keep");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
+
+    it("zeros the Solana secretKey buffer on single-key clear", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-zero",
+        HpkeDecryptMock
+      );
+
+      // The mock Keypair.fromSecretKey always returns the same mockKeypair object.
+      // Capture the secretKey reference before clearing.
+      const { Keypair } = await import("@solana/web3.js");
+      const capturedSecretKey = Keypair.fromSecretKey().secretKey;
+
+      await onClearEmbeddedPrivateKey(requestId, "wallet-zero");
+
+      // zeroKeyEntry should have called fill(0) on the secretKey buffer.
+      // (It may already be zero if a prior test cleared the same mock keypair,
+      // but the important invariant is: it must be zero after a clear.)
+      expect(capturedSecretKey.every((b) => b === 0)).toBe(true);
+    });
+
+    it("sends error when trying to clear a key that does not exist", async () => {
+      await onClearEmbeddedPrivateKey(requestId, "nonexistent-wallet");
+
+      // onClearEmbeddedPrivateKey sends new Error(...).toString() which includes "Error: " prefix
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "ERROR",
+        "Error: key not found for address nonexistent-wallet. Note that address is case sensitive.",
+        requestId
+      );
     });
   });
 

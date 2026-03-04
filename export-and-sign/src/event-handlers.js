@@ -3,18 +3,92 @@ import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 
-// Persist keys in memory via mapping of { address --> pk }
+/**
+ * In-memory key store: { address --> key object }.
+ * SECURITY: Mutated in-place (not spread-copied) to avoid multiplying
+ * copies of key material on the V8 heap. Before deleting an entry,
+ * all Uint8Array fields (e.g. keypair.secretKey) must be zeroed.
+ */
 let inMemoryKeys = {};
 
-// Injected embedded key -- held in memory only, never persisted.
-// When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
+/**
+ * Injected embedded key -- held in memory only, never persisted.
+ * When set, decryptBundle uses this P-256 JWK instead of the iframe's embedded key.
+ *
+ * SECURITY LIMITATION: This is a JWK object containing the raw "d" parameter.
+ * It cannot be reliably zeroed in JS (object properties are GC'd, not wiped).
+ * We null it on error paths and on reset to limit the exposure window.
+ */
 let injectedEmbeddedKey = null;
+
+/**
+ * Allowed message origin captured during iframe initialization.
+ * Used to validate incoming postMessage events and reject messages
+ * from unexpected origins, preventing cross-origin injection attacks.
+ * @type {string|null}
+ */
+let allowedOrigin = null;
 
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
+
+/**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ * Standard `===` / `!==` short-circuits on the first differing byte, which
+ * leaks information about how many leading bytes match. This is exploitable
+ * when comparing security-critical values like organization IDs or enclave
+ * quorum public keys, where an attacker can iteratively guess each byte.
+ *
+ * Uses XOR accumulation so every byte is always compared regardless of mismatches.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean} true if strings are equal
+ */
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") {
+    return false;
+  }
+  // Encode to bytes so we XOR fixed-width units (UTF-8 bytes)
+  const aBuf = textEncoder.encode(a);
+  const bBuf = textEncoder.encode(b);
+  if (aBuf.length !== bBuf.length) {
+    // Length mismatch already leaks info, but we still do constant-time
+    // comparison over the shorter length to avoid additional leakage.
+    let diff = 1; // already know they differ
+    const len = Math.min(aBuf.length, bBuf.length);
+    for (let i = 0; i < len; i++) {
+      diff |= aBuf[i] ^ bBuf[i];
+    }
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < aBuf.length; i++) {
+    diff |= aBuf[i] ^ bBuf[i];
+  }
+  return diff === 0;
+}
+
+/**
+ * Zeros all sensitive Uint8Array fields on a key entry before removal.
+ * JS strings (like `privateKey`) are immutable and cannot be zeroed — this is
+ * a known V8 limitation. We zero what we can (Uint8Array buffers) and document
+ * the rest.
+ * @param {Object} keyEntry - An entry from inMemoryKeys
+ */
+function zeroKeyEntry(keyEntry) {
+  if (!keyEntry) return;
+  // Zero the cached Solana keypair's secret key (64-byte Uint8Array)
+  if (keyEntry.keypair && keyEntry.keypair.secretKey) {
+    keyEntry.keypair.secretKey.fill(0);
+  }
+  // NOTE: keyEntry.privateKey is a JS string (hex or base58 encoded).
+  // JS strings are immutable — we cannot zero them. They will linger on the
+  // V8 heap until GC. Keeping key material as Uint8Array end-to-end would
+  // require a larger refactor of the encodeKey/decodeKey pipeline.
+}
 
 /**
  * Verifies the enclave signature on a v1.0.0 bundle and returns the parsed signed data.
@@ -62,7 +136,9 @@ async function verifyAndParseBundleData(bundle, organizationId) {
     );
   } else if (
     !signedData.organizationId ||
-    signedData.organizationId !== organizationId
+    // SECURITY: Use constant-time comparison to prevent timing side-channel
+    // attacks that could leak the organization ID byte-by-byte.
+    !timingSafeEqual(signedData.organizationId, organizationId)
   ) {
     throw new Error(
       `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
@@ -135,14 +211,21 @@ async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
   let key;
   const privateKeyBytes = new Uint8Array(keyBytes);
 
-  if (keyFormat === "SOLANA") {
-    const privateKeyHex = TKHQ.uint8arrayToHexString(
-      privateKeyBytes.subarray(0, 32)
-    );
-    const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
-    key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
-  } else {
-    key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+  try {
+    if (keyFormat === "SOLANA") {
+      const privateKeyHex = TKHQ.uint8arrayToHexString(
+        privateKeyBytes.subarray(0, 32)
+      );
+      const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
+      key = await TKHQ.encodeKey(privateKeyBytes, keyFormat, publicKeyBytes);
+    } else {
+      key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+    }
+  } finally {
+    // SECURITY: Zero the raw private key bytes immediately after encoding.
+    // The encoded `key` is a JS string (hex or base58) which we cannot zero,
+    // but we can at least wipe the Uint8Array source material from the heap.
+    privateKeyBytes.fill(0);
   }
 
   const keyAddress = address || "default";
@@ -157,15 +240,20 @@ async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
     );
   }
 
-  inMemoryKeys = {
-    ...inMemoryKeys,
-    [keyAddress]: {
-      organizationId,
-      privateKey: key,
-      format: keyFormat,
-      expiry: new Date().getTime() + DEFAULT_TTL_MILLISECONDS,
-      keypair: cachedKeypair,
-    },
+  // SECURITY: Mutate in-place rather than spread-copying. The spread pattern
+  // `{ ...inMemoryKeys, [addr]: ... }` creates a shallow copy of the entire map
+  // on every key injection, multiplying references to key material on the heap.
+  // In-place mutation avoids this; only one reference per key exists at a time.
+  // If replacing an existing entry, zero its buffers first.
+  if (inMemoryKeys[keyAddress]) {
+    zeroKeyEntry(inMemoryKeys[keyAddress]);
+  }
+  inMemoryKeys[keyAddress] = {
+    organizationId,
+    privateKey: key,
+    format: keyFormat,
+    expiry: new Date().getTime() + DEFAULT_TTL_MILLISECONDS,
+    keypair: cachedKeypair,
   };
 }
 
@@ -287,16 +375,23 @@ async function onSignMessage(requestId, serializedMessage, address) {
     nobleEd25519.etc.sha512Sync = (...m) =>
       nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
 
-    // Extract the 32-byte private key from the 64-byte secretKey
+    // Extract the 32-byte private key from the 64-byte secretKey.
     // Solana keypair.secretKey format: [32-byte private key][32-byte public key]
+    // SECURITY: .slice() creates a new Uint8Array copy. We must zero it after
+    // signing to avoid leaving an extra copy of the private key on the heap.
     const privateKey = keypair.secretKey.slice(0, 32);
-    // Sign the message using nobleEd25519
-    const signature = nobleEd25519.sign(messageBytes, privateKey);
+    try {
+      // Sign the message using nobleEd25519
+      const signature = nobleEd25519.sign(messageBytes, privateKey);
 
-    // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
-    // Clients can verify the signature returned.
+      // Note: Signature verification is skipped for performance. The signature will always be valid if signing succeeds with a valid keypair.
+      // Clients can verify the signature returned.
 
-    signatureHex = TKHQ.uint8arrayToHexString(signature);
+      signatureHex = TKHQ.uint8arrayToHexString(signature);
+    } finally {
+      // SECURITY: Zero the private key slice immediately after use.
+      privateKey.fill(0);
+    }
   } else {
     TKHQ.sendMessageUp("ERROR", "unsupported message type", requestId);
 
@@ -314,6 +409,12 @@ async function onSignMessage(requestId, serializedMessage, address) {
 async function onClearEmbeddedPrivateKey(requestId, address) {
   // If no address is provided, clear all keys
   if (!address) {
+    // SECURITY: Zero all Uint8Array buffers before releasing references.
+    // `delete` and reassignment only remove the JS reference — the underlying
+    // memory isn't wiped and will persist until GC reclaims it.
+    for (const key of Object.keys(inMemoryKeys)) {
+      zeroKeyEntry(inMemoryKeys[key]);
+    }
     inMemoryKeys = {};
     TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
 
@@ -333,7 +434,8 @@ async function onClearEmbeddedPrivateKey(requestId, address) {
     return;
   }
 
-  // Clear the specific key from memory
+  // SECURITY: Zero sensitive buffers before deleting the entry.
+  zeroKeyEntry(inMemoryKeys[address]);
   delete inMemoryKeys[address];
 
   TKHQ.sendMessageUp("EMBEDDED_PRIVATE_KEY_CLEARED", true, requestId);
@@ -354,17 +456,25 @@ async function onSetEmbeddedKeyOverride(
   bundle,
   HpkeDecrypt
 ) {
-  // Decrypt the private key using the iframe's embedded key.
-  // The decrypted payload is a raw 32-byte P-256 private key scalar.
-  const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
+  try {
+    // Decrypt the private key using the iframe's embedded key.
+    // The decrypted payload is a raw 32-byte P-256 private key scalar.
+    const keyBytes = await decryptBundle(bundle, organizationId, HpkeDecrypt);
 
-  // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
-  const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
+    // Convert raw P-256 bytes to a full JWK (derives public key via WebCrypto)
+    const keyJwk = await rawP256PrivateKeyToJwk(new Uint8Array(keyBytes));
 
-  // Store in module-level variable (memory only)
-  injectedEmbeddedKey = keyJwk;
+    // Store in module-level variable (memory only)
+    injectedEmbeddedKey = keyJwk;
 
-  TKHQ.sendMessageUp("EMBEDDED_KEY_OVERRIDE_SET", true, requestId);
+    TKHQ.sendMessageUp("EMBEDDED_KEY_OVERRIDE_SET", true, requestId);
+  } catch (e) {
+    // SECURITY: Ensure the injected key is cleared on any error path.
+    // If decryption or JWK conversion partially succeeded before throwing,
+    // we must not leave stale key material in the module variable.
+    injectedEmbeddedKey = null;
+    throw e;
+  }
 }
 
 /**
@@ -444,15 +554,22 @@ async function rawP256PrivateKeyToJwk(rawPrivateKeyBytes) {
   pkcs8.set(pkcs8Prefix);
   pkcs8.set(rawPrivateKeyBytes, pkcs8Prefix.length);
 
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    pkcs8,
-    { name: "ECDH", namedCurve: "P-256" },
-    true,
-    ["deriveBits"]
-  );
+  try {
+    const cryptoKey = await crypto.subtle.importKey(
+      "pkcs8",
+      pkcs8,
+      { name: "ECDH", namedCurve: "P-256" },
+      true,
+      ["deriveBits"]
+    );
 
-  return await crypto.subtle.exportKey("jwk", cryptoKey);
+    return await crypto.subtle.exportKey("jwk", cryptoKey);
+  } finally {
+    // SECURITY: Zero intermediate buffers that contain private key material.
+    // The PKCS#8 wrapper embeds the raw scalar, so both must be wiped.
+    pkcs8.fill(0);
+    rawPrivateKeyBytes.fill(0);
+  }
 }
 
 /**
@@ -471,6 +588,8 @@ export function getKeyNotFoundErrorMessage(keyAddress) {
  */
 function clearExpiredKey(keyAddress) {
   if (inMemoryKeys[keyAddress]) {
+    // SECURITY: Zero sensitive Uint8Array buffers before releasing the reference.
+    zeroKeyEntry(inMemoryKeys[keyAddress]);
     delete inMemoryKeys[keyAddress];
   }
 }
@@ -614,6 +733,18 @@ function addDOMEventListeners() {
  */
 function initMessageEventListener(HpkeDecrypt) {
   return async function messageEventListener(event) {
+    // SECURITY: Validate event.origin against the allowlist captured at init time.
+    // Without this check, any page that can obtain a reference to this iframe's
+    // window (e.g. via window.frames) could inject messages and trigger key
+    // operations. We skip validation only if allowedOrigin hasn't been set yet
+    // (i.e. during the initial handshake itself).
+    if (allowedOrigin && event.origin && event.origin !== allowedOrigin) {
+      TKHQ.logMessage(
+        `⚠️ Rejected message from unexpected origin: ${event.origin} (expected: ${allowedOrigin})`
+      );
+      return;
+    }
+
     if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
@@ -769,6 +900,12 @@ export function initEventHandlers(HpkeDecrypt) {
         event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
         event.ports?.[0]
       ) {
+        // SECURITY: Capture the parent origin from the init handshake.
+        // This is used both for origin validation on incoming messages and
+        // as the targetOrigin for legacy postMessage responses (instead of "*").
+        allowedOrigin = event.origin;
+        TKHQ.setParentOrigin(event.origin);
+
         // remove the message event listener that was added in the DOMContentLoaded event
         messageListenerController.abort();
 
