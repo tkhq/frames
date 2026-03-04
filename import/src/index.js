@@ -135,6 +135,10 @@ window.addEventListener(
       // remove the message event listener that was added in the DOMContentLoaded event
       messageListenerController.abort();
 
+      // Capture the parent origin for use as targetOrigin in sendMessageUp,
+      // preventing messages from being delivered to unintended recipients.
+      TKHQ.setParentOrigin(event.origin);
+
       iframeMessagePort = event.ports[0];
       iframeMessagePort.onmessage = messageEventListener;
 

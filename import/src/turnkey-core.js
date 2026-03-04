@@ -20,6 +20,7 @@ const {
   additionalAssociatedData,
   verifyEnclaveSignature,
   validateStyles,
+  setParentOrigin,
 } = SharedTKHQ;
 
 /**
@@ -127,5 +128,6 @@ export {
   additionalAssociatedData,
   verifyEnclaveSignature,
   validateStyles,
+  setParentOrigin,
   applySettings,
 };

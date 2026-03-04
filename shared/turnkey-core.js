@@ -533,10 +533,11 @@ function sendMessageUp(type, value, requestId) {
   if (parentFrameMessageChannelPort) {
     parentFrameMessageChannelPort.postMessage(message);
   } else if (window.parent !== window) {
-    // SECURITY: Use the captured parent origin instead of wildcard "*".
-    // The wildcard would allow any window to receive these messages, which
-    // could leak sensitive data (public keys, signed transactions, etc.).
-    // parentOrigin is set during the TURNKEY_INIT_MESSAGE_CHANNEL handshake.
+    // SECURITY: Prefer the captured parent origin over wildcard "*" to prevent
+    // messages from being delivered to unintended windows. parentOrigin is set
+    // during the TURNKEY_INIT_MESSAGE_CHANNEL handshake (iframe-stamper >= v2.1.0).
+    // For older iframe-stamper versions that never send TURNKEY_INIT_MESSAGE_CHANNEL,
+    // parentOrigin remains null and we must fall back to "*" for backwards compatibility.
     const targetOrigin = parentOrigin || "*";
     window.parent.postMessage(
       {
