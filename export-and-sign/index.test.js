@@ -1213,9 +1213,7 @@ describe("Channel Establishment Guard", () => {
     jest
       .spyOn(TKHQModule, "p256JWKPrivateToPublic")
       .mockResolvedValue(new Uint8Array(65).fill(0x04));
-    jest
-      .spyOn(TKHQModule, "uint8arrayToHexString")
-      .mockReturnValue("aabbccdd");
+    jest.spyOn(TKHQModule, "uint8arrayToHexString").mockReturnValue("aabbccdd");
   });
 
   afterEach(() => {
@@ -1253,7 +1251,9 @@ describe("Channel Establishment Guard", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
-    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(
+      1
+    );
     expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
       "PUBLIC_KEY_READY",
       "aabbccdd"
@@ -1292,13 +1292,15 @@ describe("Channel Establishment Guard", () => {
 
     // Only the first message should have been handled.
     expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
-    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(
+      1
+    );
     expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledWith(
       port1
     );
-    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalledWith(
-      port2
-    );
+    expect(
+      TKHQModule.setParentFrameMessageChannelPort
+    ).not.toHaveBeenCalledWith(port2);
     expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
     expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
       "PUBLIC_KEY_READY",
@@ -1331,10 +1333,12 @@ describe("Channel Establishment Guard", () => {
 
     // Nothing new should have happened.
     expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
-    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
-    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalledWith(
-      port2
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(
+      1
     );
+    expect(
+      TKHQModule.setParentFrameMessageChannelPort
+    ).not.toHaveBeenCalledWith(port2);
     expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
   });
 });
