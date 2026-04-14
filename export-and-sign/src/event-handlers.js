@@ -754,6 +754,9 @@ export function initEventHandlers(HpkeDecrypt) {
     signal: messageListenerController.signal,
   });
 
+  // Guard to prevent concurrent channel establishment from multiple senders
+  let channelEstablished = false;
+
   // Handle MessageChannel initialization for iframe communication
   window.addEventListener(
     "message",
@@ -769,6 +772,15 @@ export function initEventHandlers(HpkeDecrypt) {
         event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
         event.ports?.[0]
       ) {
+        // Synchronously check-and-set the flag before any await. This prevents
+        // a second concurrent invocation from racing through while the first is
+        // suspended at an await, which would allow multiple origins to establish
+        // a channel before turnkeyInitController.abort() is reached.
+        if (channelEstablished) {
+          return;
+        }
+        channelEstablished = true;
+
         // remove the message event listener that was added in the DOMContentLoaded event
         messageListenerController.abort();
 

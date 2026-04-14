@@ -10,6 +10,7 @@ import {
   getKeyNotFoundErrorMessage,
   onResetToDefaultEmbeddedKey,
   onSetEmbeddedKeyOverride,
+  initEventHandlers,
 } from "./src/event-handlers.js";
 
 jest.mock("@solana/web3.js", () => {
@@ -1152,5 +1153,188 @@ describe("Embedded Key Override", () => {
         HpkeDecryptMock.mock.calls[HpkeDecryptMock.mock.calls.length - 1][0];
       expect(lastCall.receiverPrivJwk).toEqual({ foo: "bar" }); // embedded key
     });
+  });
+});
+
+// Minimal HTML supplying the DOM elements that initEventHandlers() requires.
+const MINIMAL_INIT_HTML = `<!doctype html><html><body>
+  <input id="embedded-key" />
+  <button id="inject-key"></button>
+  <button id="sign-transaction"></button>
+  <button id="sign-message"></button>
+  <button id="reset"></button>
+</body></html>`;
+
+describe("Channel Establishment Guard", () => {
+  /**
+   * These tests verify that the channelEstablished flag prevents a second
+   * concurrent TURNKEY_INIT_MESSAGE_CHANNEL message from establishing a
+   * second message channel.
+   *
+   * The race is possible because the handler is async: after the synchronous
+   * preamble runs, execution yields at `await TKHQ.initEmbeddedKey(...)`.
+   * Without the flag, a second message dispatched before that await resolves
+   * would pass the outer `if` check and set up a second channel.
+   *
+   * With the fix, channelEstablished is set to true synchronously (before
+   * the first await), so any concurrent invocation returns immediately.
+   */
+
+  let dom;
+  let TKHQModule;
+
+  beforeEach(async () => {
+    dom = new JSDOM(MINIMAL_INIT_HTML, { url: "http://localhost" });
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    // initEventHandlers() calls `new AbortController()` and passes the resulting
+    // signal to window.addEventListener(). JSDOM validates that the signal is an
+    // instance of *its own* AbortSignal, not Node's native one. Shadow the global
+    // so that signals created inside initEventHandlers() are recognised by JSDOM.
+    global.AbortController = dom.window.AbortController;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQModule = module.TKHQ;
+
+    jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+    jest
+      .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+      .mockImplementation(() => {});
+    jest.spyOn(TKHQModule, "initEmbeddedKey").mockResolvedValue(undefined);
+    jest
+      .spyOn(TKHQModule, "getEmbeddedKey")
+      .mockReturnValue({ kty: "EC", crv: "P-256" });
+    jest
+      .spyOn(TKHQModule, "p256JWKPrivateToPublic")
+      .mockResolvedValue(new Uint8Array(65).fill(0x04));
+    jest
+      .spyOn(TKHQModule, "uint8arrayToHexString")
+      .mockReturnValue("aabbccdd");
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+    delete global.AbortController;
+  });
+
+  /**
+   * Build a MessageEvent that looks like what iframe-stamper sends.
+   * Uses a plain mock object for the port — JSDOM's MessageEvent accepts it,
+   * and the handler only needs ports[0] to be truthy and to have an onmessage
+   * property (TKHQ.setParentFrameMessageChannelPort is mocked anyway).
+   */
+  function makeInitEvent(origin = "https://app.turnkey.com") {
+    const port = { onmessage: null, postMessage: jest.fn() };
+    const event = new dom.window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      ports: [port],
+      origin,
+    });
+    return { event, port };
+  }
+
+  it("processes a single TURNKEY_INIT_MESSAGE_CHANNEL and sends PUBLIC_KEY_READY", async () => {
+    initEventHandlers(jest.fn());
+
+    const { event } = makeInitEvent();
+    dom.window.dispatchEvent(event);
+
+    // Allow the async handler to finish
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "PUBLIC_KEY_READY",
+      "aabbccdd"
+    );
+  });
+
+  it("ignores a second TURNKEY_INIT_MESSAGE_CHANNEL dispatched while the first is still pending", async () => {
+    /**
+     * This is the core race-condition test.
+     *
+     * Sequence of events:
+     *   1. event1 is dispatched. The handler runs synchronously up to
+     *      `await TKHQ.initEmbeddedKey()`, setting channelEstablished = true
+     *      before yielding.
+     *   2. event2 is dispatched while the first handler is still suspended.
+     *      The handler finds channelEstablished === true and returns immediately.
+     *   3. The first handler resumes and completes normally.
+     *
+     * Without the fix (no channelEstablished flag), both handlers would
+     * proceed past the if-check and initEmbeddedKey would be called twice.
+     */
+    initEventHandlers(jest.fn());
+
+    const { event: event1, port: port1 } = makeInitEvent(
+      "https://app.turnkey.com"
+    );
+    const { event: event2, port: port2 } = makeInitEvent(
+      "https://malicious.example.com"
+    );
+
+    // Dispatch both before any awaited work completes.
+    dom.window.dispatchEvent(event1);
+    dom.window.dispatchEvent(event2);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Only the first message should have been handled.
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledWith(
+      port1
+    );
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalledWith(
+      port2
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "PUBLIC_KEY_READY",
+      "aabbccdd"
+    );
+  });
+
+  it("ignores a second TURNKEY_INIT_MESSAGE_CHANNEL even after the first has fully completed", async () => {
+    /**
+     * Even if the second message arrives after the first handler finishes
+     * (e.g. a delayed retry from a malicious frame), it must still be rejected.
+     * The channelEstablished flag persists for the lifetime of the page load.
+     */
+    initEventHandlers(jest.fn());
+
+    const { event: event1 } = makeInitEvent("https://app.turnkey.com");
+    const { event: event2, port: port2 } = makeInitEvent(
+      "https://malicious.example.com"
+    );
+
+    dom.window.dispatchEvent(event1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // First handler is now fully done.
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
+
+    // Late second message.
+    dom.window.dispatchEvent(event2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Nothing new should have happened.
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalledWith(
+      port2
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
   });
 });
