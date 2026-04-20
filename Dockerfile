@@ -54,4 +54,4 @@ EXPOSE 8085/tcp
 
 WORKDIR /usr/share/nginx
 
-CMD ["nginx"]
+CMD ["/bin/sh", "-c", "envsubst '${TURNKEY_FRAME_ANCESTORS}' < /etc/nginx/nginx.conf > /tmp/nginx-final.conf && nginx -c /tmp/nginx-final.conf"]
