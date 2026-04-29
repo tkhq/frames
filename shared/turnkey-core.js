@@ -20,12 +20,6 @@ function timingSafeEqual(a, b) {
   const aBuf = enc.encode(a);
   const bBuf = enc.encode(b);
   if (aBuf.length !== bBuf.length) {
-    // Length mismatch already leaks info; still iterate to avoid further leakage.
-    let diff = 1;
-    const len = Math.min(aBuf.length, bBuf.length);
-    for (let i = 0; i < len; i++) {
-      diff |= aBuf[i] ^ bBuf[i];
-    }
     return false;
   }
   let diff = 0;
@@ -44,22 +38,12 @@ const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
  *
  * SECURITY NOTE: The P-256 ECDH private key is stored as a JSON-serialized JWK
  * in localStorage, where it cannot be reliably zeroed (localStorage values are
- * immutable strings managed by the browser). The ideal solution would be to store
- * a non-extractable CryptoKey in IndexedDB, but that is a larger refactor.
- * As a mitigation, we keep the TTL as short as practical (4 hours) to limit the
- * window of exposure if the storage is compromised.
+ * immutable strings managed by the browser).
  */
-const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 4;
+const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 const TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
 
 let parentFrameMessageChannelPort = null;
-/**
- * Captured parent origin from the init message. Used as the targetOrigin for
- * legacy postMessage calls instead of the wildcard "*", which would allow any
- * window to eavesdrop on sensitive messages (e.g. public keys, signed data).
- * @type {string|null}
- */
-let parentOrigin = null;
 var cryptoProviderOverride = null;
 
 /*
@@ -242,24 +226,6 @@ function resetTargetEmbeddedKey() {
 
 function setParentFrameMessageChannelPort(port) {
   parentFrameMessageChannelPort = port;
-}
-
-/**
- * Stores the parent frame's origin, captured from the init postMessage event.
- * This is used as the targetOrigin for legacy postMessage calls to prevent
- * messages from being delivered to unintended recipients.
- * @param {string} origin
- */
-function setParentOrigin(origin) {
-  parentOrigin = origin;
-}
-
-/**
- * Returns the stored parent origin.
- * @returns {string|null}
- */
-function getParentOrigin() {
-  return parentOrigin;
 }
 
 /**
@@ -469,14 +435,7 @@ async function verifyEnclaveSignature(
 
   // todo(olivia): throw error if enclave quorum public is null once server changes are deployed
   if (enclaveQuorumPublic) {
-    // SECURITY: Use constant-time comparison to prevent timing side-channel
-    // attacks that could leak the enclave quorum public key byte-by-byte.
-    if (
-      !timingSafeEqual(
-        enclaveQuorumPublic,
-        TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY
-      )
-    ) {
+    if (enclaveQuorumPublic !== TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY) {
       throw new Error(
         `enclave quorum public keys from client and bundle do not match. Client: ${TURNKEY_SIGNER_ENCLAVE_QUORUM_PUBLIC_KEY}. Bundle: ${enclaveQuorumPublic}.`
       );
@@ -533,18 +492,12 @@ function sendMessageUp(type, value, requestId) {
   if (parentFrameMessageChannelPort) {
     parentFrameMessageChannelPort.postMessage(message);
   } else if (window.parent !== window) {
-    // SECURITY: Prefer the captured parent origin over wildcard "*" to prevent
-    // messages from being delivered to unintended windows. parentOrigin is set
-    // during the TURNKEY_INIT_MESSAGE_CHANNEL handshake (iframe-stamper >= v2.1.0).
-    // For older iframe-stamper versions that never send TURNKEY_INIT_MESSAGE_CHANNEL,
-    // parentOrigin remains null and we must fall back to "*" for backwards compatibility.
-    const targetOrigin = parentOrigin || "*";
     window.parent.postMessage(
       {
         type: type,
         value: value,
       },
-      targetOrigin
+      "*"
     );
   }
   logMessage(`⬆️ Sent message ${type}: ${value}`);
@@ -906,10 +859,9 @@ function parsePrivateKey(privateKey) {
  * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
  * Any invalid style throws an error. Returns an object of valid styles.
  * @param {Object} styles
- * @param {HTMLElement} element - Optional element parameter (for import frame)
  * @return {Object}
  */
-function validateStyles(styles, element) {
+function validateStyles(styles) {
   const validStyles = {};
 
   const cssValidationRegex = {
@@ -1009,6 +961,5 @@ export {
   encodeKey,
   parsePrivateKey,
   validateStyles,
-  setParentOrigin,
-  getParentOrigin,
+  timingSafeEqual,
 };
