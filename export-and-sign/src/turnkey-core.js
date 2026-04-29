@@ -28,6 +28,7 @@ const {
   validateStyles,
   isDoublyIframed,
   loadQuorumKey,
+  timingSafeEqual,
 } = SharedTKHQ;
 
 /**
@@ -177,4 +178,5 @@ export const TKHQ = {
   getSettings,
   setSettings,
   parsePrivateKey,
+  timingSafeEqual,
 };

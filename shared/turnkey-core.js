@@ -5,11 +5,41 @@ import { bech32 } from "bech32";
  * Contains all the core cryptographic and utility functions shared across frames
  */
 
+/**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ * Standard `===` / `!==` short-circuits on the first differing byte, leaking
+ * information about how many leading bytes match. This XOR-based approach
+ * always compares every byte regardless of mismatches.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean} true if strings are equal
+ */
+function timingSafeEqual(a, b) {
+  if (typeof a !== "string" || typeof b !== "string") return false;
+  const enc = new TextEncoder();
+  const aBuf = enc.encode(a);
+  const bBuf = enc.encode(b);
+  if (aBuf.length !== bBuf.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < aBuf.length; i++) {
+    diff |= aBuf[i] ^ bBuf[i];
+  }
+  return diff === 0;
+}
+
 /** constants for LocalStorage */
 const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
 const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
-/** 48 hours in milliseconds */
+/**
+ * TTL for the embedded ECDH private key stored in localStorage.
+ *
+ * SECURITY NOTE: The P-256 ECDH private key is stored as a JSON-serialized JWK
+ * in localStorage, where it cannot be reliably zeroed (localStorage values are
+ * immutable strings managed by the browser).
+ */
 const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
 const TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
 
@@ -829,10 +859,9 @@ function parsePrivateKey(privateKey) {
  * Function to validate and sanitize the styles object using the accepted map of style keys and values (as regular expressions).
  * Any invalid style throws an error. Returns an object of valid styles.
  * @param {Object} styles
- * @param {HTMLElement} element - Optional element parameter (for import frame)
  * @return {Object}
  */
-function validateStyles(styles, element) {
+function validateStyles(styles) {
   const validStyles = {};
 
   const cssValidationRegex = {
@@ -932,4 +961,5 @@ export {
   encodeKey,
   parsePrivateKey,
   validateStyles,
+  timingSafeEqual,
 };

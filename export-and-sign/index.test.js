@@ -7,6 +7,7 @@ import {
   DEFAULT_TTL_MILLISECONDS,
   onInjectKeyBundle,
   onSignTransaction,
+  onClearEmbeddedPrivateKey,
   getKeyNotFoundErrorMessage,
   onResetToDefaultEmbeddedKey,
   onSetEmbeddedKeyOverride,
@@ -869,7 +870,8 @@ describe("Embedded Key Override", () => {
 
   // Mock raw 32-byte P-256 private key (embedded key)
   // This is what Turnkey exports after HPKE decryption - raw key bytes, not a JWK.
-  const mockEmbeddedKeyBytes = new Uint8Array(32).fill(42);
+  // Return a fresh buffer each time since handlers zero key buffers in-place.
+  const makeMockEmbeddedKeyBytes = () => new Uint8Array(32).fill(42);
 
   function buildBundle(organizationId = "org-test") {
     const signedData = {
@@ -957,7 +959,9 @@ describe("Embedded Key Override", () => {
 
   describe("SET_EMBEDDED_KEY_OVERRIDE handler", () => {
     it("decrypts and stores the embedded key", async () => {
-      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(makeMockEmbeddedKeyBytes());
 
       await onSetEmbeddedKeyOverride(
         requestId,
@@ -972,6 +976,20 @@ describe("Embedded Key Override", () => {
         true,
         requestId
       );
+    });
+
+    it("zeros decrypted key bytes on success", async () => {
+      const decrypted = new Uint8Array(32).fill(42);
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(decrypted);
+
+      await onSetEmbeddedKeyOverride(
+        requestId,
+        "org-test",
+        buildBundle(),
+        HpkeDecryptMock
+      );
+
+      expect(decrypted.every((b) => b === 0)).toBe(true);
     });
 
     it("rejects invalid decryption key length", async () => {
@@ -989,6 +1007,22 @@ describe("Embedded Key Override", () => {
       ).rejects.toThrow("invalid decryption key length");
     });
 
+    it("zeros decrypted key bytes on error", async () => {
+      const decrypted = new Uint8Array(16).fill(1);
+      const HpkeDecryptMock = jest.fn().mockResolvedValue(decrypted);
+
+      await expect(
+        onSetEmbeddedKeyOverride(
+          requestId,
+          "org-test",
+          buildBundle(),
+          HpkeDecryptMock
+        )
+      ).rejects.toThrow("invalid decryption key length");
+
+      expect(decrypted.every((b) => b === 0)).toBe(true);
+    });
+
     it("uses injected key for subsequent bundle decryptions", async () => {
       // 1. Replace embedded key with embedded key
       let callCount = 0;
@@ -996,7 +1030,7 @@ describe("Embedded Key Override", () => {
         callCount++;
         if (callCount === 1) {
           // First call: decrypting the embedded key bundle itself (uses embedded key)
-          return Promise.resolve(mockEmbeddedKeyBytes);
+          return Promise.resolve(makeMockEmbeddedKeyBytes());
         }
         // Subsequent calls: decrypting wallet bundles (should use the injected key)
         return Promise.resolve(new Uint8Array(64).fill(9));
@@ -1038,7 +1072,9 @@ describe("Embedded Key Override", () => {
   describe("RESET_TO_DEFAULT_EMBEDDED_KEY handler", () => {
     it("clears the injected embedded key", async () => {
       // 1. Replace embedded key
-      const HpkeDecryptMock = jest.fn().mockResolvedValue(mockEmbeddedKeyBytes);
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(makeMockEmbeddedKeyBytes());
 
       await onSetEmbeddedKeyOverride(
         requestId,
@@ -1073,6 +1109,148 @@ describe("Embedded Key Override", () => {
     });
   });
 
+  describe("Key clearing and buffer zeroing", () => {
+    it("clears all keys when no address is given and subsequent signing fails", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      // Inject two keys
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-x",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-y",
+        HpkeDecryptMock
+      );
+
+      // Clear all keys (no address argument)
+      await onClearEmbeddedPrivateKey(requestId, undefined);
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_PRIVATE_KEY_CLEARED",
+        true,
+        requestId
+      );
+
+      // After clearing, signing should throw "key bytes not found"
+      let signError;
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-x");
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+
+      try {
+        await onSignTransaction(requestId, serializedTransaction, "wallet-y");
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+    });
+
+    it("clears only the targeted key and leaves other keys intact", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-keep",
+        HpkeDecryptMock
+      );
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-remove",
+        HpkeDecryptMock
+      );
+
+      // Clear only wallet-remove
+      await onClearEmbeddedPrivateKey(requestId, "wallet-remove");
+
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "EMBEDDED_PRIVATE_KEY_CLEARED",
+        true,
+        requestId
+      );
+
+      // wallet-remove should be gone -- signing throws
+      let signError;
+      try {
+        await onSignTransaction(
+          requestId,
+          serializedTransaction,
+          "wallet-remove"
+        );
+      } catch (e) {
+        signError = e.toString();
+      }
+      expect(signError).toContain("key bytes not found");
+
+      // wallet-keep should still be signable
+      await onSignTransaction(requestId, serializedTransaction, "wallet-keep");
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "TRANSACTION_SIGNED",
+        expect.any(String),
+        requestId
+      );
+    });
+
+    it("zeros the Solana secretKey buffer on single-key clear", async () => {
+      const HpkeDecryptMock = jest
+        .fn()
+        .mockResolvedValue(new Uint8Array(64).fill(9));
+
+      await onInjectKeyBundle(
+        requestId,
+        "org-test",
+        buildBundle(),
+        "SOLANA",
+        "wallet-zero",
+        HpkeDecryptMock
+      );
+
+      // The mock Keypair.fromSecretKey always returns the same mockKeypair object.
+      // Capture the secretKey reference before clearing.
+      const { Keypair } = await import("@solana/web3.js");
+      const capturedSecretKey = Keypair.fromSecretKey().secretKey;
+
+      await onClearEmbeddedPrivateKey(requestId, "wallet-zero");
+
+      // zeroKeyEntry should have called fill(0) on the secretKey buffer.
+      // (It may already be zero if a prior test cleared the same mock keypair,
+      // but the important invariant is: it must be zero after a clear.)
+      expect(capturedSecretKey.every((b) => b === 0)).toBe(true);
+    });
+
+    it("sends error when trying to clear a key that does not exist", async () => {
+      await onClearEmbeddedPrivateKey(requestId, "nonexistent-wallet");
+
+      // onClearEmbeddedPrivateKey sends new Error(...).toString() which includes "Error: " prefix
+      expect(sendMessageSpy).toHaveBeenCalledWith(
+        "ERROR",
+        "Error: key not found for address nonexistent-wallet. Note that address is case sensitive.",
+        requestId
+      );
+    });
+  });
+
   describe("Full Lifecycle", () => {
     it("replace key -> inject bundles -> sign -> reset -> inject uses embedded key", async () => {
       // 1. Replace embedded key with injected embedded key
@@ -1080,7 +1258,7 @@ describe("Embedded Key Override", () => {
       const HpkeDecryptMock = jest.fn().mockImplementation(() => {
         callCount++;
         if (callCount === 1) {
-          return Promise.resolve(mockEmbeddedKeyBytes);
+          return Promise.resolve(makeMockEmbeddedKeyBytes());
         }
         return Promise.resolve(new Uint8Array(64).fill(9));
       });
