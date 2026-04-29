@@ -21,55 +21,11 @@ let inMemoryKeys = {};
  */
 let injectedEmbeddedKey = null;
 
-/**
- * Allowed message origin captured during iframe initialization.
- * Used to validate incoming postMessage events and reject messages
- * from unexpected origins, preventing cross-origin injection attacks.
- * @type {string|null}
- */
-let allowedOrigin = null;
-
 export const DEFAULT_TTL_MILLISECONDS = 1000 * 24 * 60 * 60; // 24 hours or 86,400,000 milliseconds
 
 // Instantiate these once (for perf)
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
-
-/**
- * Constant-time string comparison to prevent timing side-channel attacks.
- * Standard `===` / `!==` short-circuits on the first differing byte, which
- * leaks information about how many leading bytes match. This is exploitable
- * when comparing security-critical values like organization IDs or enclave
- * quorum public keys, where an attacker can iteratively guess each byte.
- *
- * Uses XOR accumulation so every byte is always compared regardless of mismatches.
- * @param {string} a
- * @param {string} b
- * @returns {boolean} true if strings are equal
- */
-function timingSafeEqual(a, b) {
-  if (typeof a !== "string" || typeof b !== "string") {
-    return false;
-  }
-  // Encode to bytes so we XOR fixed-width units (UTF-8 bytes)
-  const aBuf = textEncoder.encode(a);
-  const bBuf = textEncoder.encode(b);
-  if (aBuf.length !== bBuf.length) {
-    // Length mismatch already leaks info, but we still do constant-time
-    // comparison over the shorter length to avoid additional leakage.
-    let diff = 1; // already know they differ
-    const len = Math.min(aBuf.length, bBuf.length);
-    for (let i = 0; i < len; i++) {
-      diff |= aBuf[i] ^ bBuf[i];
-    }
-    return false;
-  }
-  let diff = 0;
-  for (let i = 0; i < aBuf.length; i++) {
-    diff |= aBuf[i] ^ bBuf[i];
-  }
-  return diff === 0;
-}
 
 /**
  * Zeros all sensitive Uint8Array fields on a key entry before removal.
@@ -138,7 +94,7 @@ async function verifyAndParseBundleData(bundle, organizationId) {
     !signedData.organizationId ||
     // SECURITY: Use constant-time comparison to prevent timing side-channel
     // attacks that could leak the organization ID byte-by-byte.
-    !timingSafeEqual(signedData.organizationId, organizationId)
+    !TKHQ.timingSafeEqual(signedData.organizationId, organizationId)
   ) {
     throw new Error(
       `organization id does not match expected value. Expected: ${organizationId}. Found: ${signedData.organizationId}.`
@@ -741,18 +697,6 @@ function addDOMEventListeners() {
  */
 function initMessageEventListener(HpkeDecrypt) {
   return async function messageEventListener(event) {
-    // SECURITY: Validate event.origin against the allowlist captured at init time.
-    // Without this check, any page that can obtain a reference to this iframe's
-    // window (e.g. via window.frames) could inject messages and trigger key
-    // operations. We skip validation only if allowedOrigin hasn't been set yet
-    // (i.e. during the initial handshake itself).
-    if (allowedOrigin && event.origin && event.origin !== allowedOrigin) {
-      TKHQ.logMessage(
-        `⚠️ Rejected message from unexpected origin: ${event.origin} (expected: ${allowedOrigin})`
-      );
-      return;
-    }
-
     if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
       TKHQ.logMessage(
         `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
@@ -919,12 +863,6 @@ export function initEventHandlers(HpkeDecrypt) {
           return;
         }
         channelEstablished = true;
-
-        // SECURITY: Capture the parent origin from the init handshake.
-        // This is used both for origin validation on incoming messages and
-        // as the targetOrigin for legacy postMessage responses (instead of "*").
-        allowedOrigin = event.origin;
-        TKHQ.setParentOrigin(event.origin);
 
         // remove the message event listener that was added in the DOMContentLoaded event
         messageListenerController.abort();
