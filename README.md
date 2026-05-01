@@ -75,15 +75,26 @@ cd oauth-redirect && npm install
 
 # Unit Testing
 
-The frames and oauth directories each have tests. They run on CI automatically. If you want to run them locally:
+The frames and oauth directories each have tests. They run on CI automatically.
+
+This repo is set up as an npm workspaces monorepo, so a single install/test from the repo root covers every package:
+```sh
+npm install
+npm test
+```
+
+You can also run tests for a single package:
 ```sh
 cd auth && npm test
 cd export && npm test
+cd export-and-sign && npm test
 cd import && npm test
-
 cd oauth-origin && npm test
 cd oauth-redirect && npm test
+cd shared && npm test
 ```
+
+Other root-level scripts that fan out across workspaces: `npm run build` (webpack-based packages only), `npm run lint`, `npm run prettier:check`, `npm run prettier:write`.
 
 # Local Development
 
