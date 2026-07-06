@@ -1033,6 +1033,22 @@ describe("EVM Signing", () => {
       )
     ).rejects.toThrow("unsupported transaction type");
   });
+
+  it("sends an ERROR for an unsupported message type", async () => {
+    await injectEvmKey(undefined);
+
+    await onSignMessage(
+      requestId,
+      JSON.stringify({ type: "DOGECOIN", message: "hello" }),
+      undefined
+    );
+
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      "ERROR",
+      "unsupported message type",
+      requestId
+    );
+  });
 });
 
 describe("Embedded Key Override", () => {

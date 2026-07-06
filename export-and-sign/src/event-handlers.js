@@ -559,16 +559,22 @@ async function getOrCreateKeypair(key) {
 /**
  * Gets or creates a viem Ethereum account from a key object.
  * Caches the account on the key object for improved signing perf.
- * @param {Object} key - The key object containing the privateKey
- * @returns {Object} - The viem account (from privateKeyToAccount)
+ * @param {Object} key - The key object containing the privateKey and format
+ * @returns {Promise<Object>} - The viem account (from privateKeyToAccount)
  */
-function getOrCreateEthereumAccount(key) {
+async function getOrCreateEthereumAccount(key) {
   if (key.ethereumAccount) {
     return key.ethereumAccount;
   }
 
-  // For non-Solana (HEXADECIMAL) keys, privateKey is a 0x-prefixed hex string,
-  // which is exactly what viem's privateKeyToAccount expects.
+  // Ethereum keys are exported in HEXADECIMAL format, where privateKey is a
+  // 0x-prefixed hex string — exactly what viem's privateKeyToAccount expects.
+  if (key.format !== "HEXADECIMAL") {
+    throw new Error(
+      `cannot sign Ethereum payload with key format "${key.format}"; expected "HEXADECIMAL"`
+    );
+  }
+
   key.ethereumAccount = privateKeyToAccount(key.privateKey);
   return key.ethereumAccount;
 }
@@ -580,12 +586,16 @@ function getOrCreateEthereumAccount(key) {
  * Mirrors the Solana path: the caller builds and serializes the *unsigned*
  * transaction with any library, then passes the 0x-prefixed serialized hex.
  * We parse it back into viem's transaction shape, sign, and re-serialize.
- * @param {Object} key - The key object containing the privateKey
+ *
+ * Note: for legacy (non-typed) transactions, the serialized unsigned tx must
+ * include the chainId so the resulting signature carries EIP-155 replay
+ * protection. Typed txs (EIP-1559/2930) always encode the chainId.
+ * @param {Object} key - The key object containing the privateKey and format
  * @param {string} transactionToSign - 0x-prefixed serialized unsigned transaction
  * @returns {Promise<string>} - The 0x-prefixed serialized signed transaction
  */
 async function signEthereumTransaction(key, transactionToSign) {
-  const account = getOrCreateEthereumAccount(key);
+  const account = await getOrCreateEthereumAccount(key);
   return await account.signTransaction(parseTransaction(transactionToSign));
 }
 
