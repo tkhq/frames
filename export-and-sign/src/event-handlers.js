@@ -1,5 +1,7 @@
 import { TKHQ } from "./turnkey-core.js";
 import { Keypair, VersionedTransaction } from "@solana/web3.js";
+import { parseTransaction } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 
@@ -231,9 +233,6 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     return;
   }
 
-  // Get or create keypair (uses cached keypair if available)
-  const keypair = await getOrCreateKeypair(key);
-
   const transactionWrapper = JSON.parse(serializedTransaction);
   const transactionToSign = transactionWrapper.transaction;
   const transactionType = transactionWrapper.type;
@@ -241,17 +240,29 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
   let signedTransaction;
 
   if (transactionType === "SOLANA") {
+    // Get or create keypair (uses cached keypair if available)
+    const keypair = await getOrCreateKeypair(key);
+
     // Fetch the transaction and sign
     const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
     const transaction = VersionedTransaction.deserialize(transactionBytes);
     transaction.sign([keypair]);
 
     signedTransaction = transaction.serialize();
+  } else if (transactionType === "ETHEREUM") {
+    // viem returns the fully serialized, broadcast-ready signed tx as a
+    // 0x-prefixed hex string.
+    signedTransaction = await signEthereumTransaction(key, transactionToSign);
   } else {
     throw new Error("unsupported transaction type");
   }
 
-  const signedTransactionHex = TKHQ.uint8arrayToHexString(signedTransaction);
+  // Solana signing returns raw bytes (encode to hex); Ethereum signing already
+  // returns a 0x-prefixed hex string, which we pass through as-is.
+  const signedTransactionHex =
+    typeof signedTransaction === "string"
+      ? signedTransaction
+      : TKHQ.uint8arrayToHexString(signedTransaction);
 
   TKHQ.sendMessageUp("TRANSACTION_SIGNED", signedTransactionHex, requestId);
 }
@@ -279,10 +290,10 @@ async function onSignMessage(requestId, serializedMessage, address) {
 
   let signatureHex;
 
-  // Get or create keypair (uses cached keypair if available)
-  const keypair = await getOrCreateKeypair(key);
-
   if (messageType === "SOLANA") {
+    // Get or create keypair (uses cached keypair if available)
+    const keypair = await getOrCreateKeypair(key);
+
     // Set up sha512 for nobleEd25519 (required for signing)
     nobleEd25519.etc.sha512Sync = (...m) =>
       nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
@@ -297,6 +308,12 @@ async function onSignMessage(requestId, serializedMessage, address) {
     // Clients can verify the signature returned.
 
     signatureHex = TKHQ.uint8arrayToHexString(signature);
+  } else if (messageType === "ETHEREUM") {
+    const account = await getOrCreateEthereumAccount(key);
+
+    // Match the Solana path: sign the message as a plain UTF-8 string
+    // (EIP-191 personal_sign). viem returns a 0x-prefixed signature.
+    signatureHex = await account.signMessage({ message: messageToSign });
   } else {
     TKHQ.sendMessageUp("ERROR", "unsupported message type", requestId);
 
@@ -537,6 +554,39 @@ async function getOrCreateKeypair(key) {
       Array.from(TKHQ.uint8arrayFromHexString(key.privateKey))
     );
   }
+}
+
+/**
+ * Gets or creates a viem Ethereum account from a key object.
+ * Caches the account on the key object for improved signing perf.
+ * @param {Object} key - The key object containing the privateKey
+ * @returns {Object} - The viem account (from privateKeyToAccount)
+ */
+function getOrCreateEthereumAccount(key) {
+  if (key.ethereumAccount) {
+    return key.ethereumAccount;
+  }
+
+  // For non-Solana (HEXADECIMAL) keys, privateKey is a 0x-prefixed hex string,
+  // which is exactly what viem's privateKeyToAccount expects.
+  key.ethereumAccount = privateKeyToAccount(key.privateKey);
+  return key.ethereumAccount;
+}
+
+/**
+ * Signs a serialized Ethereum transaction and returns the broadcast-ready,
+ * 0x-prefixed serialized signed transaction.
+ *
+ * Mirrors the Solana path: the caller builds and serializes the *unsigned*
+ * transaction with any library, then passes the 0x-prefixed serialized hex.
+ * We parse it back into viem's transaction shape, sign, and re-serialize.
+ * @param {Object} key - The key object containing the privateKey
+ * @param {string} transactionToSign - 0x-prefixed serialized unsigned transaction
+ * @returns {Promise<string>} - The 0x-prefixed serialized signed transaction
+ */
+async function signEthereumTransaction(key, transactionToSign) {
+  const account = getOrCreateEthereumAccount(key);
+  return await account.signTransaction(parseTransaction(transactionToSign));
 }
 
 /**
