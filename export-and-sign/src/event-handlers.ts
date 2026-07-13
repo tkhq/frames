@@ -247,6 +247,13 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
     transaction.sign([keypair]);
 
     signedTransaction = transaction.serialize();
+  } else if (transactionType === "EVM") {
+    // Fetch the transaction and sign
+    const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
+    const transaction = VersionedTransaction.deserialize(transactionBytes);
+    transaction.sign([keypair]);
+
+    signedTransaction = transaction.serialize();
   } else {
     throw new Error("unsupported transaction type");
   }

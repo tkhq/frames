@@ -3,13 +3,24 @@ const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const { SubresourceIntegrityPlugin } = require("webpack-subresource-integrity");
 
-module.exports = (env, argv) => {
+// Optional: Define a strict type for your environment flags
+interface EnvVariables {
+  [key: string]: unknown;
+}
+
+// Optional: Define a strict type for CLI arguments
+interface ArgvVariables {
+  mode?: "production" | "development" | "none";
+  [key: string]: unknown;
+}
+
+module.exports = (env: EnvVariables, argv: ArgvVariables) => {
   const isProduction = argv.mode === "production";
 
   return {
     mode: isProduction ? "production" : "development",
     context: __dirname, // Set context to frame directory so module resolution works correctly
-    entry: "./src/index.js",
+    entry: "./src/index.ts",
     output: {
       path: path.resolve(__dirname, "dist"),
       filename: "bundle.[contenthash].js",
@@ -36,6 +47,16 @@ module.exports = (env, argv) => {
             isProduction ? MiniCssExtractPlugin.loader : "style-loader",
             "css-loader",
           ],
+        },
+        {
+          test: /\.tsx?$/,
+          exclude: /node_modules/,
+          use: {
+            loader: "ts-loader",
+            options: {
+              transpileOnly: true,
+            },
+          },
         },
       ],
     },
@@ -79,7 +100,7 @@ module.exports = (env, argv) => {
         : []),
     ],
     resolve: {
-      extensions: [".js", ".mjs"],
+      extensions: [".js", ".mjs", ".ts", ".tsx"],
       fallback: {
         crypto: false,
       },

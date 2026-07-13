@@ -2,7 +2,7 @@
 
 // Import relevant modules
 import { TKHQ } from "./turnkey-core.js";
-import { initEventHandlers } from "./event-handlers.js";
+import { initEventHandlers } from "./event-handlers";
 import { HpkeDecrypt } from "@shared/crypto-utils.js";
 import "./styles.css";
 
@@ -27,3 +27,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 
   TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 });
+
+declare global {
+  interface Window {
+    TKHQ: typeof TKHQ;
+  }
+}
