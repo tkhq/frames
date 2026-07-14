@@ -7,11 +7,18 @@ import {
   DEFAULT_TTL_MILLISECONDS,
   onInjectKeyBundle,
   onSignTransaction,
+  onSignMessage,
   getKeyNotFoundErrorMessage,
   onResetToDefaultEmbeddedKey,
   onSetEmbeddedKeyOverride,
   initEventHandlers,
 } from "./src/event-handlers.js";
+import {
+  serializeTransaction,
+  recoverTransactionAddress,
+  recoverMessageAddress,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 jest.mock("@solana/web3.js", () => {
   const mockKeypair = {
@@ -853,6 +860,194 @@ describe("Event Handler Expiration Flow", () => {
       expect(e.toString()).toContain("key bytes not found");
       expect(e.toString()).not.toContain("expired");
     }
+  });
+});
+
+describe("EVM Signing", () => {
+  const requestId = "test-request-id";
+
+  // Well-known test key (Hardhat account #1). privateKeyToAccount(...) yields
+  // 0x70997970C51812dc3A010C7d01b50e0d17dc79C8.
+  const EVM_PRIVATE_KEY =
+    "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+  const evmAccount = privateKeyToAccount(EVM_PRIVATE_KEY);
+
+  let dom;
+  let TKHQ;
+  let sendMessageSpy;
+
+  function buildBundle(organizationId = "org-test") {
+    const signedData = {
+      organizationId,
+      encappedPublic: "aa",
+      ciphertext: "bb",
+    };
+
+    const signedDataHex = Buffer.from(
+      JSON.stringify(signedData),
+      "utf8"
+    ).toString("hex");
+
+    return JSON.stringify({
+      version: "v1.0.0",
+      data: signedDataHex,
+      dataSignature: "30440220773382ac",
+      enclaveQuorumPublic: "04e479640d6d34",
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+
+    dom = new JSDOM(
+      `<!doctype html><html><body><div id="key-div"></div><input id="embedded-key" /></body></html>`,
+      { url: "http://localhost" }
+    );
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQ = module.TKHQ;
+    dom.window.TKHQ = TKHQ;
+
+    sendMessageSpy = jest
+      .spyOn(TKHQ, "sendMessageUp")
+      .mockImplementation(() => {});
+    jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+
+    // Mirror the real impl (strip 0x) so both the bundle-data decode and the
+    // HEXADECIMAL key load work.
+    jest.spyOn(TKHQ, "uint8arrayFromHexString").mockImplementation((hex) => {
+      const clean = hex.startsWith("0x") ? hex.slice(2) : hex;
+      return new Uint8Array(Buffer.from(clean, "hex"));
+    });
+    jest
+      .spyOn(TKHQ, "uint8arrayToHexString")
+      .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
+    jest
+      .spyOn(TKHQ, "parsePrivateKey")
+      .mockReturnValue(new Uint8Array(64).fill(5));
+
+    // encodeKey normally returns the encoded private key string that becomes
+    // key.privateKey. Return our known EVM key so the iframe's
+    // privateKeyToAccount(...) reconstructs the matching signer.
+    jest.spyOn(TKHQ, "encodeKey").mockResolvedValue(EVM_PRIVATE_KEY);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+  });
+
+  async function injectEvmKey(address) {
+    const HpkeDecryptMock = jest
+      .fn()
+      .mockResolvedValue(new Uint8Array(32).fill(9));
+
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      "HEXADECIMAL",
+      address,
+      HpkeDecryptMock
+    );
+  }
+
+  it("signs an EVM transaction into a recoverable, broadcast-ready tx", async () => {
+    await injectEvmKey(undefined);
+
+    // Caller builds + serializes the UNSIGNED tx with any library, mirroring
+    // the Solana contract (serialized hex in, serialized hex out).
+    const serializedUnsigned = serializeTransaction({
+      to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+      value: 1000000000000000n,
+      chainId: 1,
+      nonce: 5,
+      gas: 21000n,
+      maxFeePerGas: 30000000000n,
+      maxPriorityFeePerGas: 1000000000n,
+    });
+
+    await onSignTransaction(
+      requestId,
+      JSON.stringify({ type: "ETHEREUM", transaction: serializedUnsigned }),
+      undefined
+    );
+
+    const signedCall = sendMessageSpy.mock.calls.find(
+      (c) => c[0] === "TRANSACTION_SIGNED"
+    );
+    expect(signedCall).toBeDefined();
+
+    const signedTx = signedCall[1];
+    expect(signedTx.startsWith("0x")).toBe(true);
+
+    // The signed tx must recover to the injected key's address.
+    const recovered = await recoverTransactionAddress({
+      serializedTransaction: signedTx,
+    });
+    expect(recovered).toBe(evmAccount.address);
+  });
+
+  it("signs an EVM message (EIP-191 personal_sign)", async () => {
+    await injectEvmKey(undefined);
+
+    const message = "Hello Turnkey!";
+    await onSignMessage(
+      requestId,
+      JSON.stringify({ type: "ETHEREUM", message }),
+      undefined
+    );
+
+    const signedCall = sendMessageSpy.mock.calls.find(
+      (c) => c[0] === "MESSAGE_SIGNED"
+    );
+    expect(signedCall).toBeDefined();
+
+    const signature = signedCall[1];
+    expect(signature.startsWith("0x")).toBe(true);
+
+    const recovered = await recoverMessageAddress({ message, signature });
+    expect(recovered).toBe(evmAccount.address);
+  });
+
+  it("rejects an unsupported transaction type", async () => {
+    await injectEvmKey(undefined);
+
+    await expect(
+      onSignTransaction(
+        requestId,
+        JSON.stringify({ type: "DOGECOIN", transaction: "0x00" }),
+        undefined
+      )
+    ).rejects.toThrow("unsupported transaction type");
+  });
+
+  it("sends an ERROR for an unsupported message type", async () => {
+    await injectEvmKey(undefined);
+
+    await onSignMessage(
+      requestId,
+      JSON.stringify({ type: "DOGECOIN", message: "hello" }),
+      undefined
+    );
+
+    expect(sendMessageSpy).toHaveBeenCalledWith(
+      "ERROR",
+      "unsupported message type",
+      requestId
+    );
   });
 });
 
