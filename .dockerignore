@@ -1,3 +1,4 @@
 .github
 .editorconfig
+.turbo
 **/node_modules

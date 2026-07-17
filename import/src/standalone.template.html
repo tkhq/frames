@@ -9,6 +9,12 @@
     <meta charset="utf-8" />
     <title>Turnkey Import (Standalone Mode)</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <!-- This script allows nginx to use envsubst and inject the correct signer environment -->
+    <script>
+      window.TURNKEY_SIGNER_ENVIRONMENT =
+        '<!--#echo var="ssi_turnkey_signer_environment"-->';
+    </script>
   </head>
 
   <body>

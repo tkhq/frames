@@ -3,14 +3,21 @@
 // Import relevant modules
 import { TKHQ } from "./turnkey-core.js";
 import { initEventHandlers } from "./event-handlers.js";
-import { HpkeDecrypt } from "@shared/crypto-utils.js";
+import { HpkeDecrypt } from "@turnkey/frames-shared";
 import "./styles.css";
 
 // Surface TKHQ for external access
 window.TKHQ = TKHQ;
 
+if (window.TURNKEY_E2E_TEST) {
+  console.warn("E2E TEST ENVIRONMENT DETECTED");
+  TKHQ.unsafeSkipDoubleIframeCheck();
+}
+
 // Init app
 document.addEventListener("DOMContentLoaded", async function () {
+  console.warn("DOM CONTENT LOADED");
+
   await TKHQ.initEmbeddedKey();
   const embeddedKeyJwk = await TKHQ.getEmbeddedKey();
   const targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
@@ -24,6 +31,8 @@ document.addEventListener("DOMContentLoaded", async function () {
   if (styleSettings) {
     TKHQ.applySettings(styleSettings);
   }
+
+  console.warn("SENDING MESSAGE UP");
 
   TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 });

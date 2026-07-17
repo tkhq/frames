@@ -5,20 +5,22 @@
     <meta charset="utf-8" />
     <title>Turnkey Export</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta
-      name="turnkey-signer-environment"
-      content="__TURNKEY_SIGNER_ENVIRONMENT__"
-    />
+
+    <!-- This script allows nginx to use envsubst and inject the correct signer environment -->
+    <script>
+      window.TURNKEY_SIGNER_ENVIRONMENT =
+        '<!--#echo var="ssi_turnkey_signer_environment"-->';
+    </script>
   </head>
 
   <body>
     <h2>Export Key Material</h2>
     <p>
-      <em
-        >This public key will be sent along with a private key ID or wallet ID
+      <em>
+        This public key will be sent along with a private key ID or wallet ID
         inside of a new <code>EXPORT_PRIVATE_KEY</code> or
-        <code>EXPORT_WALLET</code> activity</em
-      >
+        <code>EXPORT_WALLET</code> activity
+      </em>
     </p>
     <form>
       <label>Embedded key</label>

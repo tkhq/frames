@@ -1,4 +1,5 @@
 const path = require("path");
+const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const { SubresourceIntegrityPlugin } = require("webpack-subresource-integrity");
@@ -6,9 +7,23 @@ const { SubresourceIntegrityPlugin } = require("webpack-subresource-integrity");
 module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
 
+  const signerEnvironment =
+    process.env.TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE || undefined;
+  if (signerEnvironment != null) {
+    console.warn(`Applying signer environment override: ${signerEnvironment}`);
+  }
+
+  const e2eTestEnvironment = !!process.env.TURNKEY_E2E_TEST;
+
   return {
     mode: isProduction ? "production" : "development",
     context: __dirname, // Set context to frame directory so module resolution works correctly
+    devServer: {
+      port: 8086,
+      devMiddleware: {
+        writeToDisk: true,
+      },
+    },
     entry: "./src/index.js",
     output: {
       path: path.resolve(__dirname, "dist"),
@@ -21,12 +36,12 @@ module.exports = (env, argv) => {
     module: {
       rules: [
         {
-          test: /\.js$/,
+          test: /\.(j|t)ts?$/,
           exclude: /node_modules/,
           use: {
-            loader: "babel-loader",
+            loader: "ts-loader",
             options: {
-              presets: ["@babel/preset-env"],
+              transpileOnly: true,
             },
           },
         },
@@ -40,6 +55,11 @@ module.exports = (env, argv) => {
       ],
     },
     plugins: [
+      new webpack.DefinePlugin({
+        "window.TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE":
+          JSON.stringify(signerEnvironment),
+        "window.TURNKEY_E2E_TEST": JSON.stringify(e2eTestEnvironment),
+      }),
       new HtmlWebpackPlugin({
         template: "./src/index.template.html",
         filename: "index.html",
@@ -79,23 +99,32 @@ module.exports = (env, argv) => {
         : []),
     ],
     resolve: {
-      extensions: [".js", ".mjs"],
+      extensions: [".js", ".mjs", ".ts", ".tsx"],
       fallback: {
-        crypto: false,
+        buffer: false,
+        crypto: require.resolve("crypto-browserify"),
+        stream: require.resolve("stream-browserify"),
+        fs: false,
+        http: false,
+        https: false,
+        net: false,
+        os: false,
+        path: false,
+        tls: false,
+        url: false,
+        vm: false,
+        util: require.resolve("util"),
+        zlib: false,
       },
-      alias: {
-        "@shared": path.resolve(__dirname, "../shared"),
-      },
-      conditionNames: ["import", "require", "node", "default"],
       // Ensure modules are resolved from frame's node_modules, not shared folder's
       modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
       // Don't use package.json from shared folder for module resolution
       descriptionFiles: ["package.json"],
       // Force resolution to start from context (frame directory) not file location
-      symlinks: false,
+      symlinks: true,
     },
     resolveLoader: {
-      modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
+      modules: ["node_modules", path.resolve(__dirname, "node_modules")],
     },
     externals: {
       "node:crypto": "crypto",

@@ -4,14 +4,14 @@ noble-ed25519.js
 hpke-core.js
 
 # Built
-dist/
+**/dist/
 build/
 out/
 *.min.js
 *.min.css
 *.bundle.js
+bundle.*.js
 coverage/
-.next/
 .cache/
-node_modules/
+**/node_modules/
 

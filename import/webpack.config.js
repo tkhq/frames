@@ -1,4 +1,5 @@
 const path = require("path");
+const webpack = require("webpack");
 const HtmlWebpackPlugin = require("html-webpack-plugin");
 const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 const CopyWebpackPlugin = require("copy-webpack-plugin");
@@ -6,9 +7,21 @@ const CopyWebpackPlugin = require("copy-webpack-plugin");
 module.exports = (env, argv) => {
   const isProduction = argv.mode === "production";
 
+  const signerEnvironment =
+    process.env.TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE || undefined;
+  if (signerEnvironment != null) {
+    console.warn(`Applying signer environment override: ${signerEnvironment}`);
+  }
+
   return {
     mode: isProduction ? "production" : "development",
     context: __dirname, // Set context to frame directory so module resolution works correctly
+    devServer: {
+      port: 8083,
+      devMiddleware: {
+        writeToDisk: true,
+      },
+    },
     entry: {
       index: "./src/index.js",
       standalone: "./src/standalone.js",
@@ -41,6 +54,10 @@ module.exports = (env, argv) => {
       ],
     },
     plugins: [
+      new webpack.DefinePlugin({
+        "window.TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE":
+          JSON.stringify(signerEnvironment),
+      }),
       // Iframe page (embedded version)
       new HtmlWebpackPlugin({
         template: "./src/index.template.html",
@@ -112,16 +129,13 @@ module.exports = (env, argv) => {
       fallback: {
         crypto: false,
       },
-      alias: {
-        "@shared": path.resolve(__dirname, "../shared"),
-      },
       conditionNames: ["import", "require", "node", "default"],
       // Ensure modules are resolved from frame's node_modules, not shared folder's
       modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
       // Don't use package.json from shared folder for module resolution
       descriptionFiles: ["package.json"],
       // Force resolution to start from context (frame directory) not file location
-      symlinks: false,
+      symlinks: true,
     },
     resolveLoader: {
       modules: [path.resolve(__dirname, "node_modules"), "node_modules"],

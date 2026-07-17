@@ -1,0 +1,6 @@
+services:
+  server:
+    build:
+      target: production
+    depends_on: []
+    volumes: []
