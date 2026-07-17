@@ -1,0 +1,56 @@
+name: "Setup JS"
+description: "Install JS toolchain and dependencies (node_modules)"
+
+runs:
+  using: "composite"
+
+  steps:
+    # https://github.com/actions/setup-node
+    - name: Install Node.js
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+      with:
+        node-version-file: ".nvmrc"
+        package-manager-cache: false
+
+    - name: Install pnpm
+      uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+      with:
+        cache: true
+
+    - name: Debug versions
+      shell: bash
+      run: |
+        node -v
+        npm -v
+        pnpm -v
+
+    - name: Audit dependencies (before installing anything)
+      # Ignore "low" and "moderate" advisories for now.
+      run: pnpm audit --audit-level high
+      shell: bash
+
+    - name: Install dependencies
+      run: pnpm install --frozen-lockfile
+      shell: bash
+
+    - name: Check provenance attestations
+      run: pnpm audit signatures
+      shell: bash
+
+    # We build architecture specific caches for turbo builds as there can be differences in the build artifacts between architectures
+    - name: Setup turbo build cache
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: .turbo/cache
+        key: ${{ runner.os }}-${{ runner.arch }}-turbo-${{ github.head_ref || github.ref_name }}-${{ github.sha }}
+        # The hierarchy of restoring the cache goes as follows:
+        #
+        # - First we try to match an existing cache from the same branch
+        # - Then we try to match a cache from the target branch of this PR (if this is not a PR, this cache will never exist)
+        # - Then we try to match a cache from the default branch
+        # - Then we try to match any cache
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-turbo-${{ github.head_ref || github.ref_name }}-
+          ${{ runner.os }}-${{ runner.arch }}-turbo-${{ github.base_ref }}-
+          ${{ runner.os }}-${{ runner.arch }}-turbo-${{ github.event.repository.default_branch }}-
+          ${{ runner.os }}-${{ runner.arch }}-turbo-

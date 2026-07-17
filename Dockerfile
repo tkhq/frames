@@ -1,5 +1,7 @@
+ARG NODE_VERSION=24.11.0
+
 # Multi-stage build: first stage for building webpack bundles
-FROM node:18-bullseye-slim AS builder
+FROM node:${NODE_VERSION}-bullseye-slim AS builder
 
 WORKDIR /app
 
