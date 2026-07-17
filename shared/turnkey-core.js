@@ -9,7 +9,7 @@ import { bech32 } from "bech32";
  * Constant-time string comparison to prevent timing side-channel attacks.
  * Standard `===` / `!==` short-circuits on the first differing byte, leaking
  * information about how many leading bytes match. This XOR-based approach
- * always compares every byte regardless of mismatches.
+ * compares every byte when the encoded lengths match (and returns early if they don't).
  * @param {string} a
  * @param {string} b
  * @returns {boolean} true if strings are equal
@@ -40,7 +40,7 @@ const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
  * in localStorage, where it cannot be reliably zeroed (localStorage values are
  * immutable strings managed by the browser).
  */
-const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
+const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 4;
 const TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
 
 let parentFrameMessageChannelPort = null;

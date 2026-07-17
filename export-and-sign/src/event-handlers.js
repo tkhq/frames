@@ -167,7 +167,8 @@ async function onGetPublicEmbeddedKey(requestId) {
  */
 async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
   let key;
-  const privateKeyBytes = new Uint8Array(keyBytes);
+  const privateKeyBytes =
+    keyBytes instanceof Uint8Array ? keyBytes : new Uint8Array(keyBytes);
 
   try {
     if (keyFormat === "SOLANA") {
