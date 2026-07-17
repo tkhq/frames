@@ -5,7 +5,8 @@
   "scripts": {
     "start": "serve",
     "test": "jest",
-    "lint": "eslint \"**/*.js\"",
+    "lint": "eslint '**/*.{js,ts}'",
+    "lint:write": "eslint '**/*.{js,ts}' --fix",
     "prettier:check": "prettier --check \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore",
     "prettier:write": "prettier --write \"**/*.{css,html,js,json,md,ts,tsx,yaml,yml}\" --ignore-path ../.prettierignore"
   },
