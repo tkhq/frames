@@ -1,6 +1,6 @@
 import "./styles.css";
 import * as TKHQ from "./turnkey-core.js";
-import { HpkeEncrypt } from "@shared/crypto-utils.js";
+import { HpkeEncrypt } from "@turnkey/frames-shared";
 
 // Make TKHQ available globally for backwards compatibility
 window.TKHQ = TKHQ;

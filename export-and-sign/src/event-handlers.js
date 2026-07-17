@@ -128,7 +128,7 @@ async function onGetPublicEmbeddedKey(requestId) {
 
 /**
  * Encodes raw key bytes and loads them into the in-memory key store.
- * @param {string} address - Wallet address (case-sensitive)
+ * @param {string | undefined} address - Wallet address (case-sensitive)
  * @param {ArrayBuffer} keyBytes - Raw decrypted private key bytes
  * @param {string} keyFormat - "SOLANA" | "HEXADECIMAL"
  * @param {string} organizationId - Organization ID
@@ -177,7 +177,7 @@ async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
  * @param {string} organizationId
  * @param {string} bundle
  * @param {string} keyFormat
- * @param {string} address
+ * @param {string | undefined} address
  * @param {Function} HpkeDecrypt // TODO: import this directly (instead of passing around)
  */
 async function onInjectKeyBundle(
@@ -221,7 +221,7 @@ async function onApplySettings(settings, requestId) {
  * Function triggered when SIGN_TRANSACTION event is received.
  * @param {string} requestId
  * @param {string} transaction (serialized)
- * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
+ * @param {string} [address] (case-sensitive --> enforce this, optional for backwards compatibility)
  */
 async function onSignTransaction(requestId, serializedTransaction, address) {
   // If no address provided, use "default"
@@ -271,7 +271,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
  * Function triggered when SIGN_MESSAGE event is received.
  * @param {string} requestId
  * @param {string} message (serialized, JSON-stringified)
- * @param {string} address (case-sensitive --> enforce this, optional for backwards compatibility)
+ * @param {string} [address] (case-sensitive --> enforce this, optional for backwards compatibility)
  */
 async function onSignMessage(requestId, serializedMessage, address) {
   // Backwards compatibility: if no address provided, use "default"

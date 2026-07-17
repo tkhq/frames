@@ -131,7 +131,7 @@
       codeChallenge,
       state
     );
-  } catch (e) {
+  } catch {
     displayError("Error: Invalid redirectUri");
     return;
   }

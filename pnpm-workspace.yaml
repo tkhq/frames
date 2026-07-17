@@ -1,0 +1,17 @@
+packages:
+  - auth
+  - export
+  - export-and-sign
+  - import
+  - oauth-origin
+  - oauth-redirect
+  - shared
+overrides:
+  "minimatch@<3.1.3": "^3.1.4"
+  "serialize-javascript@<7.0.2": "^7.0.3"
+  "ws@<8.21.0": "^8.21.0"
+allowBuilds:
+  '@swc/core': false
+  bufferutil: false
+  unrs-resolver: false
+  utf-8-validate: false

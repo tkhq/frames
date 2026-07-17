@@ -52,7 +52,7 @@ async function createDOMWithResourceLoading({ search = "" } = {}) {
         };
         // Keep a reference in case future tests need original
         window.__original_location_href__ = originalDescriptor;
-      } catch (e) {
+      } catch {
         // ignore if we cannot stub navigation
       }
     },
