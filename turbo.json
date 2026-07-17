@@ -1,0 +1,51 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "build": {
+      "inputs": ["src/**", "webpack.config.js", "package.json", "tsconfig.json"],
+      "dependsOn": ["^build", "lint", "prettier:write"],
+      "env": ["TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE", "TURNKEY_E2E_TEST"],
+      "outputs": [
+        "dist/**"
+      ]
+    },
+    "clean": {
+      "cache": false
+    },
+    "lint": {
+      "inputs": ["**/*.js", "**/*.ts", "!dist", ".eslintrc.json", ".eslintignore", "$TURBO_ROOT$/.eslintrc.js", "$TURBO_ROOT$/.eslintignore"]
+    },
+    "prettier:check": {
+      "inputs": ["**/*.{css,html,js,json,md,ts,tsx,yaml,yml}"],
+      "outputs": []
+    },
+    "prettier:write": {
+      "inputs": ["**/*.{css,html,js,json,md,ts,tsx,yaml,yml}"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "cache": false
+    },
+    "dev": {
+      "persistent": true,
+      "cache": false,
+      "dependsOn": ["^build"],
+      "env": ["TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE", "TURNKEY_E2E_TEST"]
+    },
+    "start": {
+      "persistent": true,
+      "cache": false,
+      "dependsOn": ["build"]
+    }
+  },
+  "globalDependencies": [
+    "pnpm-workspace.yaml",
+    "rollup.config.base.mjs"
+  ],
+  "globalPassThroughEnv": [
+    "ORGANIZATION_ID",
+    "API_PUBLIC_KEY",
+    "API_PRIVATE_KEY",
+    "BASE_URL"
+  ]
+}

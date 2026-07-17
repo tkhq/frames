@@ -1,0 +1,37 @@
+name: Test
+
+on:
+  workflow_call:
+
+env:
+  NODE_ENV: production
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # https://github.com/actions/checkout
+      - name: Checkout
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0 # We need the full history to be able to calculate the affected packages with turbo
+
+      # Install and cache JS toolchain and dependencies (node_modules)
+      - name: Setup JS
+        uses: ./.github/actions/js-setup
+
+      - name: Build
+        run: pnpm build
+
+      - name: Fetch base branch
+        if: ${{ github.base_ref }}
+        run: git fetch origin ${{ github.base_ref }}
+
+      - name: Test
+        run: |
+          BASE_REF=${{ github.base_ref && format('origin/{0}', github.base_ref) }}
+          FILTER=$(./.github/scripts/get-turbo-affected.sh "$BASE_REF" HEAD)
+
+          pnpm test --concurrency=1 --filter="$FILTER"
+        env:
+          NODE_ENV: development

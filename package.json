@@ -1,0 +1,29 @@
+{
+  "name": "@turnkey/frames",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "turbo build",
+    "clean": "turbo clean",
+    "dev": "turbo dev",
+    "lint": "turbo lint",
+    "prettier:check": "turbo prettier:check",
+    "prettier:write": "turbo prettier:write",
+    "start": "turbo start",
+    "test": "turbo test",
+    "watch": "turbo watch",
+    "compose:dev": "docker compose up server",
+    "compose:prod": "docker compose -f docker-compose.yaml -f docker-compose.prod.yaml up server",
+    "compose:e2e:dev": "docker compose run --build e2e",
+    "compose:e2e:prod": "docker compose -f docker-compose.yaml -f docker-compose.prod.yaml run --build e2e"
+  },
+  "devDependencies": {
+    "@rollup/plugin-typescript": "^11.1.5",
+    "@tsconfig/node24": "24.0.4",
+    "@tsconfig/strictest": "2.0.8",
+    "rollup-plugin-node-externals": "^6.1.2",
+    "turbo": "^2.10.4",
+    "typescript": "5.4.3"
+  },
+  "packageManager": "pnpm@11.13.1"
+}

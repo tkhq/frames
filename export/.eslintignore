@@ -1,6 +1,3 @@
 dist
 node_modules
-
-noble-hashes.js
-noble-ed25519.js
-hpke-core.js
+.turbo

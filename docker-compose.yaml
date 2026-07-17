@@ -1,0 +1,101 @@
+services:
+  export:
+    build:
+      dockerfile: Dockerfile
+      target: development
+      args:
+        TARGET_SERVICE: "@turnkey/frames-export"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - ./export:/app/export
+      - ./shared:/app/shared
+      - export:/app/export/dist
+
+  export-and-sign:
+    build:
+      dockerfile: Dockerfile
+      target: development
+      args:
+        TARGET_SERVICE: "@turnkey/frames-export-and-sign"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8086"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - ./export-and-sign:/app/export-and-sign
+      - ./shared:/app/shared
+      - export-and-sign:/app/export-and-sign/dist
+
+  import:
+    build:
+      dockerfile: Dockerfile
+      target: development
+      args:
+        TARGET_SERVICE: "@turnkey/frames-import"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    volumes:
+      - ./import:/app/import
+      - ./shared:/app/shared
+      - import:/app/import/dist
+
+  server:
+    build:
+      dockerfile: Dockerfile
+      target: server
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    depends_on:
+      export:
+        condition: service_healthy
+      export-and-sign:
+        condition: service_healthy
+      import:
+        condition: service_healthy
+    environment:
+      TURNKEY_SIGNER_ENVIRONMENT: ${TURNKEY_SIGNER_ENVIRONMENT_OVERRIDE:-prod}
+      NGINX_ENVSUBST_FILTER: TURNKEY_
+    ports:
+      - "8080-8086:8080-8086"
+    volumes:
+      - export:/usr/share/nginx/export:ro
+      - export-and-sign:/usr/share/nginx/export-and-sign:ro
+      - import:/usr/share/nginx/import:ro
+      - ./nginx.conf:/etc/nginx/templates/nginx.conf.template:ro
+      - ./nginx.upstreams.local.conf:/etc/nginx/templates/nginx.upstreams.local.conf.template:ro
+      - ./nginx.devserver.local.conf:/etc/nginx/templates/nginx.devserver.local.conf.template:ro
+
+  e2e:
+    build:
+      dockerfile: Dockerfile
+      target: development
+      args:
+        TARGET_SERVICE: "@turnkey/frames-e2e"
+    depends_on:
+      server:
+        condition: service_healthy
+    entrypoint: pnpm test --filter=@turnkey/frames-e2e
+    environment:
+      EXPORT_AND_SIGN_IFRAME_URL: http://server:8086
+    volumes:
+      - ./e2e:/app/e2e
+
+volumes:
+  export:
+  export-and-sign:
+  import:
