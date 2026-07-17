@@ -1,7 +1,7 @@
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
 import { fromDerSignature } from "@turnkey/crypto";
-import * as SharedTKHQ from "@shared/turnkey-core.js";
+import * as SharedTKHQ from "@turnkey/frames-shared";
 
 const {
   initEmbeddedKey: sharedInitEmbeddedKey,

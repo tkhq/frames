@@ -1,6 +1,6 @@
 import "./standalone-styles.css";
 import * as TKHQ from "./turnkey-core.js";
-import { HpkeEncrypt } from "@shared/crypto-utils.js";
+import { HpkeEncrypt } from "@turnkey/frames-shared";
 
 // Make TKHQ available globally
 window.TKHQ = TKHQ;
@@ -302,4 +302,4 @@ async function onExtractKeyEncryptedBundle(plaintextValue, keyFormat) {
   sendMessageUpStandalone("ENCRYPTED_BUNDLE_EXTRACTED", encryptedBundle);
 }
 
-// HpkeEncrypt is now imported from @shared/crypto-utils.js
+// HpkeEncrypt is now imported from @turnkey/frames-shared

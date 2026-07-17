@@ -1,4 +1,4 @@
-import * as SharedTKHQ from "@shared/turnkey-core.js";
+import * as SharedTKHQ from "@turnkey/frames-shared";
 
 const {
   setCryptoProvider,
