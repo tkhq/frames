@@ -16,6 +16,10 @@ spec:
           env:
             - name: TURNKEY_SIGNER_ENVIRONMENT
               value: "prod"
+            # Collector for MessageChannel-vs-legacy channel telemetry
+            # (INT-697 migration). Empty disables telemetry entirely.
+            - name: TURNKEY_TELEMETRY_ENDPOINT
+              value: ""
           command:
             - sh
             - -c
@@ -31,10 +35,14 @@ spec:
                   ls -la templated/export-and-sign/
                 fi
 
-                # Template the environment variable in the HTML files (not JS, to preserve SRI)
+                # Escape sed replacement metacharacters (&, |, \) so URLs with
+                # query strings survive the substitution below intact
+                TELEMETRY_ENDPOINT_ESCAPED=$(printf '%s' "${TURNKEY_TELEMETRY_ENDPOINT}" | sed -e 's/[&\\|]/\\&/g');
+
+                # Template the environment variables in the HTML files (not JS, to preserve SRI)
                 for file in templated/export-and-sign/*.html; do
                   if [ -f "$file" ]; then
-                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                    if sed -e "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" -e "s|__TURNKEY_TELEMETRY_ENDPOINT__|${TELEMETRY_ENDPOINT_ESCAPED}|g" "$file" > "$file.tmp"; then
                       mv "$file.tmp" "$file"
                     fi
                   fi

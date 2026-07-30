@@ -1,4 +1,9 @@
 import { TKHQ } from "./turnkey-core.js";
+import {
+  recordChannelTelemetry,
+  CHANNEL_MESSAGE_CHANNEL,
+  CHANNEL_LEGACY_POST_MESSAGE,
+} from "./telemetry.js";
 import { Keypair, VersionedTransaction } from "@solana/web3.js";
 import { parseTransaction } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -805,14 +810,73 @@ export function initEventHandlers(HpkeDecrypt) {
   const messageListenerController = new AbortController();
   const turnkeyInitController = new AbortController();
 
-  // Add DOM event listeners for standalone mode
-  addDOMEventListeners();
+  // Origin of a legacy (@turnkey/iframe-stamper < 2.1.0) parent, bound on its
+  // first valid message. A document belongs to exactly one embedder for its
+  // lifetime, so every subsequent message must come from the same origin.
+  let legacyParentOrigin = null;
 
-  // Add window message listener for iframe mode
-  window.addEventListener("message", messageEventListener, {
-    capture: false,
-    signal: messageListenerController.signal,
-  });
+  if (window.parent === window) {
+    // Standalone mode: the DOM forms drive the flow by posting messages to
+    // this same window. Messages from other windows (e.g. a window.opener)
+    // are not accepted.
+    addDOMEventListeners();
+    window.addEventListener(
+      "message",
+      async function (event) {
+        if (event.source !== window) {
+          return;
+        }
+        await messageEventListener(event);
+      },
+      {
+        capture: false,
+        signal: messageListenerController.signal,
+      }
+    );
+    return { messageEventListener };
+  }
+
+  // Legacy embedded mode: @turnkey/iframe-stamper < 2.1.0 posts requests
+  // straight to this window instead of establishing a MessageChannel.
+  // These clients operate on the document-scoped ephemeral key (never
+  // persisted -- see initEphemeralEmbeddedKey), so a malicious embedder can
+  // only ever obtain a key that no legitimate bundle is encrypted to
+  // (INT-697). Modern clients upgrade to the MessageChannel path below.
+  window.addEventListener(
+    "message",
+    async function (event) {
+      if (!event.data || !event.data["type"]) {
+        return;
+      }
+      // Channel establishment is owned by the handshake listener below.
+      if (event.data["type"] === "TURNKEY_INIT_MESSAGE_CHANNEL") {
+        return;
+      }
+      // Only the direct parent, with a real (non-opaque) origin, may drive
+      // the legacy path.
+      if (event.source !== window.parent) {
+        return;
+      }
+      if (!event.origin || event.origin === "null") {
+        return;
+      }
+      if (legacyParentOrigin === null) {
+        legacyParentOrigin = event.origin;
+        // From now on, responses posted to window.parent are only readable
+        // by the bound origin.
+        TKHQ.setParentFrameOrigin(event.origin);
+      } else if (event.origin !== legacyParentOrigin) {
+        return;
+      }
+      recordChannelTelemetry(
+        CHANNEL_LEGACY_POST_MESSAGE,
+        event.data["type"],
+        event.origin
+      );
+      await messageEventListener(event);
+    },
+    { capture: false, signal: messageListenerController.signal }
+  );
 
   // Guard to prevent concurrent channel establishment from multiple senders
   let channelEstablished = false;
@@ -830,8 +894,20 @@ export function initEventHandlers(HpkeDecrypt) {
       if (
         event.data &&
         event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-        event.ports?.[0]
+        event.source === window.parent &&
+        event.origin &&
+        event.origin !== "null" &&
+        event.ports?.length === 1
       ) {
+        // A legacy-bound document may upgrade to the MessageChannel protocol,
+        // but never on behalf of a different origin.
+        if (
+          legacyParentOrigin !== null &&
+          legacyParentOrigin !== event.origin
+        ) {
+          return;
+        }
+
         // Synchronously check-and-set the flag before any await. This prevents
         // a second concurrent invocation from racing through while the first is
         // suspended at an await, which would allow multiple origins to establish
@@ -841,20 +917,43 @@ export function initEventHandlers(HpkeDecrypt) {
         }
         channelEstablished = true;
 
-        // remove the message event listener that was added in the DOMContentLoaded event
-        messageListenerController.abort();
-
         const iframeMessagePort = event.ports[0];
-        iframeMessagePort.onmessage = messageEventListener;
 
+        var targetPubHex;
+        try {
+          // Supersedes the ephemeral key, if the legacy bootstrap created one.
+          await TKHQ.initEmbeddedKey(event.origin);
+          var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+          var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
+          targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+        } catch (e) {
+          // Key setup failed (e.g. blocked third-party storage). Roll back so
+          // the parent can retry the handshake, and keep the legacy/standalone
+          // listener alive so the frame stays functional in the meantime.
+          channelEstablished = false;
+          iframeMessagePort.postMessage({ type: "ERROR", value: e.toString() });
+          return;
+        }
+
+        // Commit: the MessagePort carries all requests from here on; stop
+        // accepting legacy/standalone window messages.
+        messageListenerController.abort();
         TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
-
-        await TKHQ.initEmbeddedKey(event.origin);
-        var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-        var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
-        var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
         document.getElementById("embedded-key").value = targetPubHex;
 
+        iframeMessagePort.onmessage = function (portEvent) {
+          recordChannelTelemetry(
+            CHANNEL_MESSAGE_CHANNEL,
+            portEvent.data && portEvent.data["type"],
+            event.origin
+          );
+          return messageEventListener(portEvent);
+        };
+        recordChannelTelemetry(
+          CHANNEL_MESSAGE_CHANNEL,
+          "TURNKEY_INIT_MESSAGE_CHANNEL",
+          event.origin
+        );
         TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
         // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed
