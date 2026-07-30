@@ -502,9 +502,52 @@ describe("TKHQ", () => {
       }).toThrow("Private key must be a string");
     });
 
-    it("logs messages and sends messages up", async () => {
-      // TODO: test logMessage / sendMessageUp
-      expect(true).toBe(true);
+    it("restricts parent messages to the bound origin", () => {
+      const parentWindow = { postMessage: jest.fn() };
+      Object.defineProperty(dom.window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+
+      // Legacy clients need the initial, non-secret public key before they can
+      // send a message that binds the document to their origin.
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", "public-key");
+      expect(parentWindow.postMessage).toHaveBeenCalledWith(
+        { type: "PUBLIC_KEY_READY", value: "public-key" },
+        "*"
+      );
+
+      expect(() => TKHQ.setParentFrameOrigin("null")).toThrow(
+        "a canonical, non-opaque parent frame origin is required"
+      );
+      expect(() =>
+        TKHQ.setParentFrameOrigin("https://app.turnkey.com/path")
+      ).toThrow("a canonical, non-opaque parent frame origin is required");
+
+      TKHQ.setParentFrameOrigin("https://app.turnkey.com");
+      TKHQ.sendMessageUp("BUNDLE_INJECTED", true, "request-1");
+      expect(parentWindow.postMessage).toHaveBeenLastCalledWith(
+        {
+          type: "BUNDLE_INJECTED",
+          value: true,
+          requestId: "request-1",
+        },
+        "https://app.turnkey.com"
+      );
+
+      const messagePort = { postMessage: jest.fn() };
+      TKHQ.setParentFrameMessageChannelPort(messagePort);
+      TKHQ.sendMessageUp("MESSAGE_SIGNED", "signature", "request-2");
+      expect(messagePort.postMessage).toHaveBeenCalledWith({
+        type: "MESSAGE_SIGNED",
+        value: "signature",
+        requestId: "request-2",
+      });
+      expect(parentWindow.postMessage).toHaveBeenCalledTimes(2);
+
+      // Avoid leaking the mocked port into later tests. Production modules are
+      // loaded once per iframe document, but Jest reuses this module instance.
+      TKHQ.setParentFrameMessageChannelPort(null);
     });
 
     it("normalizes padding in a byte array", () => {
@@ -2144,7 +2187,6 @@ describe("Telemetry", () => {
   it("does not send anything when no endpoint is configured", () => {
     recordChannelTelemetry(
       CHANNEL_LEGACY_POST_MESSAGE,
-      "SIGN_MESSAGE",
       "https://app.turnkey.com"
     );
     expect(sendBeacon).not.toHaveBeenCalled();
@@ -2152,20 +2194,19 @@ describe("Telemetry", () => {
 
   it("treats the deploy-time placeholder as unconfigured", () => {
     setTelemetryMeta("__TURNKEY_TELEMETRY_ENDPOINT__");
-    recordChannelTelemetry(
-      CHANNEL_MESSAGE_CHANNEL,
-      "SIGN_MESSAGE",
-      "https://app.turnkey.com"
-    );
+    recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com");
     expect(sendBeacon).not.toHaveBeenCalled();
   });
 
-  it("sends a beacon describing the channel and operation", async () => {
+  it("sends one beacon per channel and document", async () => {
     setTelemetryMeta("https://telemetry.turnkey.com/frames");
 
     recordChannelTelemetry(
       CHANNEL_LEGACY_POST_MESSAGE,
-      "SIGN_TRANSACTION",
+      "https://app.turnkey.com"
+    );
+    recordChannelTelemetry(
+      CHANNEL_LEGACY_POST_MESSAGE,
       "https://app.turnkey.com"
     );
 
@@ -2177,10 +2218,20 @@ describe("Telemetry", () => {
     expect(payload).toEqual({
       frame: "export-and-sign",
       channel: "legacy_post_message",
-      eventType: "SIGN_TRANSACTION",
       parentOrigin: "https://app.turnkey.com",
       timestamp: expect.any(String),
     });
+
+    recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com");
+    expect(sendBeacon).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores unknown channel classifications", () => {
+    setTelemetryMeta("https://telemetry.turnkey.com/frames");
+
+    recordChannelTelemetry("untrusted-channel", "https://app.turnkey.com");
+
+    expect(sendBeacon).not.toHaveBeenCalled();
   });
 
   it("never throws, even when the beacon API fails", () => {
@@ -2190,7 +2241,7 @@ describe("Telemetry", () => {
     });
 
     expect(() =>
-      recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "SIGN_MESSAGE")
+      recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com")
     ).not.toThrow();
   });
 });

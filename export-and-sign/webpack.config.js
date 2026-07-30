@@ -52,7 +52,7 @@ module.exports = (env, argv) => {
             // meta tag). Left untemplated, the placeholder is an invalid CSP
             // source expression that browsers ignore, leaving just 'self'.
             content:
-              "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' __TURNKEY_TELEMETRY_ENDPOINT__; base-uri 'self'; object-src 'none'; form-action 'none'",
+              "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' __TURNKEY_TELEMETRY_ORIGIN__; base-uri 'self'; object-src 'none'; form-action 'none'",
           },
         },
         minify: isProduction

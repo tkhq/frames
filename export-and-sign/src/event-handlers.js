@@ -814,6 +814,7 @@ export function initEventHandlers(HpkeDecrypt) {
   // first valid message. A document belongs to exactly one embedder for its
   // lifetime, so every subsequent message must come from the same origin.
   let legacyParentOrigin = null;
+  let legacyTelemetryRecorded = false;
 
   if (window.parent === window) {
     // Standalone mode: the DOM forms drive the flow by posting messages to
@@ -868,11 +869,10 @@ export function initEventHandlers(HpkeDecrypt) {
       } else if (event.origin !== legacyParentOrigin) {
         return;
       }
-      recordChannelTelemetry(
-        CHANNEL_LEGACY_POST_MESSAGE,
-        event.data["type"],
-        event.origin
-      );
+      if (!legacyTelemetryRecorded) {
+        recordChannelTelemetry(CHANNEL_LEGACY_POST_MESSAGE, event.origin);
+        legacyTelemetryRecorded = true;
+      }
       await messageEventListener(event);
     },
     { capture: false, signal: messageListenerController.signal }
@@ -941,19 +941,8 @@ export function initEventHandlers(HpkeDecrypt) {
         TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
         document.getElementById("embedded-key").value = targetPubHex;
 
-        iframeMessagePort.onmessage = function (portEvent) {
-          recordChannelTelemetry(
-            CHANNEL_MESSAGE_CHANNEL,
-            portEvent.data && portEvent.data["type"],
-            event.origin
-          );
-          return messageEventListener(portEvent);
-        };
-        recordChannelTelemetry(
-          CHANNEL_MESSAGE_CHANNEL,
-          "TURNKEY_INIT_MESSAGE_CHANNEL",
-          event.origin
-        );
+        iframeMessagePort.onmessage = messageEventListener;
+        recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, event.origin);
         TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
         // remove the listener for TURNKEY_INIT_MESSAGE_CHANNEL after it's been processed

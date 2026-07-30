@@ -223,10 +223,21 @@ function setParentFrameMessageChannelPort(port) {
  * @param {string} origin
  */
 function setParentFrameOrigin(origin) {
-  if (typeof origin !== "string" || origin.length === 0 || origin === "*") {
-    throw new Error("a concrete parent frame origin is required");
+  if (typeof origin !== "string" || origin.length === 0) {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
   }
-  parentFrameTargetOrigin = origin;
+
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(origin).origin;
+  } catch {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
+  }
+
+  if (parsedOrigin === "null" || parsedOrigin !== origin) {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
+  }
+  parentFrameTargetOrigin = parsedOrigin;
 }
 
 /**

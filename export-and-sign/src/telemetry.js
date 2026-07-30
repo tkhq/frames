@@ -11,6 +11,11 @@ export const CHANNEL_LEGACY_POST_MESSAGE = "legacy_post_message";
 
 const TELEMETRY_ENDPOINT_META_NAME = "turnkey-telemetry-endpoint";
 const TELEMETRY_ENDPOINT_PLACEHOLDER = "__TURNKEY_TELEMETRY_ENDPOINT__";
+const VALID_CHANNELS = new Set([
+  CHANNEL_MESSAGE_CHANNEL,
+  CHANNEL_LEGACY_POST_MESSAGE,
+]);
+const reportedChannelsByWindow = new WeakMap();
 
 function getTelemetryEndpoint() {
   if (typeof document === "undefined") {
@@ -30,13 +35,18 @@ function getTelemetryEndpoint() {
 }
 
 /**
- * Records one operation received over a parent communication channel.
+ * Records the communication channel selected by one iframe document. Each
+ * channel is reported at most once per document so arbitrary embedders cannot
+ * amplify telemetry by sending repeated operations.
  * @param {string} channel CHANNEL_MESSAGE_CHANNEL or CHANNEL_LEGACY_POST_MESSAGE
- * @param {string} eventType the message type that was processed
  * @param {string} [parentOrigin] origin of the embedding document, if known
  */
-export function recordChannelTelemetry(channel, eventType, parentOrigin) {
+export function recordChannelTelemetry(channel, parentOrigin) {
   try {
+    if (!VALID_CHANNELS.has(channel) || typeof window === "undefined") {
+      return;
+    }
+
     const endpoint = getTelemetryEndpoint();
     if (
       !endpoint ||
@@ -45,17 +55,29 @@ export function recordChannelTelemetry(channel, eventType, parentOrigin) {
     ) {
       return;
     }
+
+    let reportedChannels = reportedChannelsByWindow.get(window);
+    if (!reportedChannels) {
+      reportedChannels = new Set();
+      reportedChannelsByWindow.set(window, reportedChannels);
+    }
+    if (reportedChannels.has(channel)) {
+      return;
+    }
+
     const payload = JSON.stringify({
       frame: "export-and-sign",
       channel,
-      eventType: eventType || null,
       parentOrigin: parentOrigin || null,
       timestamp: new Date().toISOString(),
     });
-    navigator.sendBeacon(
+    const accepted = navigator.sendBeacon(
       endpoint,
       new Blob([payload], { type: "application/json" })
     );
+    if (accepted !== false) {
+      reportedChannels.add(channel);
+    }
   } catch {
     // Telemetry must never break the signing flow; drop the sample.
   }
