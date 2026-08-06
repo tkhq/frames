@@ -130,6 +130,26 @@ describe("Shared TKHQ Utilities", () => {
     });
   });
 
+  describe("Parent frame messaging", () => {
+    it("requires a canonical, non-opaque parent origin", () => {
+      for (const origin of [
+        "",
+        "*",
+        "null",
+        "not-an-origin",
+        "https://app.turnkey.com/path",
+      ]) {
+        expect(() => SharedTKHQ.setParentFrameOrigin(origin)).toThrow(
+          "a canonical, non-opaque parent frame origin is required"
+        );
+      }
+
+      expect(() =>
+        SharedTKHQ.setParentFrameOrigin("https://app.turnkey.com")
+      ).not.toThrow();
+    });
+  });
+
   describe("Key loading and generation", () => {
     it("imports P256 keys", async () => {
       const targetPubHex =

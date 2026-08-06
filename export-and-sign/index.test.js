@@ -14,6 +14,11 @@ import {
   initEventHandlers,
 } from "./src/event-handlers.js";
 import {
+  recordChannelTelemetry,
+  CHANNEL_MESSAGE_CHANNEL,
+  CHANNEL_LEGACY_POST_MESSAGE,
+} from "./src/telemetry.js";
+import {
   serializeTransaction,
   recoverTransactionAddress,
   recoverMessageAddress,
@@ -129,21 +134,218 @@ describe("TKHQ", () => {
   describe("Embedded key management", () => {
     it("gets and sets embedded key in localStorage", async () => {
       expect(TKHQ.getEmbeddedKey()).toBe(null);
+      expect(() => TKHQ.setEmbeddedKey({ foo: "bar" })).toThrow(
+        "embedded key has not been initialized"
+      );
 
-      // Set a dummy "key"
+      await TKHQ.initEmbeddedKey("http://localhost");
       TKHQ.setEmbeddedKey({ foo: "bar" });
       expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" });
     });
 
     it("inits embedded key and is idempotent", async () => {
       expect(TKHQ.getEmbeddedKey()).toBe(null);
-      await TKHQ.initEmbeddedKey();
+      await TKHQ.initEmbeddedKey("http://localhost");
       const generatedKey = TKHQ.getEmbeddedKey();
       expect(generatedKey).not.toBeNull();
 
       // This should have no effect; generated key should stay the same
-      await TKHQ.initEmbeddedKey();
+      await TKHQ.initEmbeddedKey("http://localhost");
       expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
+    });
+
+    it("isolates persisted keys by parent origin", async () => {
+      const appOrigin = "https://app.turnkey.com";
+      const attackerOrigin = "https://malicious.example.com";
+
+      await TKHQ.initEmbeddedKey(appOrigin);
+      TKHQ.setEmbeddedKey({ owner: "app" });
+
+      const appStorageKey = `TURNKEY_EMBEDDED_KEY_V2:${encodeURIComponent(
+        appOrigin
+      )}`;
+      const attackerStorageKey = `TURNKEY_EMBEDDED_KEY_V2:${encodeURIComponent(
+        attackerOrigin
+      )}`;
+      expect(appStorageKey).not.toEqual(attackerStorageKey);
+
+      // Model a fresh iframe under another parent with the same frame-origin
+      // localStorage contents. It must generate/select a different key slot.
+      const attackerDom = new JSDOM(html, { url: "http://localhost" });
+      for (let i = 0; i < dom.window.localStorage.length; i++) {
+        const key = dom.window.localStorage.key(i);
+        attackerDom.window.localStorage.setItem(
+          key,
+          dom.window.localStorage.getItem(key)
+        );
+      }
+      Object.defineProperty(attackerDom.window, "crypto", {
+        value: crypto.webcrypto,
+      });
+      global.window = attackerDom.window;
+      global.document = attackerDom.window.document;
+      global.localStorage = attackerDom.window.localStorage;
+
+      await TKHQ.initEmbeddedKey(attackerOrigin);
+      expect(TKHQ.getEmbeddedKey()).not.toEqual({ owner: "app" });
+      expect(attackerDom.window.localStorage.getItem(appStorageKey)).not.toBe(
+        null
+      );
+      expect(
+        attackerDom.window.localStorage.getItem(attackerStorageKey)
+      ).not.toBe(null);
+    });
+
+    it("invalidates the legacy unscoped embedded key", async () => {
+      TKHQ.setItemWithExpiry(
+        "TURNKEY_EMBEDDED_KEY",
+        JSON.stringify({ owner: "legacy" }),
+        1000
+      );
+
+      await TKHQ.initEmbeddedKey("https://app.turnkey.com");
+
+      expect(
+        dom.window.localStorage.getItem("TURNKEY_EMBEDDED_KEY")
+      ).toBeNull();
+      expect(TKHQ.getEmbeddedKey()).not.toEqual({ owner: "legacy" });
+    });
+
+    it("does not allow a document to rebind to another parent origin", async () => {
+      await TKHQ.initEmbeddedKey("https://app.turnkey.com");
+
+      await expect(
+        TKHQ.initEmbeddedKey("https://malicious.example.com")
+      ).rejects.toThrow("parent origin is already bound");
+    });
+
+    it("keeps the ephemeral embedded key in memory only", async () => {
+      await TKHQ.initEphemeralEmbeddedKey();
+      const key = TKHQ.getEmbeddedKey();
+      expect(key).not.toBeNull();
+      expect(key.kty).toBe("EC");
+
+      // Nothing may be persisted for an ephemeral key
+      expect(dom.window.localStorage.length).toBe(0);
+
+      // Idempotent: a second init keeps the same key
+      await TKHQ.initEphemeralEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).toEqual(key);
+    });
+
+    it("generates a different ephemeral key per document", async () => {
+      await TKHQ.initEphemeralEmbeddedKey();
+      const firstKey = TKHQ.getEmbeddedKey();
+
+      // Model a fresh iframe document under another (attacker) parent. Even
+      // with identical frame-origin localStorage there is nothing to reuse.
+      const otherDom = new JSDOM(html, { url: "http://localhost" });
+      Object.defineProperty(otherDom.window, "crypto", {
+        value: crypto.webcrypto,
+      });
+      global.window = otherDom.window;
+      global.document = otherDom.window.document;
+      global.localStorage = otherDom.window.localStorage;
+
+      await TKHQ.initEphemeralEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).not.toEqual(firstKey);
+    });
+
+    it("supersedes the ephemeral key when a persistent origin-scoped key is initialized", async () => {
+      await TKHQ.initEphemeralEmbeddedKey();
+      const ephemeralKey = TKHQ.getEmbeddedKey();
+
+      await TKHQ.initEmbeddedKey("https://app.turnkey.com");
+      const persistentKey = TKHQ.getEmbeddedKey();
+      expect(persistentKey).not.toBeNull();
+      expect(persistentKey).not.toEqual(ephemeralKey);
+      expect(
+        dom.window.localStorage.getItem(
+          `TURNKEY_EMBEDDED_KEY_V2:${encodeURIComponent(
+            "https://app.turnkey.com"
+          )}`
+        )
+      ).not.toBeNull();
+
+      // Once persistent, ephemeral init is a no-op
+      await TKHQ.initEphemeralEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).toEqual(persistentKey);
+    });
+
+    it("waits for an in-flight persistent initialization instead of reading a missing key", async () => {
+      // The MessageChannel handshake starts the persistent init...
+      const persistentInit = TKHQ.initEmbeddedKey("https://app.turnkey.com");
+      // ...while the embedded bootstrap runs concurrently. The bootstrap must
+      // not resolve before the persistent key is actually readable.
+      await TKHQ.initEphemeralEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).not.toBeNull();
+      await persistentInit;
+    });
+
+    it("reads the persistent key when the handshake lands during ephemeral key generation", async () => {
+      // Bootstrap kicks off ephemeral key generation first; the handshake's
+      // persistent init interleaves before it settles.
+      const ephemeralInit = TKHQ.initEphemeralEmbeddedKey();
+      const persistentInit = TKHQ.initEmbeddedKey("https://app.turnkey.com");
+      await ephemeralInit;
+
+      const key = TKHQ.getEmbeddedKey();
+      expect(key).not.toBeNull();
+      await persistentInit;
+      expect(TKHQ.getEmbeddedKey()).toEqual(key);
+      expect(
+        dom.window.localStorage.getItem(
+          `TURNKEY_EMBEDDED_KEY_V2:${encodeURIComponent(
+            "https://app.turnkey.com"
+          )}`
+        )
+      ).not.toBeNull();
+    });
+
+    it("rolls back to the previous key when persistent initialization fails", async () => {
+      await TKHQ.initEphemeralEmbeddedKey();
+      const ephemeralKey = TKHQ.getEmbeddedKey();
+
+      const setItemSpy = jest
+        .spyOn(Object.getPrototypeOf(dom.window.localStorage), "setItem")
+        .mockImplementation(() => {
+          throw new Error("storage blocked");
+        });
+      await expect(
+        TKHQ.initEmbeddedKey("https://app.turnkey.com")
+      ).rejects.toThrow("storage blocked");
+      setItemSpy.mockRestore();
+
+      // The document keeps operating on its ephemeral key...
+      expect(TKHQ.getEmbeddedKey()).toEqual(ephemeralKey);
+      // ...and a retried persistent init succeeds
+      await TKHQ.initEmbeddedKey("https://app.turnkey.com");
+      const persistentKey = TKHQ.getEmbeddedKey();
+      expect(persistentKey).not.toBeNull();
+      expect(persistentKey).not.toEqual(ephemeralKey);
+    });
+
+    it("clears the ephemeral key on reset", async () => {
+      await TKHQ.initEphemeralEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).not.toBeNull();
+
+      TKHQ.onResetEmbeddedKey();
+      expect(TKHQ.getEmbeddedKey()).toBeNull();
+    });
+
+    it("invalidates the legacy unscoped key when creating an ephemeral key", async () => {
+      TKHQ.setItemWithExpiry(
+        "TURNKEY_EMBEDDED_KEY",
+        JSON.stringify({ owner: "legacy" }),
+        1000
+      );
+
+      await TKHQ.initEphemeralEmbeddedKey();
+
+      expect(
+        dom.window.localStorage.getItem("TURNKEY_EMBEDDED_KEY")
+      ).toBeNull();
+      expect(TKHQ.getEmbeddedKey()).not.toEqual({ owner: "legacy" });
     });
   });
 
@@ -300,9 +502,52 @@ describe("TKHQ", () => {
       }).toThrow("Private key must be a string");
     });
 
-    it("logs messages and sends messages up", async () => {
-      // TODO: test logMessage / sendMessageUp
-      expect(true).toBe(true);
+    it("restricts parent messages to the bound origin", () => {
+      const parentWindow = { postMessage: jest.fn() };
+      Object.defineProperty(dom.window, "parent", {
+        configurable: true,
+        value: parentWindow,
+      });
+
+      // Legacy clients need the initial, non-secret public key before they can
+      // send a message that binds the document to their origin.
+      TKHQ.sendMessageUp("PUBLIC_KEY_READY", "public-key");
+      expect(parentWindow.postMessage).toHaveBeenCalledWith(
+        { type: "PUBLIC_KEY_READY", value: "public-key" },
+        "*"
+      );
+
+      expect(() => TKHQ.setParentFrameOrigin("null")).toThrow(
+        "a canonical, non-opaque parent frame origin is required"
+      );
+      expect(() =>
+        TKHQ.setParentFrameOrigin("https://app.turnkey.com/path")
+      ).toThrow("a canonical, non-opaque parent frame origin is required");
+
+      TKHQ.setParentFrameOrigin("https://app.turnkey.com");
+      TKHQ.sendMessageUp("BUNDLE_INJECTED", true, "request-1");
+      expect(parentWindow.postMessage).toHaveBeenLastCalledWith(
+        {
+          type: "BUNDLE_INJECTED",
+          value: true,
+          requestId: "request-1",
+        },
+        "https://app.turnkey.com"
+      );
+
+      const messagePort = { postMessage: jest.fn() };
+      TKHQ.setParentFrameMessageChannelPort(messagePort);
+      TKHQ.sendMessageUp("MESSAGE_SIGNED", "signature", "request-2");
+      expect(messagePort.postMessage).toHaveBeenCalledWith({
+        type: "MESSAGE_SIGNED",
+        value: "signature",
+        requestId: "request-2",
+      });
+      expect(parentWindow.postMessage).toHaveBeenCalledTimes(2);
+
+      // Avoid leaking the mocked port into later tests. Production modules are
+      // loaded once per iframe document, but Jest reuses this module instance.
+      TKHQ.setParentFrameMessageChannelPort(null);
     });
 
     it("normalizes padding in a byte array", () => {
@@ -611,6 +856,7 @@ describe("Event Handler Expiration Flow", () => {
 
     jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
     // Set a dummy embedded key for testing
+    await TKHQ.initEmbeddedKey("http://localhost");
     TKHQ.setEmbeddedKey({ foo: "bar" });
     expect(TKHQ.getEmbeddedKey()).toEqual({ foo: "bar" });
     jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
@@ -919,6 +1165,7 @@ describe("EVM Signing", () => {
       .spyOn(TKHQ, "sendMessageUp")
       .mockImplementation(() => {});
     jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    await TKHQ.initEmbeddedKey("http://localhost");
     TKHQ.setEmbeddedKey({ foo: "bar" });
 
     // Mirror the real impl (strip 0x) so both the bundle-data decode and the
@@ -1112,6 +1359,7 @@ describe("Embedded Key Override", () => {
       .mockImplementation(() => {});
 
     jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    await TKHQ.initEmbeddedKey("http://localhost");
     TKHQ.setEmbeddedKey({ foo: "bar" });
     jest.spyOn(TKHQ, "onResetEmbeddedKey").mockImplementation(() => {});
     jest.spyOn(TKHQ, "uint8arrayFromHexString").mockImplementation((hex) => {
@@ -1377,9 +1625,15 @@ describe("Channel Establishment Guard", () => {
 
   let dom;
   let TKHQModule;
+  let parentWindow;
 
   beforeEach(async () => {
     dom = new JSDOM(MINIMAL_INIT_HTML, { url: "http://localhost" });
+    parentWindow = {};
+    Object.defineProperty(dom.window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
 
     global.window = dom.window;
     global.document = dom.window.document;
@@ -1426,13 +1680,17 @@ describe("Channel Establishment Guard", () => {
    * and the handler only needs ports[0] to be truthy and to have an onmessage
    * property (TKHQ.setParentFrameMessageChannelPort is mocked anyway).
    */
-  function makeInitEvent(origin = "https://app.turnkey.com") {
+  function makeInitEvent(
+    origin = "https://app.turnkey.com",
+    source = parentWindow
+  ) {
     const port = { onmessage: null, postMessage: jest.fn() };
     const event = new dom.window.MessageEvent("message", {
       data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
       ports: [port],
       origin,
     });
+    Object.defineProperty(event, "source", { value: source });
     return { event, port };
   }
 
@@ -1446,6 +1704,9 @@ describe("Channel Establishment Guard", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledWith(
+      "https://app.turnkey.com"
+    );
     expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(
       1
     );
@@ -1453,6 +1714,46 @@ describe("Channel Establishment Guard", () => {
       "PUBLIC_KEY_READY",
       "aabbccdd"
     );
+  });
+
+  it("rejects channel initialization from a window other than the direct parent", async () => {
+    initEventHandlers(jest.fn());
+
+    const { event } = makeInitEvent("https://malicious.example.com", {});
+    dom.window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.initEmbeddedKey).not.toHaveBeenCalled();
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+
+  it("rejects an opaque parent origin", async () => {
+    initEventHandlers(jest.fn());
+
+    const { event } = makeInitEvent("null");
+    dom.window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.initEmbeddedKey).not.toHaveBeenCalled();
+  });
+
+  it("ignores signing messages from windows other than the direct parent", async () => {
+    initEventHandlers(jest.fn());
+
+    const event = new dom.window.MessageEvent("message", {
+      data: {
+        type: "SIGN_MESSAGE",
+        requestId: "attacker-request",
+        value: JSON.stringify({ type: "SOLANA", message: "payload" }),
+      },
+      origin: "https://malicious.example.com",
+    });
+    // Not the parent: e.g. a window.opener or an unrelated frame
+    Object.defineProperty(event, "source", { value: {} });
+    dom.window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.sendMessageUp).not.toHaveBeenCalled();
   });
 
   it("ignores a second TURNKEY_INIT_MESSAGE_CHANNEL dispatched while the first is still pending", async () => {
@@ -1535,5 +1836,412 @@ describe("Channel Establishment Guard", () => {
       TKHQModule.setParentFrameMessageChannelPort
     ).not.toHaveBeenCalledWith(port2);
     expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Standalone mode listener", () => {
+  let dom;
+  let TKHQModule;
+
+  beforeEach(async () => {
+    // No parent override: window.parent === window (standalone)
+    dom = new JSDOM(MINIMAL_INIT_HTML, { url: "http://localhost" });
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+    global.AbortController = dom.window.AbortController;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQModule = module.TKHQ;
+
+    jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+    jest
+      .spyOn(TKHQModule, "getEmbeddedKey")
+      .mockReturnValue({ kty: "EC", crv: "P-256" });
+    jest
+      .spyOn(TKHQModule, "p256JWKPrivateToPublic")
+      .mockResolvedValue(new Uint8Array(65).fill(0x04));
+    jest.spyOn(TKHQModule, "uint8arrayToHexString").mockReturnValue("aabbccdd");
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+    delete global.AbortController;
+  });
+
+  function makeEvent(source) {
+    const event = new dom.window.MessageEvent("message", {
+      data: { type: "GET_EMBEDDED_PUBLIC_KEY", requestId: "req-1" },
+      origin: "http://localhost",
+    });
+    Object.defineProperty(event, "source", { value: source });
+    return event;
+  }
+
+  it("serves messages posted by this window itself", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeEvent(dom.window));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "aabbccdd",
+      "req-1"
+    );
+  });
+
+  it("ignores messages from other windows (e.g. a window.opener)", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeEvent({}));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.sendMessageUp).not.toHaveBeenCalled();
+  });
+});
+
+describe("Legacy postMessage path (iframe-stamper < 2.1.0)", () => {
+  /**
+   * Legacy parents post requests straight to the iframe window instead of
+   * establishing a MessageChannel. The frame serves them with a document-
+   * scoped ephemeral key, binds itself to the first valid parent origin, and
+   * refuses everything else. A MessageChannel handshake upgrades the document
+   * to the persistent origin-scoped path.
+   */
+
+  let dom;
+  let TKHQModule;
+  let parentWindow;
+
+  beforeEach(async () => {
+    dom = new JSDOM(MINIMAL_INIT_HTML, { url: "http://localhost" });
+    parentWindow = {};
+    Object.defineProperty(dom.window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+    global.AbortController = dom.window.AbortController;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQModule = module.TKHQ;
+
+    jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+    jest.spyOn(TKHQModule, "setParentFrameOrigin").mockImplementation(() => {});
+    jest
+      .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+      .mockImplementation(() => {});
+    jest.spyOn(TKHQModule, "initEmbeddedKey").mockResolvedValue(undefined);
+    jest
+      .spyOn(TKHQModule, "getEmbeddedKey")
+      .mockReturnValue({ kty: "EC", crv: "P-256" });
+    jest
+      .spyOn(TKHQModule, "p256JWKPrivateToPublic")
+      .mockResolvedValue(new Uint8Array(65).fill(0x04));
+    jest.spyOn(TKHQModule, "uint8arrayToHexString").mockReturnValue("aabbccdd");
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+    delete global.AbortController;
+  });
+
+  function makeLegacyEvent(
+    requestId,
+    origin = "https://app.turnkey.com",
+    source = parentWindow
+  ) {
+    const event = new dom.window.MessageEvent("message", {
+      data: { type: "GET_EMBEDDED_PUBLIC_KEY", requestId },
+      origin,
+    });
+    Object.defineProperty(event, "source", { value: source });
+    return event;
+  }
+
+  function makeInitEvent(
+    origin = "https://app.turnkey.com",
+    source = parentWindow
+  ) {
+    const port = { onmessage: null, postMessage: jest.fn() };
+    const event = new dom.window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      ports: [port],
+      origin,
+    });
+    Object.defineProperty(event, "source", { value: source });
+    return { event, port };
+  }
+
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("serves legacy requests from the parent and binds the first origin", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeLegacyEvent("req-1"));
+    await flush();
+
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "aabbccdd",
+      "req-1"
+    );
+    expect(TKHQModule.setParentFrameOrigin).toHaveBeenCalledWith(
+      "https://app.turnkey.com"
+    );
+  });
+
+  it("ignores legacy messages from other origins after binding", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeLegacyEvent("req-1"));
+    await flush();
+    dom.window.dispatchEvent(
+      makeLegacyEvent("req-2", "https://malicious.example.com")
+    );
+    await flush();
+
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "aabbccdd",
+      "req-1"
+    );
+  });
+
+  it("ignores legacy messages not sent by the parent window", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(
+      makeLegacyEvent("req-1", "https://app.turnkey.com", {})
+    );
+    await flush();
+
+    expect(TKHQModule.sendMessageUp).not.toHaveBeenCalled();
+    expect(TKHQModule.setParentFrameOrigin).not.toHaveBeenCalled();
+  });
+
+  it("ignores legacy messages with an opaque origin", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeLegacyEvent("req-1", "null"));
+    await flush();
+
+    expect(TKHQModule.sendMessageUp).not.toHaveBeenCalled();
+  });
+
+  it("upgrades a legacy-bound document to the MessageChannel path", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeLegacyEvent("req-1"));
+    await flush();
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(1);
+
+    const { event } = makeInitEvent("https://app.turnkey.com");
+    dom.window.dispatchEvent(event);
+    await flush();
+
+    // The handshake scopes the persistent key to the same, bound origin
+    expect(TKHQModule.initEmbeddedKey).toHaveBeenCalledWith(
+      "https://app.turnkey.com"
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "PUBLIC_KEY_READY",
+      "aabbccdd"
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(2);
+
+    // Direct window messages are no longer served after the upgrade
+    dom.window.dispatchEvent(makeLegacyEvent("req-3"));
+    await flush();
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses a MessageChannel handshake from an origin other than the legacy binding", async () => {
+    initEventHandlers(jest.fn());
+
+    dom.window.dispatchEvent(makeLegacyEvent("req-1"));
+    await flush();
+
+    const { event } = makeInitEvent("https://malicious.example.com");
+    dom.window.dispatchEvent(event);
+    await flush();
+
+    expect(TKHQModule.initEmbeddedKey).not.toHaveBeenCalled();
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+
+    // The legacy path keeps serving the bound origin
+    dom.window.dispatchEvent(makeLegacyEvent("req-2"));
+    await flush();
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "aabbccdd",
+      "req-2"
+    );
+  });
+
+  it("recovers when key initialization fails during the handshake", async () => {
+    initEventHandlers(jest.fn());
+
+    TKHQModule.initEmbeddedKey.mockRejectedValueOnce(
+      new Error("storage blocked")
+    );
+
+    const { event: failedEvent, port: failedPort } = makeInitEvent();
+    dom.window.dispatchEvent(failedEvent);
+    await flush();
+
+    // The failure is reported on the offered port and nothing is committed
+    expect(failedPort.postMessage).toHaveBeenCalledWith({
+      type: "ERROR",
+      value: expect.stringContaining("storage blocked"),
+    });
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+
+    // The legacy path keeps serving in the meantime
+    dom.window.dispatchEvent(makeLegacyEvent("req-1"));
+    await flush();
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "aabbccdd",
+      "req-1"
+    );
+
+    // A retried handshake succeeds
+    const { event: retryEvent, port: retryPort } = makeInitEvent();
+    dom.window.dispatchEvent(retryEvent);
+    await flush();
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledWith(
+      retryPort
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "PUBLIC_KEY_READY",
+      "aabbccdd"
+    );
+  });
+});
+
+describe("Telemetry", () => {
+  const originalNavigatorDescriptor = Object.getOwnPropertyDescriptor(
+    globalThis,
+    "navigator"
+  );
+
+  let dom;
+  let sendBeacon;
+
+  function setTelemetryMeta(content) {
+    const meta = dom.window.document.createElement("meta");
+    meta.setAttribute("name", "turnkey-telemetry-endpoint");
+    meta.setAttribute("content", content);
+    dom.window.document.head.appendChild(meta);
+  }
+
+  beforeEach(() => {
+    dom = new JSDOM(`<!doctype html><html><head></head><body></body></html>`, {
+      url: "http://localhost",
+    });
+    global.window = dom.window;
+    global.document = dom.window.document;
+
+    sendBeacon = jest.fn(() => true);
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { sendBeacon },
+    });
+  });
+
+  afterEach(() => {
+    delete global.window;
+    delete global.document;
+    if (originalNavigatorDescriptor) {
+      Object.defineProperty(
+        globalThis,
+        "navigator",
+        originalNavigatorDescriptor
+      );
+    } else {
+      delete globalThis.navigator;
+    }
+  });
+
+  it("does not send anything when no endpoint is configured", () => {
+    recordChannelTelemetry(
+      CHANNEL_LEGACY_POST_MESSAGE,
+      "https://app.turnkey.com"
+    );
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("treats the deploy-time placeholder as unconfigured", () => {
+    setTelemetryMeta("__TURNKEY_TELEMETRY_ENDPOINT__");
+    recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com");
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("sends one beacon per channel and document", async () => {
+    setTelemetryMeta("https://telemetry.turnkey.com/frames");
+
+    recordChannelTelemetry(
+      CHANNEL_LEGACY_POST_MESSAGE,
+      "https://app.turnkey.com"
+    );
+    recordChannelTelemetry(
+      CHANNEL_LEGACY_POST_MESSAGE,
+      "https://app.turnkey.com"
+    );
+
+    expect(sendBeacon).toHaveBeenCalledTimes(1);
+    const [endpoint, blob] = sendBeacon.mock.calls[0];
+    expect(endpoint).toBe("https://telemetry.turnkey.com/frames");
+
+    const payload = JSON.parse(await blob.text());
+    expect(payload).toEqual({
+      frame: "export-and-sign",
+      channel: "legacy_post_message",
+      parentOrigin: "https://app.turnkey.com",
+      timestamp: expect.any(String),
+    });
+
+    recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com");
+    expect(sendBeacon).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores unknown channel classifications", () => {
+    setTelemetryMeta("https://telemetry.turnkey.com/frames");
+
+    recordChannelTelemetry("untrusted-channel", "https://app.turnkey.com");
+
+    expect(sendBeacon).not.toHaveBeenCalled();
+  });
+
+  it("never throws, even when the beacon API fails", () => {
+    setTelemetryMeta("https://telemetry.turnkey.com/frames");
+    sendBeacon.mockImplementation(() => {
+      throw new Error("beacon rejected");
+    });
+
+    expect(() =>
+      recordChannelTelemetry(CHANNEL_MESSAGE_CHANNEL, "https://app.turnkey.com")
+    ).not.toThrow();
   });
 });

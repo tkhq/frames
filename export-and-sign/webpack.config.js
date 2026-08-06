@@ -47,8 +47,12 @@ module.exports = (env, argv) => {
         meta: {
           "Content-Security-Policy": {
             "http-equiv": "Content-Security-Policy",
+            // connect-src governs sendBeacon; the telemetry collector origin
+            // is templated in at deploy time (same sed pass as the endpoint
+            // meta tag). Left untemplated, the placeholder is an invalid CSP
+            // source expression that browsers ignore, leaving just 'self'.
             content:
-              "default-src 'self'; script-src 'self'; style-src 'self'; base-uri 'self'; object-src 'none'; form-action 'none'",
+              "default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self' __TURNKEY_TELEMETRY_ORIGIN__; base-uri 'self'; object-src 'none'; form-action 'none'",
           },
         },
         minify: isProduction

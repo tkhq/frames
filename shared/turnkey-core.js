@@ -6,14 +6,13 @@ import { bech32 } from "bech32";
  */
 
 /** constants for LocalStorage */
-const TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
 const TURNKEY_TARGET_EMBEDDED_KEY = "TURNKEY_TARGET_EMBEDDED_KEY";
 const TURNKEY_SETTINGS = "TURNKEY_SETTINGS";
 /** 48 hours in milliseconds */
 const TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48;
-const TURNKEY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
 
 let parentFrameMessageChannelPort = null;
+let parentFrameTargetOrigin = "*";
 var cryptoProviderOverride = null;
 
 /*
@@ -106,16 +105,30 @@ async function loadTargetKey(targetPublic) {
 }
 
 /**
- * Creates a new public/private key pair and persists it in localStorage
+ * Throws unless the caller provided an explicit storage key. Consumers must
+ * choose a key slot deliberately (e.g. scoped by parent origin); an implicit
+ * global default is what enabled cross-origin bundle replay (INT-697).
+ * @param {string} storageKey
  */
-async function initEmbeddedKey() {
+function requireStorageKey(storageKey) {
+  if (typeof storageKey !== "string" || storageKey.length === 0) {
+    throw new Error("an explicit embedded key storage key is required");
+  }
+}
+
+/**
+ * Creates a new public/private key pair and persists it in localStorage
+ * @param {string} storageKey localStorage key used for persistence
+ */
+async function initEmbeddedKey(storageKey) {
+  requireStorageKey(storageKey);
   if (isDoublyIframed()) {
     throw new Error("Doubly iframed");
   }
-  const retrievedKey = await getEmbeddedKey();
+  const retrievedKey = await getEmbeddedKey(storageKey);
   if (retrievedKey === null) {
     const targetKey = await generateTargetKey();
-    setEmbeddedKey(targetKey);
+    setEmbeddedKey(targetKey, storageKey);
   }
   // Nothing to do, key is correctly initialized!
 }
@@ -142,19 +155,23 @@ async function generateTargetKey() {
 
 /**
  * Gets the current embedded private key JWK. Returns `null` if not found.
+ * @param {string} storageKey localStorage key used for persistence
  */
-function getEmbeddedKey() {
-  const jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
+function getEmbeddedKey(storageKey) {
+  requireStorageKey(storageKey);
+  const jwtKey = getItemWithExpiry(storageKey);
   return jwtKey ? JSON.parse(jwtKey) : null;
 }
 
 /**
  * Sets the embedded private key JWK with the default expiration time.
  * @param {JsonWebKey} targetKey
+ * @param {string} storageKey localStorage key used for persistence
  */
-function setEmbeddedKey(targetKey) {
+function setEmbeddedKey(targetKey, storageKey) {
+  requireStorageKey(storageKey);
   setItemWithExpiry(
-    TURNKEY_EMBEDDED_KEY,
+    storageKey,
     JSON.stringify(targetKey),
     TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
   );
@@ -181,10 +198,11 @@ function setTargetEmbeddedKey(targetKey) {
 
 /**
  * Resets the current embedded private key JWK.
+ * @param {string} storageKey localStorage key used for persistence
  */
-function onResetEmbeddedKey() {
-  window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
-  window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY_ORIGIN);
+function onResetEmbeddedKey(storageKey) {
+  requireStorageKey(storageKey);
+  window.localStorage.removeItem(storageKey);
 }
 
 /**
@@ -196,6 +214,30 @@ function resetTargetEmbeddedKey() {
 
 function setParentFrameMessageChannelPort(port) {
   parentFrameMessageChannelPort = port;
+}
+
+/**
+ * Restricts direct window.parent postMessages to the given origin. Used by
+ * the legacy (< 2.1.0 iframe-stamper) path once the parent origin is bound,
+ * so responses are only readable by that origin.
+ * @param {string} origin
+ */
+function setParentFrameOrigin(origin) {
+  if (typeof origin !== "string" || origin.length === 0) {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
+  }
+
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(origin).origin;
+  } catch {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
+  }
+
+  if (parsedOrigin === "null" || parsedOrigin !== origin) {
+    throw new Error("a canonical, non-opaque parent frame origin is required");
+  }
+  parentFrameTargetOrigin = parsedOrigin;
 }
 
 /**
@@ -462,13 +504,7 @@ function sendMessageUp(type, value, requestId) {
   if (parentFrameMessageChannelPort) {
     parentFrameMessageChannelPort.postMessage(message);
   } else if (window.parent !== window) {
-    window.parent.postMessage(
-      {
-        type: type,
-        value: value,
-      },
-      "*"
-    );
+    window.parent.postMessage(message, parentFrameTargetOrigin);
   }
   logMessage(`⬆️ Sent message ${type}: ${value}`);
 }
@@ -912,6 +948,7 @@ export {
   onResetEmbeddedKey,
   resetTargetEmbeddedKey,
   setParentFrameMessageChannelPort,
+  setParentFrameOrigin,
   getSettings,
   setSettings,
   setItemWithExpiry,

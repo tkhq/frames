@@ -16,12 +16,16 @@ spec:
           env:
             - name: TURNKEY_SIGNER_ENVIRONMENT
               value: "prod"
+            # Collector for MessageChannel-vs-legacy channel telemetry
+            # (INT-697 migration). Empty disables telemetry entirely.
+            - name: TURNKEY_TELEMETRY_ENDPOINT
+              value: ""
           command:
             - sh
             - -c
             - |
                 mkdir -p templated/export templated/import templated/export-and-sign;
-                
+
                 envsubst '${TURNKEY_SIGNER_ENVIRONMENT}' < export/index.template.html > templated/export/index.html;
 
                 # For export-and-sign, copy the webpack-built files and template the environment variable in HTML files
@@ -31,10 +35,48 @@ spec:
                   ls -la templated/export-and-sign/
                 fi
 
-                # Template the environment variable in the HTML files (not JS, to preserve SRI)
+                TELEMETRY_ENDPOINT_HTML="";
+                TELEMETRY_CSP_ORIGIN="";
+                if [ -n "${TURNKEY_TELEMETRY_ENDPOINT}" ]; then
+                  # Telemetry crosses the iframe boundary, so production
+                  # collectors must use an absolute HTTPS URL. Fragments and
+                  # markup-significant characters are rejected rather than
+                  # being interpolated into the generated security policy.
+                  case "${TURNKEY_TELEMETRY_ENDPOINT}" in
+                    https://*) ;;
+                    *)
+                      echo "TURNKEY_TELEMETRY_ENDPOINT must be an absolute HTTPS URL" >&2;
+                      exit 1;
+                      ;;
+                  esac
+                  case "${TURNKEY_TELEMETRY_ENDPOINT}" in
+                    *'"'*|*"'"*|*"<"*|*">"*|*" "*|*"#"*)
+                      echo "TURNKEY_TELEMETRY_ENDPOINT contains unsupported characters" >&2;
+                      exit 1;
+                      ;;
+                  esac
+
+                  # Only the URL origin belongs in connect-src. The full URL,
+                  # including an optional path/query, is HTML-escaped for the
+                  # telemetry meta element.
+                  TELEMETRY_CSP_ORIGIN=$(printf '%s' "${TURNKEY_TELEMETRY_ENDPOINT}" | sed -e 's#^\(https://[^/?#]*\).*$#\1#');
+                  case "${TELEMETRY_CSP_ORIGIN}" in
+                    "https://"|*'"'*|*"'"*|*" "*|*"<"*|*">"*|*"@"*|*";"*|*"\\"*)
+                      echo "TURNKEY_TELEMETRY_ENDPOINT has an invalid origin" >&2;
+                      exit 1;
+                      ;;
+                  esac
+                  TELEMETRY_ENDPOINT_HTML=$(printf '%s' "${TURNKEY_TELEMETRY_ENDPOINT}" | sed -e 's/&/\&amp;/g' -e 's/"/\&quot;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g');
+                fi
+
+                # Escape sed replacement metacharacters after HTML escaping.
+                TELEMETRY_ENDPOINT_ESCAPED=$(printf '%s' "${TELEMETRY_ENDPOINT_HTML}" | sed -e 's/[&\\|]/\\&/g');
+                TELEMETRY_ORIGIN_ESCAPED=$(printf '%s' "${TELEMETRY_CSP_ORIGIN}" | sed -e 's/[&\\|]/\\&/g');
+
+                # Template the environment variables in the HTML files (not JS, to preserve SRI)
                 for file in templated/export-and-sign/*.html; do
                   if [ -f "$file" ]; then
-                    if sed "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" "$file" > "$file.tmp"; then
+                    if sed -e "s/__TURNKEY_SIGNER_ENVIRONMENT__/${TURNKEY_SIGNER_ENVIRONMENT}/g" -e "s|__TURNKEY_TELEMETRY_ENDPOINT__|${TELEMETRY_ENDPOINT_ESCAPED}|g" -e "s|__TURNKEY_TELEMETRY_ORIGIN__|${TELEMETRY_ORIGIN_ESCAPED}|g" "$file" > "$file.tmp"; then
                       mv "$file.tmp" "$file"
                     fi
                   fi
@@ -79,7 +121,7 @@ spec:
               containerPort: 8083
             - name: export-and-sign
               containerPort: 8086
-            
+
             # oauth
             - name: oauth-origin
               containerPort: 8084
@@ -145,7 +187,7 @@ spec:
     - name: http-exp-sign
       port: 8086
       targetPort: export-and-sign
-    
+
     # oauth
     - name: http-oauth-og
       port: 8084

@@ -8,9 +8,9 @@ const {
   generateTargetKey,
   setItemWithExpiry,
   getItemWithExpiry,
-  getEmbeddedKey,
-  setEmbeddedKey,
-  onResetEmbeddedKey,
+  getEmbeddedKey: sharedGetEmbeddedKey,
+  setEmbeddedKey: sharedSetEmbeddedKey,
+  onResetEmbeddedKey: sharedOnResetEmbeddedKey,
   p256JWKPrivateToPublic,
   base58Encode,
   base58Decode,
@@ -20,6 +20,7 @@ const {
   uint8arrayFromHexString,
   uint8arrayToHexString,
   setParentFrameMessageChannelPort,
+  setParentFrameOrigin,
   normalizePadding,
   additionalAssociatedData,
   getSettings,
@@ -30,14 +31,160 @@ const {
   loadQuorumKey,
 } = SharedTKHQ;
 
+const LEGACY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+const LEGACY_EMBEDDED_KEY_ORIGIN = "TURNKEY_EMBEDDED_KEY_ORIGIN";
+const ORIGIN_SCOPED_EMBEDDED_KEY_PREFIX = "TURNKEY_EMBEDDED_KEY_V2";
+
+// Embedded key state for this document, keyed by window so it is tied to the
+// document lifetime. Two shapes:
+//   { mode: "persistent", origin, storageKey, ready } -- key lives in
+//     localStorage, scoped to the browser-authenticated parent origin (or
+//     this document's own origin in standalone mode). `ready` resolves once
+//     the key has actually been persisted; readers racing the handshake must
+//     await it before calling getEmbeddedKey.
+//   { mode: "ephemeral", key } -- key lives in memory only. Used for legacy
+//     (@turnkey/iframe-stamper < 2.1.0) parents: because the key is unique to
+//     this document and never persisted, an unrelated embedder can never
+//     obtain a key that decrypts another application's bundles (INT-697).
+const embeddedKeyStates = new WeakMap();
+
+function validateParentOrigin(parentOrigin) {
+  if (
+    typeof parentOrigin !== "string" ||
+    parentOrigin.length === 0 ||
+    parentOrigin === "null"
+  ) {
+    throw new Error("a non-opaque parent origin is required");
+  }
+
+  const parsedOrigin = new URL(parentOrigin).origin;
+  if (parsedOrigin !== parentOrigin) {
+    throw new Error(`invalid parent origin: ${parentOrigin}`);
+  }
+
+  return parsedOrigin;
+}
+
+// Never migrate the old global key: doing so would preserve the cross-origin
+// replay vulnerability for bundles encrypted before this change.
+function purgeLegacyEmbeddedKey() {
+  window.localStorage.removeItem(LEGACY_EMBEDDED_KEY);
+  window.localStorage.removeItem(LEGACY_EMBEDDED_KEY_ORIGIN);
+}
+
 /**
- * Creates a new public/private key pair and persists it in localStorage
+ * Creates (if needed) the persistent embedded key scoped to the given parent
+ * origin and persists it in localStorage. A document can bind to exactly one
+ * parent origin; an ephemeral key, if any, is superseded.
+ * @param {string} parentOrigin
  */
-async function initEmbeddedKey() {
+async function initEmbeddedKey(parentOrigin) {
   if (isDoublyIframed()) {
     throw new Error("Doubly iframed");
   }
-  return await sharedInitEmbeddedKey();
+  const validatedOrigin = validateParentOrigin(parentOrigin);
+  const previousState = embeddedKeyStates.get(window);
+  if (
+    previousState?.mode === "persistent" &&
+    previousState.origin !== validatedOrigin
+  ) {
+    throw new Error(
+      `parent origin is already bound to ${previousState.origin}; refusing ${validatedOrigin}`
+    );
+  }
+  purgeLegacyEmbeddedKey();
+  const storageKey = `${ORIGIN_SCOPED_EMBEDDED_KEY_PREFIX}:${encodeURIComponent(
+    validatedOrigin
+  )}`;
+  const state = { mode: "persistent", origin: validatedOrigin, storageKey };
+  // The state is activated synchronously so a concurrent ephemeral init
+  // cannot clobber it, but the key does not exist in localStorage until
+  // sharedInitEmbeddedKey resolves; `ready` lets racing readers wait for it.
+  // If persistence fails (e.g. blocked third-party storage), roll back so the
+  // document keeps operating on its previous key and a retry is possible.
+  state.ready = sharedInitEmbeddedKey(storageKey).catch((error) => {
+    if (embeddedKeyStates.get(window) === state) {
+      if (previousState) {
+        embeddedKeyStates.set(window, previousState);
+      } else {
+        embeddedKeyStates.delete(window);
+      }
+    }
+    throw error;
+  });
+  embeddedKeyStates.set(window, state);
+  return await state.ready;
+}
+
+/**
+ * Creates (if needed) an in-memory embedded key unique to this document, for
+ * legacy (@turnkey/iframe-stamper < 2.1.0) parents that speak direct
+ * postMessage. No-ops if a persistent origin-scoped key is already active
+ * (i.e. the MessageChannel handshake completed first).
+ */
+async function initEphemeralEmbeddedKey() {
+  if (isDoublyIframed()) {
+    throw new Error("Doubly iframed");
+  }
+  const state = embeddedKeyStates.get(window);
+  if (state?.mode === "persistent") {
+    // Wait for the in-flight persistence so callers can read the key.
+    return await state.ready;
+  }
+  if (state?.key) {
+    return;
+  }
+  purgeLegacyEmbeddedKey();
+  const generatedKey = await generateTargetKey();
+  // Re-check: a MessageChannel handshake may have activated a persistent key
+  // while key generation was in flight; it must not be clobbered. Wait for it
+  // so callers can read the key; if it fails (and rolls itself back), the
+  // ephemeral key takes over below.
+  const latestState = embeddedKeyStates.get(window);
+  if (latestState?.mode === "persistent") {
+    try {
+      return await latestState.ready;
+    } catch {
+      // fall through to the ephemeral key
+    }
+  }
+  if (embeddedKeyStates.get(window)?.mode !== "persistent") {
+    embeddedKeyStates.set(window, { mode: "ephemeral", key: generatedKey });
+  }
+}
+
+function getEmbeddedKey() {
+  const state = embeddedKeyStates.get(window);
+  if (!state) {
+    return null;
+  }
+  return state.mode === "persistent"
+    ? sharedGetEmbeddedKey(state.storageKey)
+    : state.key;
+}
+
+function setEmbeddedKey(targetKey) {
+  const state = embeddedKeyStates.get(window);
+  if (!state) {
+    throw new Error("embedded key has not been initialized");
+  }
+  if (state.mode === "persistent") {
+    sharedSetEmbeddedKey(targetKey, state.storageKey);
+  } else {
+    state.key = targetKey;
+  }
+}
+
+function onResetEmbeddedKey() {
+  const state = embeddedKeyStates.get(window);
+  if (!state) {
+    throw new Error("embedded key has not been initialized");
+  }
+  if (state.mode === "persistent") {
+    sharedOnResetEmbeddedKey(state.storageKey);
+  } else {
+    state.key = null;
+  }
 }
 
 /**
@@ -152,6 +299,7 @@ function applySettings(settings) {
 
 export const TKHQ = {
   initEmbeddedKey,
+  initEphemeralEmbeddedKey,
   generateTargetKey,
   setItemWithExpiry,
   getItemWithExpiry,
@@ -167,6 +315,7 @@ export const TKHQ = {
   uint8arrayFromHexString,
   uint8arrayToHexString,
   setParentFrameMessageChannelPort,
+  setParentFrameOrigin,
   normalizePadding,
   fromDerSignature,
   additionalAssociatedData,
