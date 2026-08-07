@@ -425,3 +425,145 @@ describe("TKHQ", () => {
     expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
   });
 });
+
+// ---------------------------------------------------------------------------
+// TURNKEY_INIT_MESSAGE_CHANNEL gate validation (INT-783)
+//
+// These tests verify that the second window.addEventListener("message", ...)
+// handler in index.js — the one that establishes the MessageChannel — now
+// enforces the same cross-origin gate added to export-and-sign in PR #129:
+//   • event.source === window.parent  (direct parent only)
+//   • event.origin && event.origin !== "null"  (no opaque origins)
+//   • event.ports?.length === 1  (exactly one transferred port)
+// ---------------------------------------------------------------------------
+
+describe("TURNKEY_INIT_MESSAGE_CHANNEL gate (import frame)", () => {
+  let dom;
+  let TKHQModule;
+  let parentWindow;
+
+  /**
+   * index.js registers its listeners as module-level side effects.
+   * We use jest.isolateModules + require() to force a fresh module evaluation
+   * per test.  The listeners bind to the jest-environment's built-in `window`
+   * (which is already JSDOM), so AbortSignal instanceof checks pass correctly.
+   */
+  beforeEach(async () => {
+    parentWindow = {};
+
+    // Override window.parent on the jest-environment window so that
+    // `event.source === window.parent` comparisons work as expected.
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+
+    global.crypto = crypto.webcrypto;
+
+    // Isolate and load the module so its top-level addEventListener calls fire
+    // against the jest-env window.
+    await new Promise((resolve) => {
+      jest.isolateModules(() => {
+        jest.mock("./src/styles.css", () => {}, { virtual: true });
+        jest.mock("@shared/crypto-utils.js", () => ({
+          HpkeEncrypt: jest.fn(),
+        }));
+
+        // Load turnkey-core inside isolation so we can spy on it.
+        TKHQModule = require("./src/turnkey-core.js");
+        jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+        jest
+          .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+          .mockImplementation(() => {});
+
+        require("./src/index.js");
+        resolve();
+      });
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    // Restore window.parent to its original value (itself, in standalone JSDOM)
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
+  });
+
+  /** Build a well-formed TURNKEY_INIT_MESSAGE_CHANNEL MessageEvent. */
+  function makeInitEvent(
+    origin = "https://app.turnkey.com",
+    source = parentWindow,
+    portCount = 1
+  ) {
+    const ports = Array.from({ length: portCount }, () => ({
+      onmessage: null,
+      postMessage: jest.fn(),
+    }));
+    const event = new window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      ports,
+      origin,
+    });
+    Object.defineProperty(event, "source", { value: source });
+    return { event, ports };
+  }
+
+  it("accepts a valid TURNKEY_INIT_MESSAGE_CHANNEL from the parent", async () => {
+    const { event } = makeInitEvent();
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).toHaveBeenCalledTimes(
+      1
+    );
+    expect(TKHQModule.sendMessageUp).toHaveBeenCalledWith(
+      "PUBLIC_KEY_READY",
+      ""
+    );
+  });
+
+  it("rejects a message whose source is not window.parent", async () => {
+    const { event } = makeInitEvent(
+      "https://app.turnkey.com",
+      {} // a different object — not parentWindow
+    );
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+
+  it("rejects a message with an opaque ('null') origin", async () => {
+    const { event } = makeInitEvent("null");
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+
+  it("rejects a message with an empty origin", async () => {
+    const { event } = makeInitEvent("");
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+
+  it("rejects a message with zero transferred ports", async () => {
+    const { event } = makeInitEvent("https://app.turnkey.com", parentWindow, 0);
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+
+  it("rejects a message with more than one transferred port", async () => {
+    const { event } = makeInitEvent("https://app.turnkey.com", parentWindow, 2);
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
+  });
+});

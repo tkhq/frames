@@ -121,7 +121,10 @@ window.addEventListener(
     if (
       event.data &&
       event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-      event.ports?.[0]
+      event.source === window.parent &&
+      event.origin &&
+      event.origin !== "null" &&
+      event.ports?.length === 1
     ) {
       // Synchronously check-and-set the flag before any await. This prevents
       // a second concurrent invocation from racing through while the first is
