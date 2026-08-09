@@ -262,6 +262,10 @@ describe("TKHQ", () => {
     expect(TKHQ.uint8arrayFromHexString("01", 2).toString()).toEqual("0,1");
     // Happy path: if length parameter is omitted, do not pad the resulting buffer
     expect(TKHQ.uint8arrayFromHexString("01").toString()).toEqual("1");
+    // Error case: hex value cannot fit in desired length
+    expect(() => {
+      TKHQ.uint8arrayFromHexString("0100", 1).toString(); // the number 256 cannot fit into 1 byte
+    }).toThrow("hex value cannot fit in a buffer of 1 byte(s)");
   });
 
   it("contains bigIntToHex", () => {
@@ -273,6 +277,20 @@ describe("TKHQ", () => {
     expect(() => {
       TKHQ.bigIntToHex(BigInt(256), 2);
     }).toThrow("number cannot fit in a hex string of 2 characters");
+  });
+
+  it("contains bigIntToBase64Url", () => {
+    expect(TKHQ.bigIntToBase64Url(BigInt(1))).toEqual("AQ");
+    expect(TKHQ.bigIntToBase64Url(BigInt(1), 2)).toEqual("AAE");
+
+    // extrapolate to larger numbers
+    expect(TKHQ.bigIntToBase64Url(BigInt(255))).toEqual("_w"); // max 1 byte
+    expect(TKHQ.bigIntToBase64Url(BigInt(255), 2)).toEqual("AP8"); // max 1 byte expressed in 2 bytes
+
+    // error case
+    expect(() => {
+      TKHQ.bigIntToBase64Url(BigInt(256), 1);
+    }).toThrow("hex value cannot fit in a buffer of 1 byte(s)");
   });
 
   it("logs messages and sends messages up", async () => {
