@@ -217,9 +217,8 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
 
       // Validate fields match
       if (!organizationId) {
-        // TODO: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+        throw new Error(
+          'missing "organizationId": @turnkey/iframe-stamper >= v2.0.0 is required to pass "organizationId" for security purposes.'
         );
       } else if (
         !signedData.organizationId ||
@@ -230,9 +229,8 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
         );
       }
       if (!userId) {
-        // TODO: throw error if user id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "userId" for security purposes.'
+        throw new Error(
+          'missing "userId": @turnkey/iframe-stamper >= v2.0.0 is required to pass "userId" for security purposes.'
         );
       } else if (!signedData.userId || signedData.userId !== userId) {
         throw new Error(

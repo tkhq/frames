@@ -567,3 +567,211 @@ describe("TURNKEY_INIT_MESSAGE_CHANNEL gate (import frame)", () => {
     expect(TKHQModule.setParentFrameMessageChannelPort).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// onInjectImportBundle org/user binding (ENG-4597)
+//
+// These tests verify that onInjectImportBundle now THROWS (instead of warning
+// and proceeding) when organizationId or userId is missing from the caller.
+// ---------------------------------------------------------------------------
+
+describe("onInjectImportBundle org/user binding (import frame)", () => {
+  let TKHQModule;
+
+  /**
+   * Encode a JavaScript object as a hex string (matching what the server does:
+   * JSON.stringify → TextEncoder → hex).
+   */
+  function hexEncodeData(obj) {
+    const jsonStr = JSON.stringify(obj);
+    const bytes = new TextEncoder().encode(jsonStr);
+    return Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  /**
+   * Build a minimal v1.0.0 import bundle whose enclave signature will be
+   * accepted (because we mock verifyEnclaveSignature to return true), and
+   * whose signed data contains the provided fields.
+   */
+  function makeBundleV1(signedDataFields) {
+    const data = hexEncodeData(signedDataFields);
+    return JSON.stringify({
+      version: "v1.0.0",
+      data,
+      dataSignature: "aabbcc", // value doesn't matter — we mock verify
+      enclaveQuorumPublic: "04aabbcc", // value doesn't matter — we mock verify
+    });
+  }
+
+  /**
+   * Dispatch an INJECT_IMPORT_BUNDLE message event and wait for the async
+   * handler to settle.  Returns sendMessageUp call args since this dispatch.
+   */
+  async function dispatchInjectBundle(bundle, organizationId, userId) {
+    // Clear previous calls (e.g. PUBLIC_KEY_READY from DOMContentLoaded)
+    TKHQModule.sendMessageUp.mockClear();
+
+    const event = new window.MessageEvent("message", {
+      data: {
+        type: "INJECT_IMPORT_BUNDLE",
+        value: bundle,
+        organizationId,
+        userId,
+        requestId: "req-test",
+      },
+    });
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    return TKHQModule.sendMessageUp.mock.calls;
+  }
+
+  beforeEach(async () => {
+    global.crypto = crypto.webcrypto;
+
+    await new Promise((resolve) => {
+      jest.isolateModules(() => {
+        jest.mock("./src/styles.css", () => {}, { virtual: true });
+        jest.mock("@shared/crypto-utils.js", () => ({
+          HpkeEncrypt: jest.fn(),
+        }));
+
+        TKHQModule = require("./src/turnkey-core.js");
+
+        // Mock sendMessageUp so we can assert which message type was sent
+        jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+        jest
+          .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+          .mockImplementation(() => {});
+
+        // Mock verifyEnclaveSignature so ALL bundles pass the signature check.
+        // This lets us test the org/user binding logic in isolation.
+        jest
+          .spyOn(TKHQModule, "verifyEnclaveSignature")
+          .mockResolvedValue(true);
+
+        // Mock loadTargetKey so we don't need a real crypto key
+        jest
+          .spyOn(TKHQModule, "loadTargetKey")
+          .mockResolvedValue({ kty: "EC" });
+        jest
+          .spyOn(TKHQModule, "setTargetEmbeddedKey")
+          .mockImplementation(() => {});
+
+        require("./src/index.js");
+
+        // Trigger DOMContentLoaded so that index.js registers its
+        // window "message" listener for INJECT_IMPORT_BUNDLE events.
+        document.dispatchEvent(new Event("DOMContentLoaded"));
+
+        resolve();
+      });
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it("throws when organizationId is missing (undefined)", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, undefined, "user-456");
+
+    // The catch block in messageEventListener sends ERROR
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain('missing "organizationId"');
+  });
+
+  it("throws when organizationId is empty string", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "", "user-456");
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain('missing "organizationId"');
+  });
+
+  it("throws when userId is missing (undefined)", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "org-123", undefined);
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain('missing "userId"');
+  });
+
+  it("throws when userId is empty string", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "org-123", "");
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain('missing "userId"');
+  });
+
+  it("throws when organizationId does not match the bundle's signedData", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-DIFFERENT",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "org-123", "user-456");
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain(
+      "organization id does not match expected value"
+    );
+  });
+
+  it("throws when userId does not match the bundle's signedData", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-DIFFERENT",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "org-123", "user-456");
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("ERROR");
+    expect(calls[0][1]).toContain("user id does not match expected value");
+  });
+
+  it("succeeds (BUNDLE_INJECTED) when organizationId and userId match", async () => {
+    const bundle = makeBundleV1({
+      organizationId: "org-123",
+      userId: "user-456",
+      targetPublic:
+        "0491ccb68758b822a6549257f87769eeed37c6cb68a6c6255c5f238e2b6e6e61838c8ac857f2e305970a6435715f84e5a2e4b02a4d1e5289ba7ec7910e47d2d50f",
+    });
+    const calls = await dispatchInjectBundle(bundle, "org-123", "user-456");
+
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls[0][0]).toBe("BUNDLE_INJECTED");
+    expect(calls[0][1]).toBe(true);
+  });
+});
