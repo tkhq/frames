@@ -15,6 +15,11 @@ const turnkeyInitController = new AbortController();
 // Guard to prevent concurrent channel establishment from multiple senders
 let channelEstablished = false;
 
+// Origin of a legacy (@turnkey/iframe-stamper < 2.1.0) parent, bound on its
+// first valid message. A document belongs to exactly one embedder for its
+// lifetime, so every subsequent message must come from the same origin.
+let legacyParentOrigin = null;
+
 /**
  * Message Event Handlers to process messages from the parent frame
  */
@@ -63,10 +68,48 @@ var messageEventListener = async function (event) {
 document.addEventListener(
   "DOMContentLoaded",
   async function () {
-    window.addEventListener("message", messageEventListener, {
-      capture: false,
-      signal: messageListenerController.signal,
-    });
+    // Legacy embedded mode: @turnkey/iframe-stamper < 2.1.0 posts requests
+    // straight to this window instead of establishing a MessageChannel.
+    // We harden this path to mirror the export-and-sign pattern from PR #129:
+    //   1. Only the direct parent window is accepted.
+    //   2. Opaque and empty origins are rejected.
+    //   3. The first accepted origin is bound; later messages from a different
+    //      origin are dropped.
+    //   4. Outbound responses are restricted to the bound origin so they are
+    //      only readable by the legitimate parent.
+    window.addEventListener(
+      "message",
+      async function (event) {
+        if (!event.data || !event.data["type"]) {
+          return;
+        }
+        // Channel establishment is owned by the handshake listener below.
+        if (event.data["type"] === "TURNKEY_INIT_MESSAGE_CHANNEL") {
+          return;
+        }
+        // Only the direct parent, with a real (non-opaque) origin, may drive
+        // the legacy path.
+        if (event.source !== window.parent) {
+          return;
+        }
+        if (!event.origin || event.origin === "null") {
+          return;
+        }
+        if (legacyParentOrigin === null) {
+          legacyParentOrigin = event.origin;
+          // From now on, responses posted to window.parent are only readable
+          // by the bound origin.
+          TKHQ.setParentFrameOrigin(event.origin);
+        } else if (event.origin !== legacyParentOrigin) {
+          return;
+        }
+        await messageEventListener(event);
+      },
+      {
+        capture: false,
+        signal: messageListenerController.signal,
+      }
+    );
 
     if (!messageListenerController.signal.aborted) {
       // If styles are saved in local storage, sanitize and apply them.

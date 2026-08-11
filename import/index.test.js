@@ -608,6 +608,9 @@ describe("onInjectImportBundle org/user binding (import frame)", () => {
   /**
    * Dispatch an INJECT_IMPORT_BUNDLE message event and wait for the async
    * handler to settle.  Returns sendMessageUp call args since this dispatch.
+   *
+   * The event is dispatched from window.parent with a real origin so that it
+   * passes the hardened legacy-listener gate added in the PR #130 fix.
    */
   async function dispatchInjectBundle(bundle, organizationId, userId) {
     // Clear previous calls (e.g. PUBLIC_KEY_READY from DOMContentLoaded)
@@ -621,7 +624,10 @@ describe("onInjectImportBundle org/user binding (import frame)", () => {
         userId,
         requestId: "req-test",
       },
+      origin: "https://app.turnkey.com",
     });
+    // Set source to window.parent so the hardened legacy-listener accepts it.
+    Object.defineProperty(event, "source", { value: window.parent });
     window.dispatchEvent(event);
     await new Promise((resolve) => setTimeout(resolve, 0));
     return TKHQModule.sendMessageUp.mock.calls;
@@ -643,6 +649,9 @@ describe("onInjectImportBundle org/user binding (import frame)", () => {
         jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
         jest
           .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+          .mockImplementation(() => {});
+        jest
+          .spyOn(TKHQModule, "setParentFrameOrigin")
           .mockImplementation(() => {});
 
         // Mock verifyEnclaveSignature so ALL bundles pass the signature check.
@@ -773,5 +782,248 @@ describe("onInjectImportBundle org/user binding (import frame)", () => {
     expect(calls.length).toBeGreaterThan(0);
     expect(calls[0][0]).toBe("BUNDLE_INJECTED");
     expect(calls[0][1]).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy listener cross-origin gate (PR #130 fix)
+//
+// These tests verify that the DOMContentLoaded legacy window message listener
+// now enforces the hardening mirrored from export-and-sign (PR #129):
+//   • event.source === window.parent  (direct parent only)
+//   • event.origin && event.origin !== "null"  (no opaque origins)
+//   • first accepted origin is bound; later messages from a different origin
+//     are silently dropped
+//   • a valid message from the bound parent is accepted and processed
+//
+// Covered message types: INJECT_IMPORT_BUNDLE, EXTRACT_WALLET_ENCRYPTED_BUNDLE,
+// EXTRACT_KEY_ENCRYPTED_BUNDLE, APPLY_SETTINGS.
+// ---------------------------------------------------------------------------
+
+describe("Legacy listener cross-origin gate (import frame)", () => {
+  let TKHQModule;
+  let parentWindow;
+
+  /**
+   * Build a minimal operational message event with configurable source/origin.
+   */
+  function makeOpEvent(
+    type = "INJECT_IMPORT_BUNDLE",
+    origin = "https://app.turnkey.com",
+    source = null // set after construction via Object.defineProperty
+  ) {
+    const event = new window.MessageEvent("message", {
+      data: { type, value: "dummy", organizationId: "org-1", userId: "user-1" },
+      origin,
+    });
+    Object.defineProperty(event, "source", {
+      value: source !== null ? source : parentWindow,
+    });
+    return event;
+  }
+
+  beforeEach(async () => {
+    parentWindow = { postMessage: jest.fn() };
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+
+    global.crypto = crypto.webcrypto;
+
+    await new Promise((resolve) => {
+      jest.isolateModules(() => {
+        jest.mock("./src/styles.css", () => {}, { virtual: true });
+        jest.mock("@shared/crypto-utils.js", () => ({
+          HpkeEncrypt: jest.fn(),
+        }));
+
+        TKHQModule = require("./src/turnkey-core.js");
+
+        jest.spyOn(TKHQModule, "sendMessageUp").mockImplementation(() => {});
+        jest
+          .spyOn(TKHQModule, "setParentFrameMessageChannelPort")
+          .mockImplementation(() => {});
+        jest
+          .spyOn(TKHQModule, "setParentFrameOrigin")
+          .mockImplementation(() => {});
+
+        // Mock verifyEnclaveSignature so bundles pass signature check
+        jest
+          .spyOn(TKHQModule, "verifyEnclaveSignature")
+          .mockResolvedValue(true);
+        jest
+          .spyOn(TKHQModule, "loadTargetKey")
+          .mockResolvedValue({ kty: "EC" });
+        jest
+          .spyOn(TKHQModule, "setTargetEmbeddedKey")
+          .mockImplementation(() => {});
+
+        require("./src/index.js");
+        document.dispatchEvent(new Event("DOMContentLoaded"));
+
+        resolve();
+      });
+    });
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
+  });
+
+  // ── Rejection tests ──────────────────────────────────────────────────────
+
+  it.each(["INJECT_IMPORT_BUNDLE", "APPLY_SETTINGS"])(
+    "rejects %s from a non-parent sender (source !== window.parent)",
+    async (type) => {
+      TKHQModule.sendMessageUp.mockClear();
+      const event = makeOpEvent(type, "https://app.turnkey.com", {}); // not parentWindow
+      window.dispatchEvent(event);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // sendMessageUp should NOT have been called for the operational message
+      // (PUBLIC_KEY_READY from DOMContentLoaded may have fired already but we cleared)
+      const opCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+        (c) => c[0] !== "PUBLIC_KEY_READY"
+      );
+      expect(opCalls).toHaveLength(0);
+    }
+  );
+
+  it.each(["EXTRACT_WALLET_ENCRYPTED_BUNDLE", "EXTRACT_KEY_ENCRYPTED_BUNDLE"])(
+    "rejects %s from a non-parent sender",
+    async (type) => {
+      TKHQModule.sendMessageUp.mockClear();
+      const event = makeOpEvent(type, "https://app.turnkey.com", {});
+      window.dispatchEvent(event);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      const opCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+        (c) => c[0] !== "PUBLIC_KEY_READY"
+      );
+      expect(opCalls).toHaveLength(0);
+    }
+  );
+
+  it("rejects INJECT_IMPORT_BUNDLE from an opaque ('null') origin", async () => {
+    TKHQModule.sendMessageUp.mockClear();
+    const event = makeOpEvent("INJECT_IMPORT_BUNDLE", "null");
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const opCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+      (c) => c[0] !== "PUBLIC_KEY_READY"
+    );
+    expect(opCalls).toHaveLength(0);
+  });
+
+  it("rejects INJECT_IMPORT_BUNDLE from an empty string origin", async () => {
+    TKHQModule.sendMessageUp.mockClear();
+    const event = makeOpEvent("INJECT_IMPORT_BUNDLE", "");
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const opCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+      (c) => c[0] !== "PUBLIC_KEY_READY"
+    );
+    expect(opCalls).toHaveLength(0);
+  });
+
+  it("rejects a second origin after the first origin is bound", async () => {
+    // First message from the legitimate parent — binds legacyParentOrigin.
+    TKHQModule.sendMessageUp.mockClear();
+    const first = makeOpEvent(
+      "INJECT_IMPORT_BUNDLE",
+      "https://app.turnkey.com"
+    );
+    window.dispatchEvent(first);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The first message triggers the handler (will throw on dummy bundle, but
+    // the important thing is it was not silently dropped by the gate).
+    const firstCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+      (c) => c[0] !== "PUBLIC_KEY_READY"
+    );
+    expect(firstCalls.length).toBeGreaterThan(0); // processed (even if errored)
+
+    // Second message from a *different* origin — must be dropped.
+    TKHQModule.sendMessageUp.mockClear();
+    const second = makeOpEvent(
+      "APPLY_SETTINGS",
+      "https://evil.example.com" // different origin
+    );
+    window.dispatchEvent(second);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const secondCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+      (c) => c[0] !== "PUBLIC_KEY_READY"
+    );
+    expect(secondCalls).toHaveLength(0);
+  });
+
+  it("binds the origin on first accepted message and calls setParentFrameOrigin", async () => {
+    const event = makeOpEvent(
+      "INJECT_IMPORT_BUNDLE",
+      "https://app.turnkey.com"
+    );
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(TKHQModule.setParentFrameOrigin).toHaveBeenCalledWith(
+      "https://app.turnkey.com"
+    );
+    expect(TKHQModule.setParentFrameOrigin).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not call setParentFrameOrigin a second time for the same origin", async () => {
+    // Send two valid messages from the same origin
+    const e1 = makeOpEvent("INJECT_IMPORT_BUNDLE", "https://app.turnkey.com");
+    window.dispatchEvent(e1);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const e2 = makeOpEvent("INJECT_IMPORT_BUNDLE", "https://app.turnkey.com");
+    window.dispatchEvent(e2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // setParentFrameOrigin should only be called once (on first binding)
+    expect(TKHQModule.setParentFrameOrigin).toHaveBeenCalledTimes(1);
+  });
+
+  it("accepts INJECT_IMPORT_BUNDLE from the valid bound parent", async () => {
+    // Mock verifyEnclaveSignature and loadTargetKey are already set up in
+    // beforeEach. Send a well-formed bundle to get past the gate and see
+    // that the handler runs (will error on dummy data, which is fine).
+    TKHQModule.sendMessageUp.mockClear();
+    const event = makeOpEvent(
+      "INJECT_IMPORT_BUNDLE",
+      "https://app.turnkey.com"
+    );
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The gate did NOT silently drop it — sendMessageUp was called
+    // (either BUNDLE_INJECTED or ERROR, depending on bundle validity).
+    const opCalls = TKHQModule.sendMessageUp.mock.calls.filter(
+      (c) => c[0] !== "PUBLIC_KEY_READY"
+    );
+    expect(opCalls.length).toBeGreaterThan(0);
+  });
+
+  it("silently ignores TURNKEY_INIT_MESSAGE_CHANNEL via legacy listener (owned by handshake handler)", async () => {
+    TKHQModule.sendMessageUp.mockClear();
+    const event = new window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      origin: "https://app.turnkey.com",
+    });
+    Object.defineProperty(event, "source", { value: parentWindow });
+    window.dispatchEvent(event);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // The legacy listener must skip it — setParentFrameOrigin must not be
+    // called (origin would otherwise be bound by a non-operational message).
+    expect(TKHQModule.setParentFrameOrigin).not.toHaveBeenCalled();
   });
 });
