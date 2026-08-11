@@ -158,31 +158,219 @@
       window.isInitEmbeddedKeyRunByDomContentLoaded = false;
       window.TKHQ = (function () {
         /** constant for LocalStorage */
-        var TURNKEY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+        // Legacy fixed key name — never migrated; purged on first init.
+        var LEGACY_EMBEDDED_KEY = "TURNKEY_EMBEDDED_KEY";
+        // V2 origin-scoped key prefix.
+        var ORIGIN_SCOPED_EMBEDDED_KEY_PREFIX = "TURNKEY_EMBEDDED_KEY_V2";
         var TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS = 1000 * 60 * 60 * 48; // 48 hours in milliseconds
 
         var parentFrameMessageChannelPort = null;
 
+        // Target origin for window.parent.postMessage in legacy mode.
+        // Starts as "*" (only for PUBLIC_KEY_READY before any origin is known).
+        // Set to the bound parent origin on the first valid legacy message so
+        // subsequent outbound responses are delivered only to that origin.
+        var parentFrameTargetOrigin = "*";
+
         /**
-         * Creates a new public/private key pair and persists it in localStorage
-         * @return boolean indicating whether an embedded key has been set
+         * Embedded-key state for this document.
+         * Two modes:
+         *   { mode: "persistent", storageKey } -- key lives in localStorage scoped to the
+         *     browser-authenticated parent origin (or this document's own origin in standalone).
+         *   { mode: "ephemeral", key } -- key lives in memory only. Used for legacy
+         *     (@turnkey/iframe-stamper < 2.1.0) parents so a malicious embedder can never
+         *     obtain a key that decrypts another application's bundles (INT-697).
+         */
+        var embeddedKeyState = null;
+
+        /**
+         * Validates that a parent origin string is non-empty, non-opaque, and
+         * a valid serialized origin (scheme + host + optional port only).
+         * @param {string} parentOrigin
+         * @returns {string} the validated origin
+         */
+        var validateParentOrigin = function (parentOrigin) {
+          if (
+            typeof parentOrigin !== "string" ||
+            parentOrigin.length === 0 ||
+            parentOrigin === "null"
+          ) {
+            throw new Error("a non-opaque parent origin is required");
+          }
+          var parsedOrigin = new URL(parentOrigin).origin;
+          if (parsedOrigin !== parentOrigin) {
+            throw new Error("invalid parent origin: " + parentOrigin);
+          }
+          return parsedOrigin;
+        };
+
+        /**
+         * Purge the legacy global key so old bundles encrypted to it can no longer be
+         * replayed. Never migrate it: migration would preserve the cross-origin replay
+         * vulnerability for bundles encrypted before this change.
+         */
+        var purgeLegacyEmbeddedKey = function () {
+          window.localStorage.removeItem(LEGACY_EMBEDDED_KEY);
+        };
+
+        /**
+         * Creates (if needed) the persistent embedded key scoped to the given parent
+         * origin and persists it in localStorage. Must be called with a valid,
+         * non-opaque origin string (e.g. "https://app.example.com").
+         * A document can bind to exactly one parent origin; an ephemeral key, if any,
+         * is superseded.
+         * @param {string} parentOrigin
+         * @param {number} [ttl] expiry in milliseconds; defaults to TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS (48 h)
+         * @return boolean indicating whether a new key was generated
          */
         var initEmbeddedKey = async function (
+          parentOrigin,
           ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
         ) {
-          var retrievedKey = await getEmbeddedKey();
-          if (retrievedKey === null) {
-            var targetKey = await generateTargetKey();
-            setEmbeddedKey(targetKey, ttl);
-            return true;
-          } else {
-            return false;
-            // Nothing to do, key is correctly initialized!
+          var validatedOrigin = validateParentOrigin(parentOrigin);
+
+          // If already bound to a persistent key for a DIFFERENT origin, refuse.
+          if (
+            embeddedKeyState !== null &&
+            embeddedKeyState.mode === "persistent" &&
+            embeddedKeyState.origin !== validatedOrigin
+          ) {
+            throw new Error(
+              "parent origin is already bound to " +
+                embeddedKeyState.origin +
+                "; refusing " +
+                validatedOrigin
+            );
+          }
+
+          // If already initializing or initialized for the same origin, await
+          // the existing ready promise so concurrent callers serialise on it.
+          if (
+            embeddedKeyState !== null &&
+            embeddedKeyState.mode === "persistent" &&
+            embeddedKeyState.origin === validatedOrigin
+          ) {
+            return await embeddedKeyState.ready;
+          }
+
+          purgeLegacyEmbeddedKey();
+
+          var storageKey =
+            ORIGIN_SCOPED_EMBEDDED_KEY_PREFIX +
+            ":" +
+            encodeURIComponent(validatedOrigin);
+
+          // Retain the previous state so we can roll back on storage failure.
+          var previousState = embeddedKeyState;
+
+          var state = {
+            mode: "persistent",
+            origin: validatedOrigin,
+            storageKey: storageKey,
+          };
+
+          // Activate the new state synchronously so concurrent ephemeral inits
+          // cannot clobber it. `ready` resolves once the key is persisted;
+          // concurrent readers must await it before calling getEmbeddedKey.
+          // On rejection, roll back to previousState so a retry is possible.
+          state.ready = (async function () {
+            var retrievedKey = getItemWithExpiry(storageKey);
+            if (retrievedKey === null) {
+              var targetKey = await generateTargetKey();
+              setItemWithExpiry(storageKey, JSON.stringify(targetKey), ttl);
+            }
+          })().catch(function (error) {
+            if (embeddedKeyState === state) {
+              embeddedKeyState = previousState;
+            }
+            throw error;
+          });
+
+          embeddedKeyState = state;
+          return await state.ready;
+        };
+
+        /**
+         * Creates (if needed) an in-memory embedded key unique to this document, for
+         * legacy (@turnkey/iframe-stamper < 2.1.0) parents. No-ops if a persistent
+         * origin-scoped key is already active (i.e. the MessageChannel handshake
+         * completed first). If a persistent key is in-flight (state.ready not yet
+         * resolved), awaits it so callers can read the key once persisted; if the
+         * persistent init fails and rolls itself back, the ephemeral key takes over.
+         */
+        var initEphemeralEmbeddedKey = async function () {
+          // If a persistent state is already active (including in-flight), wait
+          // for the ready promise so callers can read the key once persisted.
+          if (
+            embeddedKeyState !== null &&
+            embeddedKeyState.mode === "persistent"
+          ) {
+            try {
+              return await embeddedKeyState.ready;
+            } catch (_e) {
+              // Persistent init failed and rolled back; fall through to ephemeral.
+            }
+          }
+          // No-op if we already have an ephemeral key.
+          if (
+            embeddedKeyState !== null &&
+            embeddedKeyState.mode === "ephemeral" &&
+            embeddedKeyState.key !== null
+          ) {
+            return;
+          }
+          purgeLegacyEmbeddedKey();
+          var generatedKey = await generateTargetKey();
+          // Re-check: a concurrent MessageChannel handshake may have activated a
+          // persistent state while generation was in flight; it must not be
+          // clobbered. Wait for it so callers can read the key; if it fails and
+          // rolls itself back, the ephemeral key takes over below.
+          var latestState = embeddedKeyState;
+          if (latestState !== null && latestState.mode === "persistent") {
+            try {
+              return await latestState.ready;
+            } catch (_e) {
+              // fall through to the ephemeral key
+            }
+          }
+          if (
+            embeddedKeyState === null ||
+            embeddedKeyState.mode !== "persistent"
+          ) {
+            embeddedKeyState = { mode: "ephemeral", key: generatedKey };
           }
         };
 
         var setParentFrameMessageChannelPort = function (port) {
           parentFrameMessageChannelPort = port;
+        };
+
+        /**
+         * Restricts outbound window.parent.postMessage calls to the given origin.
+         * Called once the first valid legacy message binds the parent origin so that
+         * subsequent responses cannot be intercepted by a replacement page.
+         * @param {string} origin
+         */
+        var setParentFrameOrigin = function (origin) {
+          if (typeof origin !== "string" || origin.length === 0) {
+            throw new Error(
+              "a canonical, non-opaque parent frame origin is required"
+            );
+          }
+          var parsedOrigin;
+          try {
+            parsedOrigin = new URL(origin).origin;
+          } catch (_e) {
+            throw new Error(
+              "a canonical, non-opaque parent frame origin is required"
+            );
+          }
+          if (parsedOrigin === "null" || parsedOrigin !== origin) {
+            throw new Error(
+              "a canonical, non-opaque parent frame origin is required"
+            );
+          }
+          parentFrameTargetOrigin = parsedOrigin;
         };
 
         /*
@@ -203,10 +391,18 @@
 
         /**
          * Gets the current embedded private key JWK.
+         * Reads from ephemeral memory or origin-scoped localStorage depending on state.
          * @return `null` if not found.
          */
         var getEmbeddedKey = function () {
-          var jwtKey = getItemWithExpiry(TURNKEY_EMBEDDED_KEY);
+          if (embeddedKeyState === null) {
+            return null;
+          }
+          if (embeddedKeyState.mode === "ephemeral") {
+            return embeddedKeyState.key || null;
+          }
+          // persistent mode
+          var jwtKey = getItemWithExpiry(embeddedKeyState.storageKey);
           if (!jwtKey) {
             return null;
           } else {
@@ -215,7 +411,8 @@
         };
 
         /**
-         * Sets the current embedded private key JWK in local storage.
+         * Sets the current embedded private key JWK.
+         * Writes to ephemeral memory or origin-scoped localStorage depending on state.
          * @param {string} targetKey the private key JWK
          * @param {number} ttl (optional) if unset, default to TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
          */
@@ -223,18 +420,34 @@
           targetKey,
           ttl = TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS
         ) {
+          if (embeddedKeyState === null) {
+            throw new Error("embedded key has not been initialized");
+          }
+          if (embeddedKeyState.mode === "ephemeral") {
+            embeddedKeyState.key = targetKey;
+            return;
+          }
+          // persistent mode
           return setItemWithExpiry(
-            TURNKEY_EMBEDDED_KEY,
+            embeddedKeyState.storageKey,
             JSON.stringify(targetKey),
             ttl
           );
         };
 
         /**
-         * Removes the embedded key from local storage.
+         * Removes the embedded key from its current storage location.
          */
         var resetEmbeddedKey = function () {
-          window.localStorage.removeItem(TURNKEY_EMBEDDED_KEY);
+          if (embeddedKeyState === null) {
+            return;
+          }
+          if (embeddedKeyState.mode === "ephemeral") {
+            embeddedKeyState.key = null;
+            return;
+          }
+          // persistent mode
+          window.localStorage.removeItem(embeddedKeyState.storageKey);
         };
 
         /**
@@ -555,13 +768,7 @@
           if (parentFrameMessageChannelPort) {
             parentFrameMessageChannelPort.postMessage(message);
           } else if (window.parent !== window) {
-            window.parent.postMessage(
-              {
-                type: type,
-                value: value,
-              },
-              "*"
-            );
+            window.parent.postMessage(message, parentFrameTargetOrigin);
           }
           logMessage(`⬆️ Sent message ${type}: ${value}`);
         };
@@ -1018,8 +1225,25 @@
          * End of private crypto implementation for P256 public key derivation from a private key.
          *********************************************************************************************/
 
+        /**
+         * Returns the origin to which this document's embedded key is currently bound,
+         * or null if the key is ephemeral or not yet initialized.
+         * @return {string|null}
+         */
+        var getBoundOrigin = function () {
+          if (
+            embeddedKeyState !== null &&
+            embeddedKeyState.mode === "persistent"
+          ) {
+            return embeddedKeyState.origin;
+          }
+          return null;
+        };
+
         return {
           initEmbeddedKey,
+          initEphemeralEmbeddedKey,
+          getBoundOrigin,
           getEmbeddedKey,
           generateTargetKey,
           setItemWithExpiry,
@@ -1034,6 +1258,7 @@
           convertEcdsaIeee1363ToDer,
           sendMessageUp,
           setParentFrameMessageChannelPort,
+          setParentFrameOrigin,
           logMessage,
           base64urlEncode,
           base64urlDecode,
@@ -1043,6 +1268,7 @@
           uint8arrayToHexString,
           uint8arrayFromHexString,
           additionalAssociatedData,
+          TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS,
         };
       })();
     </script>
@@ -1163,8 +1389,17 @@
       document.addEventListener(
         "DOMContentLoaded",
         async function () {
-          // Initialize embedded key. Currently don't need to use the return value.
-          await TKHQ.initEmbeddedKey();
+          if (window.parent === window) {
+            // Standalone mode: persist key scoped to this document's own origin.
+            await TKHQ.initEmbeddedKey(window.location.origin);
+          } else {
+            // Embedded mode: create an ephemeral document-scoped key for legacy
+            // (@turnkey/iframe-stamper < 2.1.0) clients, which passively wait for
+            // PUBLIC_KEY_READY. Modern clients supersede it during the MessageChannel
+            // handshake below with a persistent key scoped to their browser-authenticated
+            // origin (INT-697).
+            await TKHQ.initEphemeralEmbeddedKey();
+          }
           window.isInitEmbeddedKeyRunByDomContentLoaded = true;
 
           var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
@@ -1172,17 +1407,72 @@
           var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
           document.getElementById("embedded-key").value = targetPubHex;
 
-          window.addEventListener("message", messageEventListener, {
-            capture: false,
-            signal: messageListenerController.signal,
-          });
-
-          addDOMEventListeners();
-
-          TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+          if (window.parent === window) {
+            // Standalone mode: DOM forms drive the flow by posting messages to
+            // this same window. Add DOM form listeners and accept only self-posts.
+            addDOMEventListeners();
+            window.addEventListener(
+              "message",
+              async function (event) {
+                if (event.source !== window) {
+                  return;
+                }
+                await messageEventListener(event);
+              },
+              {
+                capture: false,
+                signal: messageListenerController.signal,
+              }
+            );
+          } else {
+            // Announce the ephemeral public key for legacy clients that don't use
+            // MessageChannel (they passively wait for this event).
+            TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
+          }
         },
         false
       );
+
+      // Origin of a legacy (@turnkey/iframe-stamper < 2.1.0) parent, bound on its
+      // first valid message. A document belongs to exactly one embedder for its
+      // lifetime, so every subsequent message must come from the same origin.
+      let legacyParentOrigin = null;
+
+      // The legacy messageEventListener wrapper enforces source+origin checks.
+      // Only active in embedded mode (window.parent !== window).
+      if (window.parent !== window) {
+        window.addEventListener(
+          "message",
+          async function (event) {
+            if (!event.data || !event.data["type"]) {
+              return;
+            }
+            // Channel establishment is owned by the handshake listener below.
+            if (event.data["type"] === "TURNKEY_INIT_MESSAGE_CHANNEL") {
+              return;
+            }
+            // Only the direct parent, with a real (non-opaque) origin, may drive
+            // the legacy path.
+            if (event.source !== window.parent) {
+              return;
+            }
+            if (!event.origin || event.origin === "null") {
+              return;
+            }
+            if (legacyParentOrigin === null) {
+              legacyParentOrigin = event.origin;
+              // Restrict outbound responses to this origin so they cannot be
+              // intercepted by a replacement page navigated in while an async
+              // request is in flight (Comment 3 fix).
+              TKHQ.setParentFrameOrigin(event.origin);
+            } else if (event.origin !== legacyParentOrigin) {
+              return;
+            }
+            await messageEventListener(event);
+          },
+          { capture: false, signal: messageListenerController.signal }
+        );
+      }
 
       window.addEventListener(
         "message",
@@ -1192,12 +1482,26 @@
            * The parent frame sends a TURNKEY_INIT_MESSAGE_CHANNEL event with the MessagePort.
            * If we receive this event, we want to remove the message event listener that was added in the DOMContentLoaded event to avoid processing messages twice.
            * We persist the MessagePort so we can use it to communicate with the parent window in subsequent calls to TKHQ.sendMessageUp
+           *
+           * Vuln A fix: Validate event.source, event.origin, and ports.length.
            */
           if (
             event.data &&
             event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-            event.ports?.[0]
+            event.source === window.parent &&
+            event.origin &&
+            event.origin !== "null" &&
+            event.ports?.length === 1
           ) {
+            // A legacy-bound document may upgrade to the MessageChannel protocol,
+            // but never on behalf of a different origin.
+            if (
+              legacyParentOrigin !== null &&
+              legacyParentOrigin !== event.origin
+            ) {
+              return;
+            }
+
             // Synchronously check-and-set the flag before any await. This prevents
             // a second concurrent invocation from racing through while the first is
             // suspended at an await, which would allow multiple origins to establish
@@ -1207,15 +1511,9 @@
             }
             channelEstablished = true;
 
-            // remove the message event listener that was added in the DOMContentLoaded event
-            messageListenerController.abort();
-
             iframeMessagePort = event.ports[0];
-            iframeMessagePort.onmessage = messageEventListener;
 
-            TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
-
-            let iframeKeyTtl = TKHQ.TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS;
+            var iframeKeyTtl = TKHQ.TURNKEY_EMBEDDED_KEY_TTL_IN_MILLIS;
             if (
               event.data.dangerouslyOverrideIframeKeyTtl &&
               typeof event.data.dangerouslyOverrideIframeKeyTtl === "number" &&
@@ -1224,24 +1522,37 @@
               iframeKeyTtl = event.data.dangerouslyOverrideIframeKeyTtl;
             }
 
-            var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-
-            // If the embedded key is not initialized or not available, reset it
-            if (
-              !(window.isInitEmbeddedKeyRunByDomContentLoaded && embeddedKeyJwk)
-            ) {
-              await TKHQ.resetEmbeddedKey();
-              document.getElementById("embedded-key").value = "";
-              await TKHQ.initEmbeddedKey(iframeKeyTtl);
+            var targetPubHex;
+            try {
+              // Vuln B fix: Supersede the ephemeral key (if any) with a persistent
+              // key scoped to the browser-authenticated parent origin (INT-697).
+              // Honour the caller's TTL override, if provided and valid.
+              await TKHQ.initEmbeddedKey(event.origin, iframeKeyTtl);
+              var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
+              var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
+                embeddedKeyJwk
+              );
+              targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+            } catch (e) {
+              // Key setup failed (e.g. blocked third-party storage). Roll back so
+              // the parent can retry the handshake, and keep the legacy/standalone
+              // listener alive so the frame stays functional in the meantime.
+              channelEstablished = false;
+              iframeMessagePort.postMessage({
+                type: "ERROR",
+                value: e.toString(),
+              });
+              return;
             }
 
-            // Re-fetch embedded key
-            embeddedKeyJwk = await TKHQ.getEmbeddedKey();
-            var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(
-              embeddedKeyJwk
-            );
-            var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
+            // Commit: the MessagePort carries all requests from here on; stop
+            // accepting legacy/standalone window messages.
+            messageListenerController.abort();
+
+            TKHQ.setParentFrameMessageChannelPort(iframeMessagePort);
             document.getElementById("embedded-key").value = targetPubHex;
+
+            iframeMessagePort.onmessage = messageEventListener;
 
             TKHQ.sendMessageUp("PUBLIC_KEY_READY", targetPubHex);
 
@@ -1331,10 +1642,19 @@
 
       /**
        * Function triggered when INIT_EMBEDDED_KEY event is received.
+       * Re-initializes the embedded key using the current mode/origin binding.
        * @param {string} requestId: idempotency key
        */
       var onInitEmbeddedKey = async function (requestId) {
-        await TKHQ.initEmbeddedKey();
+        // Re-use the bound origin if we're in persistent mode, otherwise ephemeral.
+        var boundOrigin = TKHQ.getBoundOrigin();
+        if (boundOrigin !== null) {
+          await TKHQ.initEmbeddedKey(boundOrigin);
+        } else if (window.parent === window) {
+          await TKHQ.initEmbeddedKey(window.location.origin);
+        } else {
+          await TKHQ.initEphemeralEmbeddedKey();
+        }
         var embeddedKeyJwk = await TKHQ.getEmbeddedKey();
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
         var targetPubHex = TKHQ.uint8arrayToHexString(targetPubBuf);
