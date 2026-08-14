@@ -9,4 +9,7 @@ module.exports = {
   moduleNameMapper: {
     "^@shared/(.*)$": path.resolve(__dirname, "../shared/$1"),
   },
+  // Allow modules imported via @shared/* (which live outside <rootDir>) to
+  // resolve their own dependencies (e.g. bech32) from import/node_modules.
+  modulePaths: [path.resolve(__dirname, "node_modules")],
 };

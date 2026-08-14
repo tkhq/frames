@@ -15,6 +15,11 @@ const turnkeyInitController = new AbortController();
 // Guard to prevent concurrent channel establishment from multiple senders
 let channelEstablished = false;
 
+// Origin of a legacy (@turnkey/iframe-stamper < 2.1.0) parent, bound on its
+// first valid message. A document belongs to exactly one embedder for its
+// lifetime, so every subsequent message must come from the same origin.
+let legacyParentOrigin = null;
+
 /**
  * Message Event Handlers to process messages from the parent frame
  */
@@ -63,10 +68,48 @@ var messageEventListener = async function (event) {
 document.addEventListener(
   "DOMContentLoaded",
   async function () {
-    window.addEventListener("message", messageEventListener, {
-      capture: false,
-      signal: messageListenerController.signal,
-    });
+    // Legacy embedded mode: @turnkey/iframe-stamper < 2.1.0 posts requests
+    // straight to this window instead of establishing a MessageChannel.
+    // We harden this path to mirror the export-and-sign pattern from PR #129:
+    //   1. Only the direct parent window is accepted.
+    //   2. Opaque and empty origins are rejected.
+    //   3. The first accepted origin is bound; later messages from a different
+    //      origin are dropped.
+    //   4. Outbound responses are restricted to the bound origin so they are
+    //      only readable by the legitimate parent.
+    window.addEventListener(
+      "message",
+      async function (event) {
+        if (!event.data || !event.data["type"]) {
+          return;
+        }
+        // Channel establishment is owned by the handshake listener below.
+        if (event.data["type"] === "TURNKEY_INIT_MESSAGE_CHANNEL") {
+          return;
+        }
+        // Only the direct parent, with a real (non-opaque) origin, may drive
+        // the legacy path.
+        if (event.source !== window.parent) {
+          return;
+        }
+        if (!event.origin || event.origin === "null") {
+          return;
+        }
+        if (legacyParentOrigin === null) {
+          legacyParentOrigin = event.origin;
+          // From now on, responses posted to window.parent are only readable
+          // by the bound origin.
+          TKHQ.setParentFrameOrigin(event.origin);
+        } else if (event.origin !== legacyParentOrigin) {
+          return;
+        }
+        await messageEventListener(event);
+      },
+      {
+        capture: false,
+        signal: messageListenerController.signal,
+      }
+    );
 
     if (!messageListenerController.signal.aborted) {
       // If styles are saved in local storage, sanitize and apply them.
@@ -121,7 +164,10 @@ window.addEventListener(
     if (
       event.data &&
       event.data["type"] == "TURNKEY_INIT_MESSAGE_CHANNEL" &&
-      event.ports?.[0]
+      event.source === window.parent &&
+      event.origin &&
+      event.origin !== "null" &&
+      event.ports?.length === 1
     ) {
       // Synchronously check-and-set the flag before any await. This prevents
       // a second concurrent invocation from racing through while the first is
@@ -214,9 +260,8 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
 
       // Validate fields match
       if (!organizationId) {
-        // TODO: throw error if organization id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "organizationId" for security purposes.'
+        throw new Error(
+          'missing "organizationId": @turnkey/iframe-stamper >= v2.0.0 is required to pass "organizationId" for security purposes.'
         );
       } else if (
         !signedData.organizationId ||
@@ -227,9 +272,8 @@ async function onInjectImportBundle(bundle, organizationId, userId, requestId) {
         );
       }
       if (!userId) {
-        // TODO: throw error if user id is undefined once we've fully transitioned to v1.0.0 server messages and v2.0.0 iframe-stamper
-        console.warn(
-          'we highly recommend a version of @turnkey/iframe-stamper >= v2.0.0 to pass "userId" for security purposes.'
+        throw new Error(
+          'missing "userId": @turnkey/iframe-stamper >= v2.0.0 is required to pass "userId" for security purposes.'
         );
       } else if (!signedData.userId || signedData.userId !== userId) {
         throw new Error(
