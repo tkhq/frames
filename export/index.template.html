@@ -75,6 +75,83 @@
       .hidden {
         display: none;
       }
+      #passphrase-form-div {
+        text-align: center;
+        max-width: 500px;
+      }
+      #passphrase-form-div p {
+        font-size: 0.9em;
+        margin-bottom: 1.5em;
+      }
+      #passphrase-form-div label {
+        display: block;
+        text-align: left;
+        width: auto;
+        word-wrap: none;
+        margin: 0.5em 0 0.25em 0;
+      }
+      #passphrase-form-div input[type="password"] {
+        width: 100%;
+        padding: 0.5em 0;
+        font-size: 1em;
+        border: none;
+        border-bottom: 1px solid #666;
+        box-sizing: border-box;
+        margin-bottom: 0.5em;
+        background-color: transparent;
+        outline: none;
+      }
+      #encrypt-and-export {
+        color: white;
+        width: 100%;
+        font-size: 1em;
+        padding: 0.75em;
+        margin-top: 1em;
+        border-radius: 8px;
+        background-color: rgb(50, 44, 44);
+        border: 1px rgb(33, 33, 33) solid;
+        cursor: pointer;
+      }
+      #encrypt-and-export:hover {
+        background-color: rgb(70, 64, 64);
+      }
+      #passphrase-error {
+        color: #c0392b;
+        font-size: 0.9em;
+        margin-bottom: 0.5em;
+        text-align: left;
+      }
+      #passphrase-strength {
+        margin-top: 0.5em;
+        text-align: left;
+      }
+      #passphrase-strength-bar {
+        height: 6px;
+        border-radius: 3px;
+        background-color: #e0e0e0;
+        overflow: hidden;
+        margin-bottom: 0.3em;
+      }
+      #passphrase-strength-fill {
+        height: 100%;
+        width: 0%;
+        transition: width 0.3s ease, background-color 0.3s ease;
+      }
+      #passphrase-strength-text {
+        font-size: 0.8em;
+      }
+      .strength-weak {
+        background-color: #e74c3c;
+      }
+      .strength-fair {
+        background-color: #f39c12;
+      }
+      .strength-good {
+        background-color: #3498db;
+      }
+      .strength-strong {
+        background-color: #27ae60;
+      }
     </style>
   </head>
 
@@ -162,6 +239,37 @@
     </p>
     <div id="message-log"></div>
     <div id="key-div"></div>
+    <div id="passphrase-form-div" class="hidden">
+      <p id="passphrase-description">
+        Enter a passphrase to encrypt your export before displaying it.
+      </p>
+      <label for="export-passphrase">Passphrase</label>
+      <input
+        type="password"
+        id="export-passphrase"
+        placeholder="Enter passphrase (min 8 characters)"
+        aria-required="true"
+        autocomplete="new-password"
+        minlength="8"
+      />
+      <div id="passphrase-strength">
+        <div id="passphrase-strength-bar">
+          <div id="passphrase-strength-fill"></div>
+        </div>
+        <span id="passphrase-strength-text"></span>
+      </div>
+      <br />
+      <label for="export-passphrase-confirm">Confirm Passphrase</label>
+      <input
+        type="password"
+        id="export-passphrase-confirm"
+        placeholder="Confirm passphrase"
+        aria-required="true"
+        autocomplete="new-password"
+      />
+      <p id="passphrase-error" class="hidden"></p>
+      <button type="button" id="encrypt-and-export">Encrypt & Export</button>
+    </div>
 
     <!-- Script containing ED25519 library -->
     <script src="noble-hashes.js"></script>
@@ -1192,6 +1300,106 @@
           return JSON.stringify(validSettings);
         }
 
+        /**
+         * Encrypts a Uint8Array using PBKDF2 key derivation and AES-GCM-256 encryption.
+         * @param {Uint8Array} buf - The data to encrypt
+         * @param {string} passphrase - The passphrase to derive the key from
+         * @returns {Promise<Uint8Array>} - Concatenated salt || iv || ciphertext
+         */
+        async function encryptWithPassphrase(buf, passphrase) {
+          // Generate random 16-byte salt and 12-byte IV
+          const salt = crypto.getRandomValues(new Uint8Array(16));
+          const iv = crypto.getRandomValues(new Uint8Array(12));
+
+          // Import passphrase as PBKDF2 key material.
+          // Normalize to NFC so the same visual passphrase always produces the
+          // same bytes regardless of OS/keyboard Unicode decomposition form.
+          const keyMaterial = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(passphrase.normalize("NFC")),
+            "PBKDF2",
+            false,
+            ["deriveBits", "deriveKey"]
+          );
+
+          // Derive AES-256 key using PBKDF2 (600,000 iterations, SHA-256).
+          // NOTE: The iteration count must match during decryption; changing it
+          // affects compatibility with data encrypted using a different value.
+          const aesKey = await crypto.subtle.deriveKey(
+            {
+              name: "PBKDF2",
+              salt: salt,
+              iterations: 600000,
+              hash: "SHA-256",
+            },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["encrypt"]
+          );
+
+          // Encrypt using AES-GCM
+          const ciphertext = await crypto.subtle.encrypt(
+            { name: "AES-GCM", iv: iv },
+            aesKey,
+            buf
+          );
+
+          // Return concatenated salt || iv || ciphertext
+          const result = new Uint8Array(
+            salt.length + iv.length + ciphertext.byteLength
+          );
+          result.set(salt, 0);
+          result.set(iv, salt.length);
+          result.set(new Uint8Array(ciphertext), salt.length + iv.length);
+          return result;
+        }
+
+        /**
+         * Decrypts a buffer encrypted by encryptWithPassphrase.
+         * @param {Uint8Array} encryptedBuf - The encrypted data (salt || iv || ciphertext)
+         * @param {string} passphrase - The passphrase to derive the key from
+         * @returns {Promise<Uint8Array>} - The decrypted data
+         */
+        async function decryptWithPassphrase(encryptedBuf, passphrase) {
+          // Extract salt (bytes 0-16), iv (bytes 16-28), ciphertext (bytes 28+)
+          const salt = encryptedBuf.slice(0, 16);
+          const iv = encryptedBuf.slice(16, 28);
+          const ciphertext = encryptedBuf.slice(28);
+
+          // Import passphrase as PBKDF2 key material (NFC-normalized, matching encryptWithPassphrase).
+          const keyMaterial = await crypto.subtle.importKey(
+            "raw",
+            new TextEncoder().encode(passphrase.normalize("NFC")),
+            "PBKDF2",
+            false,
+            ["deriveBits", "deriveKey"]
+          );
+
+          // Derive same AES key using PBKDF2
+          const aesKey = await crypto.subtle.deriveKey(
+            {
+              name: "PBKDF2",
+              salt: salt,
+              iterations: 600000,
+              hash: "SHA-256",
+            },
+            keyMaterial,
+            { name: "AES-GCM", length: 256 },
+            false,
+            ["decrypt"]
+          );
+
+          // Decrypt using AES-GCM
+          const decrypted = await crypto.subtle.decrypt(
+            { name: "AES-GCM", iv: iv },
+            aesKey,
+            ciphertext
+          );
+
+          return new Uint8Array(decrypted);
+        }
+
         return {
           initEmbeddedKey,
           generateTargetKey,
@@ -1222,6 +1430,7 @@
           validateStyles,
           getSettings,
           setSettings,
+          encryptWithPassphrase,
         };
       })();
     </script>
@@ -1236,6 +1445,16 @@
       // controllers to remove event listeners
       const messageListenerController = new AbortController();
       const turnkeyInitController = new AbortController();
+      const passphraseTextEncoder = new TextEncoder();
+
+      /**
+       * Holds decrypted plaintext bytes while waiting for passphrase encryption.
+       * We keep this data in mutable Uint8Array buffers so we can wipe it.
+       */
+      const pendingPassphraseExport = {
+        plaintextBytes: null,
+        requestId: null,
+      };
 
       // Guard to prevent concurrent channel establishment from multiple senders
       let channelEstablished = false;
@@ -1289,14 +1508,21 @@
       var messageEventListener = async function (event) {
         if (event.data && event.data["type"] == "INJECT_KEY_EXPORT_BUNDLE") {
           TKHQ.logMessage(
-            `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["keyFormat"]}, ${event.data["organizationId"]}`
+            `⬇️ Received message ${event.data["type"]}: ${
+              event.data["value"]
+            }, ${event.data["keyFormat"]}, ${
+              event.data["organizationId"]
+            }, encryptToPassphrase=${Boolean(
+              event.data["encryptToPassphrase"]
+            )}`
           );
           try {
             await onInjectKeyBundle(
               event.data["value"],
               event.data["keyFormat"],
               event.data["organizationId"],
-              event.data["requestId"]
+              event.data["requestId"],
+              Boolean(event.data["encryptToPassphrase"])
             );
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
@@ -1304,14 +1530,27 @@
         }
         if (event.data && event.data["type"] == "INJECT_WALLET_EXPORT_BUNDLE") {
           TKHQ.logMessage(
-            `⬇️ Received message ${event.data["type"]}: ${event.data["value"]}, ${event.data["organizationId"]}`
+            `⬇️ Received message ${event.data["type"]}: ${
+              event.data["value"]
+            }, ${event.data["organizationId"]}, encryptToPassphrase=${Boolean(
+              event.data["encryptToPassphrase"]
+            )}`
           );
           try {
             await onInjectWalletBundle(
               event.data["value"],
               event.data["organizationId"],
-              event.data["requestId"]
+              event.data["requestId"],
+              Boolean(event.data["encryptToPassphrase"])
             );
+          } catch (e) {
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
+          }
+        }
+        if (event.data && event.data["type"] == "CONFIRM_PASSPHRASE_EXPORT") {
+          TKHQ.logMessage(`⬇️ Received message ${event.data["type"]}`);
+          try {
+            await onConfirmPassphraseExport(event.data["requestId"]);
           } catch (e) {
             TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
@@ -1353,6 +1592,7 @@
           });
 
           addDOMEventListeners();
+          initPassphraseFormHandlers();
 
           if (!messageListenerController.signal.aborted) {
             // If styles are saved in local storage, sanitize and apply them.
@@ -1420,6 +1660,9 @@
        * @param {string} key
        */
       function displayKey(key) {
+        hidePassphraseForm();
+        clearPendingPassphraseExport();
+
         Array.from(document.body.children).forEach((child) => {
           if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
             child.style.display = "none";
@@ -1435,14 +1678,346 @@
           textAlign: "left",
         };
 
-        // Create a new div with the key material and append the new div to the body
         const keyDiv = document.getElementById("key-div");
         keyDiv.innerText = key;
+        keyDiv.style.display = "block";
         for (let styleKey in style) {
           keyDiv.style[styleKey] = style[styleKey];
         }
         document.body.appendChild(keyDiv);
         TKHQ.applySettings(TKHQ.getSettings());
+      }
+
+      function wipeUint8Array(buf) {
+        if (!buf) {
+          return;
+        }
+        for (let i = 0; i < buf.length; i++) {
+          buf[i] = 0;
+        }
+      }
+
+      function clearPendingPassphraseExport() {
+        wipeUint8Array(pendingPassphraseExport.plaintextBytes);
+        pendingPassphraseExport.plaintextBytes = null;
+        pendingPassphraseExport.requestId = null;
+      }
+
+      function getSettingsObject() {
+        const settings = TKHQ.getSettings();
+        if (!settings) {
+          return null;
+        }
+        return typeof settings === "string" ? JSON.parse(settings) : settings;
+      }
+
+      function applySettingsToPassphraseForm() {
+        const formDiv = document.getElementById("passphrase-form-div");
+        if (!formDiv) {
+          return;
+        }
+
+        const settingsObj = getSettingsObject();
+        if (!settingsObj || !settingsObj.styles) {
+          return;
+        }
+
+        Object.entries(settingsObj.styles).forEach(([key, value]) => {
+          formDiv.style[key] = value;
+        });
+      }
+
+      function setPassphraseError(message) {
+        const errorMsg = document.getElementById("passphrase-error");
+        if (!errorMsg) {
+          return;
+        }
+        errorMsg.innerText = message;
+        errorMsg.classList.remove("hidden");
+        errorMsg.style.display = "block";
+        errorMsg.style.color = "c0392b";
+      }
+
+      function clearPassphraseError() {
+        const errorMsg = document.getElementById("passphrase-error");
+        if (!errorMsg) {
+          return;
+        }
+        errorMsg.innerText = "";
+        errorMsg.classList.add("hidden");
+        errorMsg.style.display = "none";
+      }
+
+      /**
+       * Evaluate passphrase strength and return score (0-4) with feedback
+       * @param {string} passphrase
+       * @returns {{score: number, label: string, feedback: string}}
+       */
+      function evaluatePassphraseStrength(passphrase) {
+        if (!passphrase) {
+          return { score: 0, label: "", feedback: "" };
+        }
+
+        let score = 0;
+        const checks = {
+          length8: passphrase.length >= 8,
+          length12: passphrase.length >= 12,
+          length16: passphrase.length >= 16,
+          lowercase: /[a-z]/.test(passphrase),
+          uppercase: /[A-Z]/.test(passphrase),
+          numbers: /[0-9]/.test(passphrase),
+          special: /[^a-zA-Z0-9]/.test(passphrase),
+        };
+
+        // Base score from length
+        if (checks.length8) score += 1;
+        if (checks.length12) score += 1;
+        if (checks.length16) score += 1;
+
+        // Character variety
+        const varietyCount = [
+          checks.lowercase,
+          checks.uppercase,
+          checks.numbers,
+          checks.special,
+        ].filter(Boolean).length;
+        if (varietyCount >= 2) score += 1;
+        if (varietyCount >= 3) score += 1;
+        if (varietyCount >= 4) score += 1;
+
+        // Cap at 4
+        score = Math.min(score, 4);
+
+        // Determine label and feedback
+        let label, feedback;
+        if (score <= 1) {
+          label = "Weak";
+          feedback =
+            "Add more characters and mix letters, numbers, and symbols.";
+        } else if (score === 2) {
+          label = "Fair";
+          feedback = "Consider adding more length or character variety.";
+        } else if (score === 3) {
+          label = "Good";
+          feedback = "Good passphrase strength.";
+        } else {
+          label = "Strong";
+          feedback = "Excellent passphrase strength!";
+        }
+
+        return { score, label, feedback };
+      }
+
+      function updatePassphraseStrength(passphrase) {
+        const strengthFill = document.getElementById(
+          "passphrase-strength-fill"
+        );
+        const strengthText = document.getElementById(
+          "passphrase-strength-text"
+        );
+        if (!strengthFill || !strengthText) {
+          return;
+        }
+
+        const { score, label, feedback } =
+          evaluatePassphraseStrength(passphrase);
+        const strengthClasses = [
+          "strength-weak",
+          "strength-fair",
+          "strength-good",
+          "strength-strong",
+        ];
+
+        strengthFill.className = "";
+        if (score === 0) {
+          strengthFill.style.width = "0%";
+          strengthText.textContent = "";
+          return;
+        }
+
+        strengthFill.style.width = `${score * 25}%`;
+        strengthFill.classList.add(strengthClasses[Math.min(score - 1, 3)]);
+        strengthText.textContent = `${label} — ${feedback}`;
+      }
+
+      function hidePassphraseForm() {
+        const formDiv = document.getElementById("passphrase-form-div");
+        const passphraseInput = document.getElementById("export-passphrase");
+        const confirmInput = document.getElementById(
+          "export-passphrase-confirm"
+        );
+
+        if (!formDiv || !passphraseInput || !confirmInput) {
+          return;
+        }
+
+        passphraseInput.value = "";
+        confirmInput.value = "";
+        updatePassphraseStrength("");
+        clearPassphraseError();
+
+        formDiv.classList.add("hidden");
+        formDiv.style.display = "none";
+      }
+
+      /**
+       * Show the passphrase form for deferred client-triggered encryption.
+       * @param {Uint8Array} plaintextBytes
+       * @param {string} requestId
+       */
+      function displayPassphraseForm(plaintextBytes, requestId) {
+        const formDiv = document.getElementById("passphrase-form-div");
+        const description = document.getElementById("passphrase-description");
+        const passphraseInput = document.getElementById("export-passphrase");
+        if (!formDiv || !description || !passphraseInput) {
+          throw new Error("passphrase form is not available in the document");
+        }
+
+        const plaintextBuf =
+          plaintextBytes instanceof Uint8Array
+            ? new Uint8Array(plaintextBytes)
+            : new Uint8Array(plaintextBytes || []);
+        if (plaintextBuf.length === 0) {
+          throw new Error("cannot show passphrase form for empty plaintext");
+        }
+
+        hidePassphraseForm();
+        clearPendingPassphraseExport();
+        pendingPassphraseExport.plaintextBytes = plaintextBuf;
+        pendingPassphraseExport.requestId = requestId;
+
+        description.innerText =
+          "Enter a passphrase to encrypt your key material. You will need this passphrase to decrypt your wallet later.";
+
+        Array.from(document.body.children).forEach((child) => {
+          if (
+            child.tagName !== "SCRIPT" &&
+            child.id !== "passphrase-form-div"
+          ) {
+            child.style.display = "none";
+          }
+        });
+
+        formDiv.classList.remove("hidden");
+        formDiv.style.display = "block";
+        applySettingsToPassphraseForm();
+        passphraseInput.focus();
+      }
+
+      /**
+       * Called by the parent frame to confirm the user is done entering their passphrase.
+       * Validates the passphrase, encrypts the pending plaintext, and sends the
+       * base64-encoded encrypted bundle back to the parent via postMessage.
+       * @param {string} requestId
+       */
+      async function onConfirmPassphraseExport(requestId) {
+        const passphraseInput = document.getElementById("export-passphrase");
+        const confirmInput = document.getElementById(
+          "export-passphrase-confirm"
+        );
+        if (!passphraseInput || !confirmInput) {
+          throw new Error("passphrase form is not available in the document");
+        }
+
+        if (!pendingPassphraseExport.plaintextBytes) {
+          throw new Error("no pending export found for passphrase encryption");
+        }
+
+        const passphrase = passphraseInput.value;
+        const confirmPassphrase = confirmInput.value;
+        if (passphrase.length < 8) {
+          const errorMessage = "Passphrase must be at least 8 characters long.";
+          setPassphraseError(errorMessage);
+          throw new Error(errorMessage);
+        }
+        if (passphrase !== confirmPassphrase) {
+          const errorMessage = "Passphrases do not match.";
+          setPassphraseError(errorMessage);
+          throw new Error(errorMessage);
+        }
+
+        clearPassphraseError();
+
+        let plaintextCopy;
+        let encryptedBytes;
+        try {
+          plaintextCopy = new Uint8Array(
+            pendingPassphraseExport.plaintextBytes
+          );
+          encryptedBytes = await TKHQ.encryptWithPassphrase(
+            plaintextCopy,
+            passphrase
+          );
+          const encryptedBase64 = btoa(
+            Array.from(encryptedBytes, (b) => String.fromCharCode(b)).join("")
+          );
+
+          wipeUint8Array(plaintextCopy);
+          wipeUint8Array(encryptedBytes);
+          plaintextCopy = null;
+          encryptedBytes = null;
+
+          hidePassphraseForm();
+          clearPendingPassphraseExport();
+          TKHQ.sendMessageUp(
+            "PASSPHRASE_ENCRYPTED_BUNDLE",
+            encryptedBase64,
+            requestId
+          );
+        } catch (e) {
+          wipeUint8Array(plaintextCopy);
+          wipeUint8Array(encryptedBytes);
+          setPassphraseError("Encryption failed: " + e.toString());
+          throw e;
+        }
+      }
+
+      function initPassphraseFormHandlers() {
+        const formDiv = document.getElementById("passphrase-form-div");
+        const passphraseInput = document.getElementById("export-passphrase");
+        const confirmInput = document.getElementById(
+          "export-passphrase-confirm"
+        );
+        const submitButton = document.getElementById("encrypt-and-export");
+        if (!formDiv || !passphraseInput || !confirmInput || !submitButton) {
+          return;
+        }
+
+        if (formDiv.dataset.handlersInitialized === "true") {
+          return;
+        }
+        formDiv.dataset.handlersInitialized = "true";
+        hidePassphraseForm();
+        const isStandalone = window.parent === window;
+        submitButton.style.display = isStandalone ? "block" : "none";
+
+        passphraseInput.addEventListener("input", () => {
+          updatePassphraseStrength(passphraseInput.value);
+        });
+
+        if (isStandalone) {
+          submitButton.addEventListener("click", async () => {
+            const requestId = pendingPassphraseExport.requestId;
+            try {
+              await onConfirmPassphraseExport(requestId);
+            } catch (e) {
+              TKHQ.sendMessageUp("ERROR", e.toString(), requestId);
+            }
+          });
+
+          passphraseInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submitButton.click();
+            }
+          });
+          confirmInput.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              submitButton.click();
+            }
+          });
+        }
       }
 
       /**
@@ -1538,12 +2113,14 @@
        * @param {string} keyFormat
        * @param {string} organizationId
        * @param {string} requestId
+       * @param {boolean} encryptToPassphrase
        */
       async function onInjectKeyBundle(
         bundle,
         keyFormat,
         organizationId,
-        requestId
+        requestId,
+        encryptToPassphrase = false
       ) {
         // Decrypt the export bundle
         const keyBytes = await decryptBundle(bundle, organizationId);
@@ -1555,24 +2132,40 @@
         var key;
         const privateKeyBytes = new Uint8Array(keyBytes);
         if (keyFormat === "SOLANA") {
-          const privateKeyHex = TKHQ.uint8arrayToHexString(
-            privateKeyBytes.subarray(0, 32)
-          );
-          const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
-          key = await TKHQ.encodeKey(
-            privateKeyBytes,
-            keyFormat,
-            publicKeyBytes
-          );
+          try {
+            const privateKeyHex = TKHQ.uint8arrayToHexString(
+              privateKeyBytes.subarray(0, 32)
+            );
+            const publicKeyBytes = TKHQ.getEd25519PublicKey(privateKeyHex);
+            key = await TKHQ.encodeKey(
+              privateKeyBytes,
+              keyFormat,
+              publicKeyBytes
+            );
+          } finally {
+            wipeUint8Array(privateKeyBytes);
+          }
         } else {
-          key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+          try {
+            key = await TKHQ.encodeKey(privateKeyBytes, keyFormat);
+          } finally {
+            wipeUint8Array(privateKeyBytes);
+          }
         }
 
-        // Display only the key
-        displayKey(key);
+        if (encryptToPassphrase) {
+          const keyBytesToEncrypt = passphraseTextEncoder.encode(key);
+          displayPassphraseForm(keyBytesToEncrypt, requestId);
+          wipeUint8Array(keyBytesToEncrypt);
+        } else {
+          // Display only the key
+          displayKey(key);
+        }
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
+
+        key = "";
       }
 
       /**
@@ -1580,8 +2173,14 @@
        * @param {string} bundle
        * @param {string} organizationId
        * @param {string} requestId
+       * @param {boolean} encryptToPassphrase
        */
-      async function onInjectWalletBundle(bundle, organizationId, requestId) {
+      async function onInjectWalletBundle(
+        bundle,
+        organizationId,
+        requestId,
+        encryptToPassphrase = false
+      ) {
         // Decrypt the export bundle
         const walletBytes = await decryptBundle(bundle, organizationId);
 
@@ -1589,13 +2188,28 @@
         TKHQ.onResetEmbeddedKey();
 
         // Parse the decrypted wallet bytes
-        const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
+        const walletBytesUint8 = new Uint8Array(walletBytes);
+        let wallet;
+        try {
+          wallet = TKHQ.encodeWallet(walletBytesUint8);
+        } finally {
+          wipeUint8Array(walletBytesUint8);
+        }
 
-        // Display only the wallet's mnemonic
-        displayKey(wallet.mnemonic);
+        if (encryptToPassphrase) {
+          const mnemonicBytes = passphraseTextEncoder.encode(wallet.mnemonic);
+          displayPassphraseForm(mnemonicBytes, requestId);
+          wipeUint8Array(mnemonicBytes);
+        } else {
+          // Display only the wallet's mnemonic
+          displayKey(wallet.mnemonic);
+        }
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
+
+        wallet.mnemonic = "";
+        wallet.passphrase = "";
       }
 
       /**
@@ -1612,6 +2226,11 @@
 
         // Persist in local storage
         TKHQ.setSettings(validSettings);
+
+        const passphraseForm = document.getElementById("passphrase-form-div");
+        if (passphraseForm && !passphraseForm.classList.contains("hidden")) {
+          applySettingsToPassphraseForm();
+        }
 
         // Send up SETTINGS_APPLIED message
         TKHQ.sendMessageUp("SETTINGS_APPLIED", true, requestId);
