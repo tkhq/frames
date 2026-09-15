@@ -245,12 +245,17 @@
 
           // If already initializing or initialized for the same origin, await
           // the existing ready promise so concurrent callers serialise on it.
+          // If the persisted key was later removed (resetEmbeddedKey or TTL
+          // expiry), fall through and mint a replacement
           if (
             embeddedKeyState !== null &&
             embeddedKeyState.mode === "persistent" &&
             embeddedKeyState.origin === validatedOrigin
           ) {
-            return await embeddedKeyState.ready;
+            await embeddedKeyState.ready;
+            if (getItemWithExpiry(embeddedKeyState.storageKey) !== null) {
+              return;
+            }
           }
 
           purgeLegacyEmbeddedKey();
@@ -1362,7 +1367,7 @@
           try {
             await onResetEmbeddedKey(event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "GET_EMBEDDED_PUBLIC_KEY") {
@@ -1370,7 +1375,7 @@
           try {
             await onGetEmbeddedPublicKey(event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
         if (event.data && event.data["type"] == "INIT_EMBEDDED_KEY") {
@@ -1378,7 +1383,7 @@
           try {
             await onInitEmbeddedKey(event.data["requestId"]);
           } catch (e) {
-            TKHQ.sendMessageUp("ERROR", e.toString());
+            TKHQ.sendMessageUp("ERROR", e.toString(), event.data["requestId"]);
           }
         }
       };
@@ -1632,6 +1637,7 @@
         // If we don't have an embedded key, return an empty string as the public key
         if (!embeddedKeyJwk) {
           TKHQ.sendMessageUp("EMBEDDED_PUBLIC_KEY", "", requestId);
+          return;
         }
 
         var targetPubBuf = await TKHQ.p256JWKPrivateToPublic(embeddedKeyJwk);
