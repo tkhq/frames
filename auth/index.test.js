@@ -90,6 +90,30 @@ describe("TKHQ", () => {
     expect(TKHQ.getEmbeddedKey()).toEqual(generatedKey);
   });
 
+  it("recreates the persistent key after resetEmbeddedKey", async () => {
+    await TKHQ.initEmbeddedKey("http://localhost");
+    const originalKey = TKHQ.getEmbeddedKey();
+    expect(originalKey).not.toBeNull();
+
+    TKHQ.resetEmbeddedKey();
+    expect(TKHQ.getEmbeddedKey()).toBeNull();
+    // Origin binding is preserved so INIT_EMBEDDED_KEY remints for the same parent.
+    expect(TKHQ.getBoundOrigin()).toBe("http://localhost");
+
+    await TKHQ.initEmbeddedKey("http://localhost");
+    const newKey = TKHQ.getEmbeddedKey();
+    expect(newKey).not.toBeNull();
+    expect(newKey).not.toEqual(originalKey);
+  });
+
+  it("does not allow rebinding to a different origin after reset", async () => {
+    await TKHQ.initEmbeddedKey("http://first.example.com");
+    TKHQ.resetEmbeddedKey();
+    await expect(
+      TKHQ.initEmbeddedKey("http://second.example.com")
+    ).rejects.toThrow("parent origin is already bound");
+  });
+
   it("inits ephemeral key and stores in memory only", async () => {
     expect(TKHQ.getEmbeddedKey()).toBe(null);
     await TKHQ.initEphemeralEmbeddedKey();
@@ -936,5 +960,251 @@ describe("sendMessageUp uses bound legacy origin for outbound responses", () => 
     for (const call of parentWindow.postMessage.mock.calls) {
       expect(call[1]).toBe("https://app.example.com");
     }
+  });
+});
+
+// ─── RESET / GET / INIT handler tests (clearEmbeddedKey rotation) ────────────
+
+describe("RESET / GET / INIT embedded key message handlers", () => {
+  let d;
+  let parentWindow;
+  let teardown;
+
+  beforeEach(async () => {
+    ({ dom: d, parentWindow, teardown } = buildEmbeddedDom());
+    await flush();
+    jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    teardown();
+  });
+
+  function makeInitEvent({ origin = "https://app.example.com" } = {}) {
+    const port = { onmessage: null, postMessage: jest.fn() };
+    const event = new d.window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      ports: [port],
+      origin,
+    });
+    Object.defineProperty(event, "source", { value: parentWindow });
+    return { event, port };
+  }
+
+  async function establishChannel() {
+    const { event, port } = makeInitEvent();
+    d.window.dispatchEvent(event);
+    await flush();
+    jest.clearAllMocks();
+    return port;
+  }
+
+  it("returns an empty public key when none exists, without throwing", async () => {
+    const port = await establishChannel();
+    d.window.TKHQ.getEmbeddedKey.mockReturnValue(null);
+    d.window.TKHQ.p256JWKPrivateToPublic.mockImplementation(async (jwk) => {
+      if (!jwk) {
+        throw new Error("cannot convert null key");
+      }
+      return new Uint8Array(65).fill(0x04);
+    });
+
+    await port.onmessage({
+      data: { type: "GET_EMBEDDED_PUBLIC_KEY", requestId: "get-1" },
+    });
+
+    expect(d.window.TKHQ.sendMessageUp).toHaveBeenCalledWith(
+      "EMBEDDED_PUBLIC_KEY",
+      "",
+      "get-1"
+    );
+    expect(d.window.TKHQ.sendMessageUp).not.toHaveBeenCalledWith(
+      "ERROR",
+      expect.anything()
+    );
+    expect(d.window.TKHQ.sendMessageUp).not.toHaveBeenCalledWith(
+      "ERROR",
+      expect.anything(),
+      expect.anything()
+    );
+  });
+
+  it("includes requestId on GET_EMBEDDED_PUBLIC_KEY errors", async () => {
+    const port = await establishChannel();
+    d.window.TKHQ.p256JWKPrivateToPublic.mockRejectedValueOnce(
+      new Error("bad key")
+    );
+
+    await port.onmessage({
+      data: { type: "GET_EMBEDDED_PUBLIC_KEY", requestId: "get-err" },
+    });
+
+    expect(d.window.TKHQ.sendMessageUp).toHaveBeenCalledWith(
+      "ERROR",
+      expect.stringContaining("bad key"),
+      "get-err"
+    );
+  });
+
+  it("includes requestId on INIT_EMBEDDED_KEY errors", async () => {
+    const port = await establishChannel();
+    jest
+      .spyOn(d.window.TKHQ, "getBoundOrigin")
+      .mockReturnValue("https://app.example.com");
+    d.window.TKHQ.initEmbeddedKey.mockRejectedValueOnce(new Error("boom"));
+
+    await port.onmessage({
+      data: { type: "INIT_EMBEDDED_KEY", requestId: "init-1" },
+    });
+
+    expect(d.window.TKHQ.sendMessageUp).toHaveBeenCalledWith(
+      "ERROR",
+      expect.stringContaining("boom"),
+      "init-1"
+    );
+  });
+
+  it("includes requestId on RESET_EMBEDDED_KEY errors", async () => {
+    const port = await establishChannel();
+    jest.spyOn(d.window.TKHQ, "resetEmbeddedKey").mockImplementation(() => {
+      throw new Error("reset failed");
+    });
+
+    await port.onmessage({
+      data: { type: "RESET_EMBEDDED_KEY", requestId: "reset-1" },
+    });
+
+    expect(d.window.TKHQ.sendMessageUp).toHaveBeenCalledWith(
+      "ERROR",
+      expect.stringContaining("reset failed"),
+      "reset-1"
+    );
+  });
+});
+
+describe("clearEmbeddedKey then initEmbeddedKey on a live MessageChannel", () => {
+  let d;
+  let parentWindow;
+  let teardown;
+
+  beforeEach(async () => {
+    d = new JSDOM(html, {
+      runScripts: "dangerously",
+      url: "http://localhost",
+    });
+    parentWindow = { postMessage: jest.fn() };
+    Object.defineProperty(d.window, "parent", {
+      configurable: true,
+      value: parentWindow,
+    });
+    Object.defineProperty(d.window, "crypto", { value: crypto.webcrypto });
+
+    global.window = d.window;
+    global.document = d.window.document;
+    global.localStorage = d.window.localStorage;
+    global.crypto = crypto.webcrypto;
+    global.AbortController = d.window.AbortController;
+
+    d.window.hpke = {
+      DhkemP256HkdfSha256: function () {
+        return { importKey: jest.fn() };
+      },
+      HkdfSha256: function () {},
+      Aes256Gcm: function () {},
+      CipherSuite: function () {
+        return { createRecipientContext: jest.fn() };
+      },
+    };
+
+    d.window.eval(MODULE_SCRIPT_BODY);
+    teardown = () => {
+      delete global.window;
+      delete global.document;
+      delete global.localStorage;
+      delete global.crypto;
+      delete global.AbortController;
+    };
+    await flush();
+  });
+
+  afterEach(() => {
+    teardown();
+  });
+
+  async function waitForPortMessage(port, type) {
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline) {
+      const match = port.postMessage.mock.calls.find(
+        (call) => call[0]?.type === type
+      );
+      if (match) {
+        return match[0];
+      }
+      await flush();
+    }
+    throw new Error(
+      `timed out waiting for ${type}: ${JSON.stringify(
+        port.postMessage.mock.calls
+      )}`
+    );
+  }
+
+  it("mints a new public key after RESET_EMBEDDED_KEY then INIT_EMBEDDED_KEY", async () => {
+    const port = { onmessage: null, postMessage: jest.fn() };
+    const event = new d.window.MessageEvent("message", {
+      data: { type: "TURNKEY_INIT_MESSAGE_CHANNEL" },
+      ports: [port],
+      origin: "https://app.example.com",
+    });
+    Object.defineProperty(event, "source", { value: parentWindow });
+    d.window.dispatchEvent(event);
+
+    const ready = await waitForPortMessage(port, "PUBLIC_KEY_READY");
+    const originalPub = ready.value;
+    expect(originalPub).toMatch(/^[0-9a-f]+$/);
+
+    port.postMessage.mockClear();
+    await port.onmessage({
+      data: { type: "RESET_EMBEDDED_KEY", requestId: "reset-1" },
+    });
+    expect(port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "EMBEDDED_KEY_RESET",
+        requestId: "reset-1",
+      })
+    );
+
+    port.postMessage.mockClear();
+    await port.onmessage({
+      data: { type: "GET_EMBEDDED_PUBLIC_KEY", requestId: "get-1" },
+    });
+    expect(port.postMessage).toHaveBeenCalledWith({
+      type: "EMBEDDED_PUBLIC_KEY",
+      value: "",
+      requestId: "get-1",
+    });
+    expect(port.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "ERROR" })
+    );
+
+    port.postMessage.mockClear();
+    await port.onmessage({
+      data: { type: "INIT_EMBEDDED_KEY", requestId: "init-1" },
+    });
+    expect(port.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "EMBEDDED_PUBLIC_KEY",
+        requestId: "init-1",
+      })
+    );
+    const newPub = port.postMessage.mock.calls.find(
+      (call) => call[0]?.type === "EMBEDDED_PUBLIC_KEY"
+    )[0].value;
+    expect(newPub).toMatch(/^[0-9a-f]+$/);
+    expect(newPub).not.toEqual(originalPub);
+    expect(port.postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "ERROR" })
+    );
   });
 });
