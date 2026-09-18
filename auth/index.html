@@ -245,16 +245,26 @@
 
           // If already initializing or initialized for the same origin, await
           // the existing ready promise so concurrent callers serialise on it.
-          // If the persisted key was later removed (resetEmbeddedKey or TTL
-          // expiry), fall through and mint a replacement
+          // After resetEmbeddedKey or TTL expiry storage is empty; only the
+          // first continuation may mint a replacement. Later continuations
+          // join the newly published state instead of starting another
+          // generateKey (last-writer-wins would drop the first public key).
           if (
             embeddedKeyState !== null &&
             embeddedKeyState.mode === "persistent" &&
             embeddedKeyState.origin === validatedOrigin
           ) {
-            await embeddedKeyState.ready;
-            if (getItemWithExpiry(embeddedKeyState.storageKey) !== null) {
+            var stateAtEntry = embeddedKeyState;
+            await stateAtEntry.ready;
+            if (getItemWithExpiry(stateAtEntry.storageKey) !== null) {
               return;
+            }
+            if (
+              embeddedKeyState !== stateAtEntry &&
+              embeddedKeyState !== null &&
+              embeddedKeyState.mode === "persistent"
+            ) {
+              return await embeddedKeyState.ready;
             }
           }
 

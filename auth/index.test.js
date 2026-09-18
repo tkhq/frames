@@ -114,6 +114,102 @@ describe("TKHQ", () => {
     ).rejects.toThrow("parent origin is already bound");
   });
 
+  async function expectSingleFlightRemint(origin) {
+    const subtle = dom.window.crypto.subtle;
+    const originalGenerateKey = subtle.generateKey.bind(subtle);
+    const gates = [];
+    const generateKeySpy = jest
+      .spyOn(subtle, "generateKey")
+      .mockImplementation((...args) => {
+        let release;
+        const gate = new Promise((resolve) => {
+          release = resolve;
+        });
+        gates.push({ release });
+        return gate.then(() => originalGenerateKey(...args));
+      });
+
+    try {
+      const first = TKHQ.initEmbeddedKey(origin);
+      const second = TKHQ.initEmbeddedKey(origin);
+
+      for (let i = 0; i < 10 && gates.length < 1; i++) {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      // Extra turns: a racy remint would start a second generateKey here.
+      for (let i = 0; i < 5; i++) {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      expect(gates.length).toBe(1);
+      gates[0].release();
+      await first;
+      const keyAfterFirst = { ...TKHQ.getEmbeddedKey() };
+      await second;
+      expect(TKHQ.getEmbeddedKey()).toEqual(keyAfterFirst);
+      return keyAfterFirst;
+    } finally {
+      generateKeySpy.mockRestore();
+    }
+  }
+
+  it("serializes concurrent remints after reset onto one replacement key", async () => {
+    const origin = "http://localhost";
+    await TKHQ.initEmbeddedKey(origin);
+    const originalKey = TKHQ.getEmbeddedKey();
+    TKHQ.resetEmbeddedKey();
+
+    const replacement = await expectSingleFlightRemint(origin);
+    expect(replacement).not.toEqual(originalKey);
+  });
+
+  it("serializes concurrent remints after TTL expiry onto one replacement key", async () => {
+    const origin = "http://localhost";
+    await TKHQ.initEmbeddedKey(origin);
+    const originalKey = TKHQ.getEmbeddedKey();
+    const storageKey = Object.keys(dom.window.localStorage).find((k) =>
+      k.startsWith("TURNKEY_EMBEDDED_KEY_V2")
+    );
+    const item = JSON.parse(dom.window.localStorage.getItem(storageKey));
+    item.expiry = Date.now() - 1;
+    dom.window.localStorage.setItem(storageKey, JSON.stringify(item));
+    expect(TKHQ.getEmbeddedKey()).toBeNull();
+    expect(TKHQ.getBoundOrigin()).toBe(origin);
+
+    const replacement = await expectSingleFlightRemint(origin);
+    expect(replacement).not.toEqual(originalKey);
+  });
+
+  it("preserves origin binding when remint persistence fails and allows retry", async () => {
+    const origin = "https://app.turnkey.com";
+    await TKHQ.initEmbeddedKey(origin);
+    TKHQ.resetEmbeddedKey();
+    expect(TKHQ.getBoundOrigin()).toBe(origin);
+
+    const setItemSpy = jest
+      .spyOn(Object.getPrototypeOf(dom.window.localStorage), "setItem")
+      .mockImplementation(() => {
+        throw new Error("storage blocked");
+      });
+
+    await expect(TKHQ.initEmbeddedKey(origin)).rejects.toThrow(
+      "storage blocked"
+    );
+    setItemSpy.mockRestore();
+
+    expect(TKHQ.getBoundOrigin()).toBe(origin);
+    expect(TKHQ.getEmbeddedKey()).toBeNull();
+    await expect(
+      TKHQ.initEmbeddedKey("https://other.example.com")
+    ).rejects.toThrow("parent origin is already bound");
+
+    await TKHQ.initEmbeddedKey(origin);
+    expect(TKHQ.getBoundOrigin()).toBe(origin);
+    expect(TKHQ.getEmbeddedKey()).not.toBeNull();
+  });
+
   it("inits ephemeral key and stores in memory only", async () => {
     expect(TKHQ.getEmbeddedKey()).toBe(null);
     await TKHQ.initEphemeralEmbeddedKey();
