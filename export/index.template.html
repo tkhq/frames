@@ -1188,15 +1188,17 @@
             // react-wallet-kit) would leave the passphrase on the page defaults
             // while the mnemonic follows their theme -- unreadable on a dark
             // background, on the one screen where both values must be legible.
-            ["passphrase-div", "mnemonic-heading", "passphrase-heading"].forEach(
-              (id) => {
-                const el = document.getElementById(id);
-                if (!el) return;
-                Object.entries(validStyles).forEach(([key, value]) => {
-                  el.style[key] = value;
-                });
-              }
-            );
+            [
+              "passphrase-div",
+              "mnemonic-heading",
+              "passphrase-heading",
+            ].forEach((id) => {
+              const el = document.getElementById(id);
+              if (!el) return;
+              Object.entries(validStyles).forEach(([key, value]) => {
+                el.style[key] = value;
+              });
+            });
 
             if (validStyles.backgroundColor) {
               // Apply background color to document and body as well.
