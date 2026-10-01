@@ -161,7 +161,10 @@
       >
     </p>
     <div id="message-log"></div>
+    <div id="mnemonic-heading" style="display: none">Mnemonic</div>
     <div id="key-div"></div>
+    <div id="passphrase-heading" style="display: none">Passphrase</div>
+    <div id="passphrase-div" style="display: none"></div>
 
     <!-- Script containing ED25519 library -->
     <script src="noble-hashes.js"></script>
@@ -1189,6 +1192,27 @@
             validSettings["styles"] = validStyles;
           }
 
+          if (settingsObj.passphraseStyles) {
+            // Valid styles will be applied to the "passphrase-div" element.
+            // It is absent from the DOM only if the page markup changed, so a
+            // missing element is a real error rather than "no passphrase".
+            const passphraseDiv = document.getElementById("passphrase-div");
+            if (!passphraseDiv) {
+              throw new Error(
+                "no passphrase-div HTML element found to apply settings to."
+              );
+            }
+
+            const validPassphraseStyles = TKHQ.validateStyles(
+              settingsObj.passphraseStyles
+            );
+            Object.entries(validPassphraseStyles).forEach(([key, value]) => {
+              passphraseDiv.style[key] = value;
+            });
+
+            validSettings["passphraseStyles"] = validPassphraseStyles;
+          }
+
           return JSON.stringify(validSettings);
         }
 
@@ -1416,12 +1440,30 @@
 
       /**
        * Hide every HTML element in <body> except any <script> elements.
-       * Then append an element containing the hex-encoded raw private key.
+       * Then append an element containing the hex-encoded raw private key,
+       * or the wallet mnemonic and, when the wallet has one, its BIP39
+       * passphrase.
+       *
+       * Headings are shown only when there is a passphrase to disambiguate
+       * from, matching the import page: a single value needs no label, two
+       * values must not read as one continuous secret. A wallet without a
+       * passphrase therefore renders exactly as before.
+       *
        * @param {string} key
+       * @param {string|null} passphrase
        */
-      function displayKey(key) {
+      function displayKey(key, passphrase) {
+        const visibleIds = ["key-div"];
+        if (passphrase) {
+          visibleIds.push(
+            "mnemonic-heading",
+            "passphrase-heading",
+            "passphrase-div"
+          );
+        }
+
         Array.from(document.body.children).forEach((child) => {
-          if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
+          if (child.tagName !== "SCRIPT" && !visibleIds.includes(child.id)) {
             child.style.display = "none";
           }
         });
@@ -1435,13 +1477,52 @@
           textAlign: "left",
         };
 
+        const headingStyle = {
+          color: "#555b64",
+          fontSize: ".875rem",
+          fontWeight: "600",
+          lineHeight: "1.25rem",
+          marginTop: ".75rem",
+          textAlign: "left",
+        };
+
+        const applyStyle = (el, styles) => {
+          for (let styleKey in styles) {
+            el.style[styleKey] = styles[styleKey];
+          }
+        };
+
         // Create a new div with the key material and append the new div to the body
         const keyDiv = document.getElementById("key-div");
         keyDiv.innerText = key;
-        for (let styleKey in style) {
-          keyDiv.style[styleKey] = style[styleKey];
+        applyStyle(keyDiv, style);
+
+        if (passphrase) {
+          // Append in reading order: the headings only exist in this branch,
+          // so appendChild also fixes their position relative to key-div.
+          const mnemonicHeading = document.getElementById("mnemonic-heading");
+          applyStyle(mnemonicHeading, headingStyle);
+          mnemonicHeading.style.marginTop = "0";
+          mnemonicHeading.style.display = "block";
+          document.body.appendChild(mnemonicHeading);
         }
+
         document.body.appendChild(keyDiv);
+
+        if (passphrase) {
+          const passphraseHeading =
+            document.getElementById("passphrase-heading");
+          applyStyle(passphraseHeading, headingStyle);
+          passphraseHeading.style.display = "block";
+          document.body.appendChild(passphraseHeading);
+
+          const passphraseDiv = document.getElementById("passphrase-div");
+          passphraseDiv.innerText = passphrase;
+          applyStyle(passphraseDiv, style);
+          passphraseDiv.style.display = "block";
+          document.body.appendChild(passphraseDiv);
+        }
+
         TKHQ.applySettings(TKHQ.getSettings());
       }
 
@@ -1591,8 +1672,10 @@
         // Parse the decrypted wallet bytes
         const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
 
-        // Display only the wallet's mnemonic
-        displayKey(wallet.mnemonic);
+        // Display the mnemonic, and the passphrase when the wallet has one.
+        // Both are needed to restore the wallet: the words alone rebuild a
+        // different, empty seed.
+        displayKey(wallet.mnemonic, wallet.passphrase);
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
