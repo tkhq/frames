@@ -1059,10 +1059,16 @@
           let mnemonic;
           let passphrase = null;
 
-          if (wallet.includes("\n")) {
-            const parts = wallet.split("\n");
-            mnemonic = parts[0];
-            passphrase = parts[1];
+          // Split at the FIRST newline only. A BIP39 mnemonic never contains
+          // one, so the first is unambiguously the delimiter, while a
+          // passphrase may contain any number of them -- the import page reads
+          // a <textarea> value verbatim. split("\n")[1] would truncate such a
+          // passphrase at its first line and silently export a value that
+          // restores a different wallet.
+          const delimiter = wallet.indexOf("\n");
+          if (delimiter !== -1) {
+            mnemonic = wallet.slice(0, delimiter);
+            passphrase = wallet.slice(delimiter + 1);
           } else {
             mnemonic = wallet;
           }
@@ -1271,6 +1277,17 @@
          * @param {string|null} passphrase
          */
         function displayKey(key, passphrase) {
+          // Clear any secret left over from a previous export before rendering
+          // this one. The iframe handles repeated injections without a reload,
+          // so a wallet with a passphrase followed by one without would
+          // otherwise leave the earlier passphrase in the hidden element, still
+          // readable from the DOM. key-div needs no equivalent because it is
+          // overwritten unconditionally below.
+          const stalePassphrase = document.getElementById("passphrase-div");
+          if (stalePassphrase) {
+            stalePassphrase.innerText = "";
+          }
+
           const visibleIds = ["key-div"];
           if (passphrase) {
             visibleIds.push(
@@ -1293,6 +1310,14 @@
             lineHeight: "1.25rem",
             overflowWrap: "break-word",
             textAlign: "left",
+            // A passphrase is an exact string: leading, trailing and repeated
+            // whitespace are part of the secret, and normal flow would collapse
+            // them, so what the user copies down would restore a different
+            // wallet. "pre-wrap" keeps them while still wrapping long values.
+            // Not caller-overridable -- whiteSpace is absent from the
+            // validateStyles allowlist, so the later applySettings cannot
+            // undo it.
+            whiteSpace: "pre-wrap",
           };
 
           const headingStyle = {

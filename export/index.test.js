@@ -202,6 +202,19 @@ describe("TKHQ", () => {
     expect(encodedWallet.passphrase).toEqual(passphrase);
   });
 
+  it("preserves newlines and whitespace in a wallet passphrase", async () => {
+    // The import page reads a <textarea> verbatim, so both are representable
+    // and both are part of the seed. Splitting on every newline truncated the
+    // passphrase at its first line.
+    const mnemonic = "word ".repeat(23) + "word";
+    const passphrase = "  line one\nline two  ";
+    const encodedWallet = TKHQ.encodeWallet(
+      new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase)
+    );
+    expect(encodedWallet.mnemonic).toEqual(mnemonic);
+    expect(encodedWallet.passphrase).toEqual(passphrase);
+  });
+
   it("contains p256JWKPrivateToPublic", async () => {
     // TODO: test this
     expect(true).toBe(true);
@@ -518,6 +531,37 @@ describe("TKHQ", () => {
       expect(el("passphrase-heading").style.color).toBe("rgb(17, 34, 51)");
       expect(el("passphrase-heading").style.height).toBe("");
       expect(el("passphrase-heading").style.fontWeight).toBe("600");
+    });
+
+    it("renders the secrets with whitespace preserved", () => {
+      // Collapsed whitespace would show the user a different string from the
+      // one the seed was derived with. whiteSpace is not in the validateStyles
+      // allowlist -- it is rejected outright -- so a caller cannot override it
+      // and the applySettings pass that runs after displayKey cannot undo it.
+      expect(() => TKHQ.validateStyles({ whiteSpace: "normal" })).toThrow();
+
+      TKHQ.setSettings(
+        TKHQ.applySettings(JSON.stringify({ styles: { color: "#112233" } }))
+      );
+      TKHQ.displayKey("my mnemonic", "  two  spaces  ");
+
+      expect(el("key-div").style.whiteSpace).toBe("pre-wrap");
+      expect(el("passphrase-div").style.whiteSpace).toBe("pre-wrap");
+      expect(el("passphrase-div").innerText).toBe("  two  spaces  ");
+    });
+
+    it("does not leave a previous passphrase in the DOM on a later export", () => {
+      // The iframe handles repeated injections without reloading, so the
+      // second export must not be able to read the first one's secret out of
+      // the hidden element.
+      TKHQ.displayKey("first mnemonic", "first passphrase");
+      TKHQ.displayKey("second mnemonic", null);
+
+      expect(el("key-div").innerText).toBe("second mnemonic");
+      // innerText, not textContent: jsdom does not implement innerText, so
+      // the write lands on an expando and textContent stays empty either way.
+      expect(el("passphrase-div").innerText).toBe("");
+      expect(el("passphrase-div").style.display).toBe("none");
     });
 
     it("lets passphraseStyles override the inherited styles on the value only", () => {
