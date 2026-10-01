@@ -1182,6 +1182,22 @@
               keyDivTextarea.style[key] = value;
             });
 
+            // The passphrase block inherits the mnemonic's styling unless the
+            // caller overrides it with "passphraseStyles" below. Without this a
+            // caller that only sets "styles" (every caller today, including
+            // react-wallet-kit) would leave the passphrase on the page defaults
+            // while the mnemonic follows their theme -- unreadable on a dark
+            // background, on the one screen where both values must be legible.
+            ["passphrase-div", "mnemonic-heading", "passphrase-heading"].forEach(
+              (id) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                Object.entries(validStyles).forEach(([key, value]) => {
+                  el.style[key] = value;
+                });
+              }
+            );
+
             if (validStyles.backgroundColor) {
               // Apply background color to document and body as well.
               document.documentElement.style.backgroundColor =
