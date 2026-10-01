@@ -202,6 +202,19 @@ describe("TKHQ", () => {
     expect(encodedWallet.passphrase).toEqual(passphrase);
   });
 
+  it("preserves newlines and whitespace in a wallet passphrase", async () => {
+    // The import page reads a <textarea> verbatim, so both are representable
+    // and both are part of the seed. Splitting on every newline truncated the
+    // passphrase at its first line.
+    const mnemonic = "word ".repeat(23) + "word";
+    const passphrase = "  line one\nline two  ";
+    const encodedWallet = TKHQ.encodeWallet(
+      new TextEncoder("utf-8").encode(mnemonic + "\n" + passphrase)
+    );
+    expect(encodedWallet.mnemonic).toEqual(mnemonic);
+    expect(encodedWallet.passphrase).toEqual(passphrase);
+  });
+
   it("contains p256JWKPrivateToPublic", async () => {
     // TODO: test this
     expect(true).toBe(true);
@@ -445,5 +458,127 @@ describe("TKHQ", () => {
       resize: "none",
     };
     expect(TKHQ.validateStyles(allStylesValid)).toEqual(allStylesValid);
+  });
+
+  describe("displayKey", () => {
+    const doc = () => dom.window.document;
+    const el = (id) => doc().getElementById(id);
+
+    it("shows only the mnemonic when the wallet has no passphrase", () => {
+      TKHQ.displayKey("word ".repeat(23) + "word", null);
+
+      expect(el("key-div").innerText).toContain("word");
+      expect(el("passphrase-div").textContent).toBe("");
+      // Headings exist in the markup but must stay hidden: with one value
+      // there is nothing to disambiguate, and this is what keeps the render
+      // byte-identical for wallets without a passphrase.
+      expect(el("mnemonic-heading").style.display).toBe("none");
+      expect(el("passphrase-heading").style.display).toBe("none");
+      expect(el("passphrase-div").style.display).toBe("none");
+    });
+
+    it("shows both values, labelled and in reading order, when there is a passphrase", () => {
+      TKHQ.displayKey("my mnemonic", "my passphrase");
+
+      expect(el("key-div").innerText).toBe("my mnemonic");
+      expect(el("passphrase-div").innerText).toBe("my passphrase");
+      expect(el("mnemonic-heading").style.display).toBe("block");
+      expect(el("passphrase-heading").style.display).toBe("block");
+      expect(el("passphrase-div").style.display).toBe("block");
+
+      // Order matters: a passphrase rendered above or adjacent to the words
+      // reads as part of them.
+      const order = Array.from(doc().body.children)
+        .map((c) => c.id)
+        .filter((id) =>
+          [
+            "mnemonic-heading",
+            "key-div",
+            "passphrase-heading",
+            "passphrase-div",
+          ].includes(id)
+        );
+      expect(order).toEqual([
+        "mnemonic-heading",
+        "key-div",
+        "passphrase-heading",
+        "passphrase-div",
+      ]);
+    });
+
+    it("gives the passphrase the mnemonic's styles, and headings theme properties only", () => {
+      // onApplySettings applies and then persists; displayKey re-applies the
+      // persisted settings after writing its inline defaults, so a test that
+      // only applies would be overwritten by those defaults.
+      TKHQ.setSettings(
+        TKHQ.applySettings(
+          JSON.stringify({
+            styles: { color: "#112233", height: "100%", fontWeight: "bold" },
+          })
+        )
+      );
+      TKHQ.displayKey("my mnemonic", "my passphrase");
+
+      // The passphrase is a second secret-value block: same styling as the
+      // mnemonic, so a caller who themes one themes both.
+      expect(el("passphrase-div").style.color).toBe(el("key-div").style.color);
+      expect(el("passphrase-div").style.height).toBe("100%");
+
+      // Headings take theme properties but not box/sizing ones. A heading
+      // sized height:100% would fill the iframe and push the passphrase out
+      // of view. fontWeight is excluded so headings stay distinguishable
+      // from the values beneath them.
+      expect(el("passphrase-heading").style.color).toBe("rgb(17, 34, 51)");
+      expect(el("passphrase-heading").style.height).toBe("");
+      expect(el("passphrase-heading").style.fontWeight).toBe("600");
+    });
+
+    it("renders the secrets with whitespace preserved", () => {
+      // Collapsed whitespace would show the user a different string from the
+      // one the seed was derived with. whiteSpace is not in the validateStyles
+      // allowlist -- it is rejected outright -- so a caller cannot override it
+      // and the applySettings pass that runs after displayKey cannot undo it.
+      expect(() => TKHQ.validateStyles({ whiteSpace: "normal" })).toThrow();
+
+      TKHQ.setSettings(
+        TKHQ.applySettings(JSON.stringify({ styles: { color: "#112233" } }))
+      );
+      TKHQ.displayKey("my mnemonic", "  two  spaces  ");
+
+      expect(el("key-div").style.whiteSpace).toBe("pre-wrap");
+      expect(el("passphrase-div").style.whiteSpace).toBe("pre-wrap");
+      expect(el("passphrase-div").innerText).toBe("  two  spaces  ");
+    });
+
+    it("does not leave a previous passphrase in the DOM on a later export", () => {
+      // The iframe handles repeated injections without reloading, so the
+      // second export must not be able to read the first one's secret out of
+      // the hidden element.
+      TKHQ.displayKey("first mnemonic", "first passphrase");
+      TKHQ.displayKey("second mnemonic", null);
+
+      expect(el("key-div").innerText).toBe("second mnemonic");
+      // innerText, not textContent: jsdom does not implement innerText, so
+      // the write lands on an expando and textContent stays empty either way.
+      expect(el("passphrase-div").innerText).toBe("");
+      expect(el("passphrase-div").style.display).toBe("none");
+    });
+
+    it("lets passphraseStyles override the inherited styles on the value only", () => {
+      TKHQ.setSettings(
+        TKHQ.applySettings(
+          JSON.stringify({
+            styles: { color: "#112233" },
+            passphraseStyles: { color: "#445566" },
+          })
+        )
+      );
+      TKHQ.displayKey("my mnemonic", "my passphrase");
+
+      expect(el("key-div").style.color).toBe("rgb(17, 34, 51)");
+      expect(el("passphrase-div").style.color).toBe("rgb(68, 85, 102)");
+      // Headings follow "styles" so they stay consistent with each other.
+      expect(el("passphrase-heading").style.color).toBe("rgb(17, 34, 51)");
+    });
   });
 });
