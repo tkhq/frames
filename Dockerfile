@@ -18,9 +18,7 @@ COPY import ./import/
 RUN cd import && npm ci && npm run build
 
 # Second stage: nginx runtime
-# This is nginx 1.24.0 on bullseye.
-# https://hub.docker.com/layers/nginxinc/nginx-unprivileged/1.24.0-bullseye/images/sha256-a8ec652916ce1e7ab2ab624fe59bb8dfc16a018fd489c6fb979fe35c5dd3ec50
-FROM docker.io/nginxinc/nginx-unprivileged:1.24.0-bullseye@sha256:ac0654a834233f7cc95b3a61550a07636299ce9020b5a11a04890b77b6917dc4
+FROM docker.io/nginxinc/nginx-unprivileged:1.31.6-trixie@sha256:ce1317316e272062981736063d4a7eed7d80b0d2a53da1305d0752aa4aee7a48
 
 LABEL org.opencontainers.image.title frames
 LABEL org.opencontainers.image.source https://github.com/tkhq/frames
