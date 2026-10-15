@@ -161,7 +161,10 @@
       >
     </p>
     <div id="message-log"></div>
+    <div id="mnemonic-heading" style="display: none">Mnemonic</div>
     <div id="key-div"></div>
+    <div id="passphrase-heading" style="display: none">Passphrase</div>
+    <div id="passphrase-div" style="display: none"></div>
 
     <!-- Script containing ED25519 library -->
     <script src="noble-hashes.js"></script>
@@ -1056,10 +1059,16 @@
           let mnemonic;
           let passphrase = null;
 
-          if (wallet.includes("\n")) {
-            const parts = wallet.split("\n");
-            mnemonic = parts[0];
-            passphrase = parts[1];
+          // Split at the FIRST newline only. A BIP39 mnemonic never contains
+          // one, so the first is unambiguously the delimiter, while a
+          // passphrase may contain any number of them -- the import page reads
+          // a <textarea> value verbatim. split("\n")[1] would truncate such a
+          // passphrase at its first line and silently export a value that
+          // restores a different wallet.
+          const delimiter = wallet.indexOf("\n");
+          if (delimiter !== -1) {
+            mnemonic = wallet.slice(0, delimiter);
+            passphrase = wallet.slice(delimiter + 1);
           } else {
             mnemonic = wallet;
           }
@@ -1179,6 +1188,46 @@
               keyDivTextarea.style[key] = value;
             });
 
+            // The passphrase block is a second secret-value block, so it takes
+            // the same styling as the mnemonic unless the caller overrides it
+            // with "passphraseStyles" below. Without this a caller that only
+            // sets "styles" (every caller today, including react-wallet-kit)
+            // would leave the passphrase on the page defaults while the
+            // mnemonic follows their theme -- unreadable on a dark background,
+            // on the one screen where both values must be legible.
+            const passphraseDivForStyles =
+              document.getElementById("passphrase-div");
+            if (passphraseDivForStyles) {
+              Object.entries(validStyles).forEach(([key, value]) => {
+                passphraseDivForStyles.style[key] = value;
+              });
+            }
+
+            // Headings take theme properties only. "styles" also accepts box
+            // and sizing properties (height, width, padding, margin, border*,
+            // boxShadow), and copying those onto a heading would size it like a
+            // value block -- a caller passing height: "100%" would give each
+            // heading the full iframe height and push the passphrase out of
+            // view. fontWeight is excluded too: it is what distinguishes a
+            // heading from the value beneath it.
+            const HEADING_STYLE_PROPERTIES = [
+              "color",
+              "backgroundColor",
+              "fontFamily",
+              "fontSize",
+              "lineHeight",
+              "textAlign",
+            ];
+            ["mnemonic-heading", "passphrase-heading"].forEach((id) => {
+              const el = document.getElementById(id);
+              if (!el) return;
+              HEADING_STYLE_PROPERTIES.forEach((key) => {
+                if (validStyles[key] !== undefined) {
+                  el.style[key] = validStyles[key];
+                }
+              });
+            });
+
             if (validStyles.backgroundColor) {
               // Apply background color to document and body as well.
               document.documentElement.style.backgroundColor =
@@ -1189,7 +1238,135 @@
             validSettings["styles"] = validStyles;
           }
 
+          if (settingsObj.passphraseStyles) {
+            // Valid styles will be applied to the "passphrase-div" element.
+            // It is absent from the DOM only if the page markup changed, so a
+            // missing element is a real error rather than "no passphrase".
+            const passphraseDiv = document.getElementById("passphrase-div");
+            if (!passphraseDiv) {
+              throw new Error(
+                "no passphrase-div HTML element found to apply settings to."
+              );
+            }
+
+            const validPassphraseStyles = TKHQ.validateStyles(
+              settingsObj.passphraseStyles
+            );
+            Object.entries(validPassphraseStyles).forEach(([key, value]) => {
+              passphraseDiv.style[key] = value;
+            });
+
+            validSettings["passphraseStyles"] = validPassphraseStyles;
+          }
+
           return JSON.stringify(validSettings);
+        }
+
+        /**
+         * Hide every HTML element in <body> except any <script> elements.
+         * Then append an element containing the hex-encoded raw private key,
+         * or the wallet mnemonic and, when the wallet has one, its BIP39
+         * passphrase.
+         *
+         * Headings are shown only when there is a passphrase to disambiguate
+         * from, matching the import page: a single value needs no label, two
+         * values must not read as one continuous secret. A wallet without a
+         * passphrase therefore renders exactly as before.
+         *
+         * @param {string} key
+         * @param {string|null} passphrase
+         */
+        function displayKey(key, passphrase) {
+          // Clear any secret left over from a previous export before rendering
+          // this one. The iframe handles repeated injections without a reload,
+          // so a wallet with a passphrase followed by one without would
+          // otherwise leave the earlier passphrase in the hidden element, still
+          // readable from the DOM. key-div needs no equivalent because it is
+          // overwritten unconditionally below.
+          const stalePassphrase = document.getElementById("passphrase-div");
+          if (stalePassphrase) {
+            stalePassphrase.innerText = "";
+          }
+
+          const visibleIds = ["key-div"];
+          if (passphrase) {
+            visibleIds.push(
+              "mnemonic-heading",
+              "passphrase-heading",
+              "passphrase-div"
+            );
+          }
+
+          Array.from(document.body.children).forEach((child) => {
+            if (child.tagName !== "SCRIPT" && !visibleIds.includes(child.id)) {
+              child.style.display = "none";
+            }
+          });
+
+          const style = {
+            border: "none",
+            color: "#555b64",
+            fontSize: ".875rem",
+            lineHeight: "1.25rem",
+            overflowWrap: "break-word",
+            textAlign: "left",
+            // A passphrase is an exact string: leading, trailing and repeated
+            // whitespace are part of the secret, and normal flow would collapse
+            // them, so what the user copies down would restore a different
+            // wallet. "pre-wrap" keeps them while still wrapping long values.
+            // Not caller-overridable -- whiteSpace is absent from the
+            // validateStyles allowlist, so the later applySettings cannot
+            // undo it.
+            whiteSpace: "pre-wrap",
+          };
+
+          const headingStyle = {
+            color: "#555b64",
+            fontSize: ".875rem",
+            fontWeight: "600",
+            lineHeight: "1.25rem",
+            marginTop: ".75rem",
+            textAlign: "left",
+          };
+
+          const applyStyle = (el, styles) => {
+            for (let styleKey in styles) {
+              el.style[styleKey] = styles[styleKey];
+            }
+          };
+
+          // Create a new div with the key material and append the new div to the body
+          const keyDiv = document.getElementById("key-div");
+          keyDiv.innerText = key;
+          applyStyle(keyDiv, style);
+
+          if (passphrase) {
+            // Append in reading order: the headings only exist in this branch,
+            // so appendChild also fixes their position relative to key-div.
+            const mnemonicHeading = document.getElementById("mnemonic-heading");
+            applyStyle(mnemonicHeading, headingStyle);
+            mnemonicHeading.style.marginTop = "0";
+            mnemonicHeading.style.display = "block";
+            document.body.appendChild(mnemonicHeading);
+          }
+
+          document.body.appendChild(keyDiv);
+
+          if (passphrase) {
+            const passphraseHeading =
+              document.getElementById("passphrase-heading");
+            applyStyle(passphraseHeading, headingStyle);
+            passphraseHeading.style.display = "block";
+            document.body.appendChild(passphraseHeading);
+
+            const passphraseDiv = document.getElementById("passphrase-div");
+            passphraseDiv.innerText = passphrase;
+            applyStyle(passphraseDiv, style);
+            passphraseDiv.style.display = "block";
+            document.body.appendChild(passphraseDiv);
+          }
+
+          applySettings(getSettings());
         }
 
         return {
@@ -1208,6 +1385,7 @@
           encodeKey,
           encodeBech32,
           encodeWallet,
+          displayKey,
           sendMessageUp,
           logMessage,
           uint8arrayFromHexString,
@@ -1415,37 +1593,6 @@
       );
 
       /**
-       * Hide every HTML element in <body> except any <script> elements.
-       * Then append an element containing the hex-encoded raw private key.
-       * @param {string} key
-       */
-      function displayKey(key) {
-        Array.from(document.body.children).forEach((child) => {
-          if (child.tagName !== "SCRIPT" && child.id !== "key-div") {
-            child.style.display = "none";
-          }
-        });
-
-        const style = {
-          border: "none",
-          color: "#555b64",
-          fontSize: ".875rem",
-          lineHeight: "1.25rem",
-          overflowWrap: "break-word",
-          textAlign: "left",
-        };
-
-        // Create a new div with the key material and append the new div to the body
-        const keyDiv = document.getElementById("key-div");
-        keyDiv.innerText = key;
-        for (let styleKey in style) {
-          keyDiv.style[styleKey] = style[styleKey];
-        }
-        document.body.appendChild(keyDiv);
-        TKHQ.applySettings(TKHQ.getSettings());
-      }
-
-      /**
        * Parse and decrypt the export bundle.
        * The `bundle` param is a JSON string of the encapsulated public
        * key, encapsulated public key signature, and the ciphertext.
@@ -1569,7 +1716,7 @@
         }
 
         // Display only the key
-        displayKey(key);
+        TKHQ.displayKey(key);
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
@@ -1591,8 +1738,10 @@
         // Parse the decrypted wallet bytes
         const wallet = TKHQ.encodeWallet(new Uint8Array(walletBytes));
 
-        // Display only the wallet's mnemonic
-        displayKey(wallet.mnemonic);
+        // Display the mnemonic, and the passphrase when the wallet has one.
+        // Both are needed to restore the wallet: the words alone rebuild a
+        // different, empty seed.
+        TKHQ.displayKey(wallet.mnemonic, wallet.passphrase);
 
         // Send up BUNDLE_INJECTED message
         TKHQ.sendMessageUp("BUNDLE_INJECTED", true, requestId);
