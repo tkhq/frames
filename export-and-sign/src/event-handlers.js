@@ -5,6 +5,10 @@ import {
   CHANNEL_LEGACY_POST_MESSAGE,
 } from "./telemetry.js";
 import {
+  getCompiledTransactionMessageDecoder,
+  getCompiledTransactionMessageEncoder,
+} from "@solana/transaction-messages";
+import {
   getTransactionDecoder,
   getTransactionEncoder,
 } from "@solana/transactions";
@@ -257,7 +261,7 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
 
     // Fetch the transaction and sign
     const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
-    const transaction = getTransactionDecoder().decode(transactionBytes);
+    const transaction = decodeSolanaTransaction(transactionBytes);
     const signerAddress = TKHQ.base58Encode(keypair.publicKey);
     if (!(signerAddress in transaction.signatures)) {
       throw new Error("key is not a signer for this transaction");
@@ -431,6 +435,60 @@ async function createSolanaKeypair(privateKey) {
   }
 
   return keypair;
+}
+
+/**
+ * Decodes a serialized Solana transaction (legacy, v0 or v1) and checks that
+ * its message is well-formed before anything is signed.
+ *
+ * The transaction decoder only parses the signatures and the signer list; the
+ * rest of the message is passed through as opaque bytes. So the message is
+ * decoded in full and must re-encode to exactly the same bytes. This rejects
+ * truncated messages, trailing bytes and non-canonical encodings, whose
+ * signatures would not verify against the message a validator re-encodes.
+ * @param {Uint8Array} transactionBytes
+ * @returns {Object} - the decoded transaction ({ messageBytes, signatures })
+ */
+function decodeSolanaTransaction(transactionBytes) {
+  let transaction;
+  let message;
+  let bytesRead;
+  let reencodedMessage;
+  try {
+    transaction = getTransactionDecoder().decode(transactionBytes);
+    [message, bytesRead] = getCompiledTransactionMessageDecoder().read(
+      transaction.messageBytes,
+      0
+    );
+    reencodedMessage = getCompiledTransactionMessageEncoder().encode(message);
+  } catch (e) {
+    // @solana/errors messages are opaque codes in production builds
+    throw new Error("invalid Solana transaction: could not be decoded");
+  }
+
+  const { messageBytes } = transaction;
+  if (
+    bytesRead !== messageBytes.length ||
+    reencodedMessage.length !== messageBytes.length ||
+    reencodedMessage.some((byte, i) => byte !== messageBytes[i])
+  ) {
+    throw new Error(
+      "invalid Solana transaction: message is not canonically encoded"
+    );
+  }
+
+  // Signatures are keyed by signer address, so a duplicated signer collapses
+  // into one entry and would re-encode with too few signature slots.
+  if (
+    Object.keys(transaction.signatures).length !==
+    message.header.numSignerAccounts
+  ) {
+    throw new Error(
+      "invalid Solana transaction: signers do not match the message header"
+    );
+  }
+
+  return transaction;
 }
 
 /**
