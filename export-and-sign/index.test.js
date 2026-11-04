@@ -1529,6 +1529,28 @@ describe("Solana signing", () => {
         legacyMessage.slice(8 + 128),
     ],
     [
+      "a v1 message whose signer is not one of its accounts",
+      // No static accounts, and one instruction whose header and payload start
+      // with the signer key, where the transaction decoder reads signers from.
+      // The message decodes and re-encodes cleanly.
+      () => {
+        const key = Buffer.from(signerPublicKeyHex, "hex");
+        const payload = Buffer.alloc(key[1] + (key[2] | (key[3] << 8)));
+        key.copy(payload, 0, 4);
+        return (
+          "81" + // version
+          "010001" + // header: 1 signer
+          "00000000" + // config mask
+          "01".repeat(32) + // lifetime
+          "01" + // instruction count
+          "00" + // static account count
+          signerPublicKeyHex.slice(0, 8) + // instruction header
+          payload.toString("hex") +
+          emptySignature
+        );
+      },
+    ],
+    [
       "a v1 message with an empty account list",
       // The account count is the byte after the version, header, config mask,
       // lifetime and instruction count; the signer key bytes stay in place.

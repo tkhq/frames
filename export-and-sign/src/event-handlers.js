@@ -477,14 +477,24 @@ function decodeSolanaTransaction(transactionBytes) {
     );
   }
 
-  // Signatures are keyed by signer address, so a duplicated signer collapses
-  // into one entry and would re-encode with too few signature slots.
-  if (
-    Object.keys(transaction.signatures).length !==
+  // The transaction decoder reads signer addresses from where the message's
+  // signer accounts should be, without checking that the message has them
+  // (a v1 message can declare signers but no accounts). Signatures are also
+  // keyed by address, so a duplicated signer collapses into one entry. So
+  // the signers must be exactly the message's first numSignerAccounts static
+  // accounts, in order.
+  const signerAddresses = Object.keys(transaction.signatures);
+  const messageSigners = message.staticAccounts.slice(
+    0,
     message.header.numSignerAccounts
+  );
+  if (
+    signerAddresses.length !== message.header.numSignerAccounts ||
+    messageSigners.length !== message.header.numSignerAccounts ||
+    signerAddresses.some((address, i) => address !== messageSigners[i])
   ) {
     throw new Error(
-      "invalid Solana transaction: signers do not match the message header"
+      "invalid Solana transaction: signers do not match the message's signer accounts"
     );
   }
 
