@@ -91,6 +91,10 @@ module.exports = (env, argv) => {
         "@shared": path.resolve(__dirname, "../shared"),
       },
       conditionNames: ["import", "require", "node", "default"],
+      // ESM imports must not match "require", which some packages list first
+      byDependency: {
+        esm: { conditionNames: ["import", "node", "default"] },
+      },
       // Ensure modules are resolved from frame's node_modules, not shared folder's
       modules: [path.resolve(__dirname, "node_modules"), "node_modules"],
       // Don't use package.json from shared folder for module resolution

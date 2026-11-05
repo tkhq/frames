@@ -4,11 +4,22 @@ import {
   CHANNEL_MESSAGE_CHANNEL,
   CHANNEL_LEGACY_POST_MESSAGE,
 } from "./telemetry.js";
-import { Keypair, VersionedTransaction } from "@solana/web3.js";
+import {
+  getCompiledTransactionMessageDecoder,
+  getCompiledTransactionMessageEncoder,
+} from "@solana/transaction-messages";
+import {
+  getTransactionDecoder,
+  getTransactionEncoder,
+} from "@solana/transactions";
 import { parseTransaction } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import * as nobleEd25519 from "@noble/ed25519";
 import * as nobleHashes from "@noble/hashes/sha512";
+
+// Set up sha512 for nobleEd25519 (required for signing and key derivation)
+nobleEd25519.etc.sha512Sync = (...m) =>
+  nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
 
 // Persist keys in memory via mapping of { address --> pk }
 let inMemoryKeys = {};
@@ -157,7 +168,7 @@ async function loadKeyIntoMemory(address, keyBytes, keyFormat, organizationId) {
   // Cache keypair for improved signing perf
   let cachedKeypair;
   if (keyFormat === "SOLANA") {
-    cachedKeypair = Keypair.fromSecretKey(TKHQ.base58Decode(key));
+    cachedKeypair = solanaKeypairFromSecretKey(TKHQ.base58Decode(key));
   } else if (keyFormat === "HEXADECIMAL") {
     cachedKeypair = await createSolanaKeypair(
       Array.from(TKHQ.uint8arrayFromHexString(key))
@@ -250,10 +261,21 @@ async function onSignTransaction(requestId, serializedTransaction, address) {
 
     // Fetch the transaction and sign
     const transactionBytes = TKHQ.uint8arrayFromHexString(transactionToSign);
-    const transaction = VersionedTransaction.deserialize(transactionBytes);
-    transaction.sign([keypair]);
+    const transaction = decodeSolanaTransaction(transactionBytes);
+    const signerAddress = TKHQ.base58Encode(keypair.publicKey);
+    if (!(signerAddress in transaction.signatures)) {
+      throw new Error("key is not a signer for this transaction");
+    }
+    const signature = nobleEd25519.sign(
+      transaction.messageBytes,
+      keypair.secretKey.slice(0, 32)
+    );
 
-    signedTransaction = transaction.serialize();
+    // Only this key's signature changes; other signatures are kept as-is
+    signedTransaction = getTransactionEncoder().encode({
+      ...transaction,
+      signatures: { ...transaction.signatures, [signerAddress]: signature },
+    });
   } else if (transactionType === "ETHEREUM") {
     // viem returns the fully serialized, broadcast-ready signed tx as a
     // 0x-prefixed hex string.
@@ -298,10 +320,6 @@ async function onSignMessage(requestId, serializedMessage, address) {
   if (messageType === "SOLANA") {
     // Get or create keypair (uses cached keypair if available)
     const keypair = await getOrCreateKeypair(key);
-
-    // Set up sha512 for nobleEd25519 (required for signing)
-    nobleEd25519.etc.sha512Sync = (...m) =>
-      nobleHashes.sha512(nobleEd25519.etc.concatBytes(...m));
 
     // Extract the 32-byte private key from the 64-byte secretKey
     // Solana keypair.secretKey format: [32-byte private key][32-byte public key]
@@ -406,10 +424,10 @@ async function createSolanaKeypair(privateKey) {
   let keypair;
   if (privateKeyBytes.length === 32) {
     // 32-byte private key (seed)
-    keypair = Keypair.fromSeed(privateKeyBytes);
+    keypair = solanaKeypairFromSeed(privateKeyBytes);
   } else if (privateKeyBytes.length === 64) {
     // 64-byte secret key (private + public)
-    keypair = Keypair.fromSecretKey(privateKeyBytes);
+    keypair = solanaKeypairFromSecretKey(privateKeyBytes);
   } else {
     throw new Error(
       `Invalid private key length: ${privateKeyBytes.length}. Expected 32 or 64 bytes.`
@@ -417,6 +435,106 @@ async function createSolanaKeypair(privateKey) {
   }
 
   return keypair;
+}
+
+/**
+ * Decodes a serialized Solana transaction (legacy, v0 or v1) and checks that
+ * its message is well-formed before anything is signed.
+ *
+ * The transaction decoder only parses the signatures and the signer list; the
+ * rest of the message is passed through as opaque bytes. So the message is
+ * decoded in full and must re-encode to exactly the same bytes. This rejects
+ * truncated messages, trailing bytes and non-canonical encodings, whose
+ * signatures would not verify against the message a validator re-encodes.
+ * @param {Uint8Array} transactionBytes
+ * @returns {Object} - the decoded transaction ({ messageBytes, signatures })
+ */
+function decodeSolanaTransaction(transactionBytes) {
+  let transaction;
+  let message;
+  let bytesRead;
+  let reencodedMessage;
+  try {
+    transaction = getTransactionDecoder().decode(transactionBytes);
+    [message, bytesRead] = getCompiledTransactionMessageDecoder().read(
+      transaction.messageBytes,
+      0
+    );
+    reencodedMessage = getCompiledTransactionMessageEncoder().encode(message);
+  } catch (e) {
+    // @solana/errors messages are opaque codes in production builds
+    throw new Error("invalid Solana transaction: could not be decoded");
+  }
+
+  const { messageBytes } = transaction;
+  if (
+    bytesRead !== messageBytes.length ||
+    reencodedMessage.length !== messageBytes.length ||
+    reencodedMessage.some((byte, i) => byte !== messageBytes[i])
+  ) {
+    throw new Error(
+      "invalid Solana transaction: message is not canonically encoded"
+    );
+  }
+
+  // The transaction decoder reads signer addresses from where the message's
+  // signer accounts should be, without checking that the message has them
+  // (a v1 message can declare signers but no accounts). Signatures are also
+  // keyed by address, so a duplicated signer collapses into one entry. So
+  // the signers must be exactly the message's first numSignerAccounts static
+  // accounts, in order.
+  const signerAddresses = Object.keys(transaction.signatures);
+  const messageSigners = message.staticAccounts.slice(
+    0,
+    message.header.numSignerAccounts
+  );
+  if (
+    signerAddresses.length !== message.header.numSignerAccounts ||
+    messageSigners.length !== message.header.numSignerAccounts ||
+    signerAddresses.some((address, i) => address !== messageSigners[i])
+  ) {
+    throw new Error(
+      "invalid Solana transaction: signers do not match the message's signer accounts"
+    );
+  }
+
+  return transaction;
+}
+
+/**
+ * Builds a Solana keypair from a 32-byte private key (seed).
+ * @param {Uint8Array} seed
+ * @returns {{secretKey: Uint8Array, publicKey: Uint8Array}} - secretKey is [seed][public key]
+ */
+function solanaKeypairFromSeed(seed) {
+  const publicKey = nobleEd25519.getPublicKey(seed);
+  const secretKey = new Uint8Array(64);
+  secretKey.set(seed);
+  secretKey.set(publicKey, 32);
+  return { secretKey, publicKey };
+}
+
+/**
+ * Builds a Solana keypair from a 64-byte secret key ([private key][public key]).
+ * The public half must match the one derived from the private half, so a
+ * corrupted key is rejected instead of producing invalid signatures.
+ * @param {Uint8Array} secretKey
+ * @returns {{secretKey: Uint8Array, publicKey: Uint8Array}}
+ */
+function solanaKeypairFromSecretKey(secretKey) {
+  if (secretKey.length !== 64) {
+    throw new Error(
+      `invalid Solana secret key length: expected 64 bytes, got ${secretKey.length}`
+    );
+  }
+  const publicKey = secretKey.slice(32);
+  const derivedPublicKey = nobleEd25519.getPublicKey(secretKey.subarray(0, 32));
+  if (derivedPublicKey.some((byte, i) => byte !== publicKey[i])) {
+    throw new Error(
+      "invalid Solana secret key: public key does not match private key"
+    );
+  }
+  return { secretKey, publicKey };
 }
 
 /**
@@ -545,7 +663,7 @@ function validateKey(key, keyAddress) {
  * Gets or creates a Solana keypair from a key object.
  * Uses cached keypair if available, otherwise creates a new one.
  * @param {Object} key - The key object containing format and privateKey
- * @returns {Promise<Keypair>} - The Solana keypair
+ * @returns {Promise<{secretKey: Uint8Array, publicKey: Uint8Array}>} - The Solana keypair
  */
 async function getOrCreateKeypair(key) {
   if (key.keypair) {
@@ -553,7 +671,7 @@ async function getOrCreateKeypair(key) {
   }
 
   if (key.format === "SOLANA") {
-    return Keypair.fromSecretKey(TKHQ.base58Decode(key.privateKey));
+    return solanaKeypairFromSecretKey(TKHQ.base58Decode(key.privateKey));
   } else {
     return await createSolanaKeypair(
       Array.from(TKHQ.uint8arrayFromHexString(key.privateKey))

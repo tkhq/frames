@@ -24,34 +24,73 @@ import {
   recoverMessageAddress,
 } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import * as nobleEd25519 from "@noble/ed25519";
+import { createKeyPairFromPrivateKeyBytes } from "@solana/keys";
+import {
+  getTransactionDecoder,
+  getTransactionEncoder,
+  partiallySignTransaction,
+} from "@solana/transactions";
 
-jest.mock("@solana/web3.js", () => {
-  const mockKeypair = {
-    secretKey: new Uint8Array(64).fill(7),
-    publicKey: {
-      toBytes: () => new Uint8Array(32).fill(8),
-    },
-  };
+// Transactions transfer from (or are signed by) the key below. `*Signed` values
+// are the expected frame output after signing with that key.
+const SOLANA_FIXTURES = {
+  secretKeyBase58:
+    "2P3qgS5A18gGmZJmYHNxYrDYPyfm6S3dJgs8tPW6ki6i2o4yx7K8r5N8CF7JpEtQiW8mx1kSktpgyDG1xuWNzfsM",
+  seedHex: "4507fb58de7e570ea70de8ddc118fe092e6d4d3e9d75d692da58b811d8bb1ace",
+  publicKeyBase58: "8yB6uqivn9YfDuvm8Sc3SGDxoFvYkU3t14zzUNurFsA7",
+  legacyUnsigned:
+    "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010001037665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101020200010c02000000e803000000000000",
+  legacySigned:
+    "017427e6bb77633fc33f94df2b011ee4dd4deebd6133c7a015986aef5912088687dffcc3a4e7dfbd94469577bee3cb960d8e473abb9603bac7a2fb2d9a392b2009010001037665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101020200010c02000000e803000000000000",
+  v0Unsigned:
+    "010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080010001037665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101020200010c02000000e80300000000000000",
+  v0Signed:
+    "01467860e8ceb7ae32ca2ca4034967388984b31df2400e6914490e8e63a9ed1fde16cceaf3155b9c7e3958558a567ac4604b60560e54cb2d3aaf6f1f52cf9b410a80010001037665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101020200010c02000000e80300000000000000",
+  // Another key is the fee payer and has already signed.
+  twoSignerPartiallySigned:
+    "02c4ae84f8ece1828e3e87a60296901b1b217c4838a6f728fdfa3db9083c624ecd29940fbc4090202938d3e97e2c7fc2f4133e85f70284c573b7b07939464433010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080020001048139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3947665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101030201020c02000000e80300000000000000",
+  twoSignerSigned:
+    "02c4ae84f8ece1828e3e87a60296901b1b217c4838a6f728fdfa3db9083c624ecd29940fbc4090202938d3e97e2c7fc2f4133e85f70284c573b7b07939464433013a4e1527c8dd177abb6183759ac3eb647dd1405899fb1ded9beea4cff5acd33e6b26dbec56448521bad48eeb7743ae43c125b78cc59bf2aba45eb49b30bf5d0280020001048139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b3947665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101030201020c02000000e80300000000000000",
+  // The key above is not a signer of this transaction.
+  nonSignerUnsigned:
+    "0100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000010001038139770ea87d175f56a35466c34c7ecccb8d8a91b4ee37a25df60f5b8fc9b394ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d10000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010101020200010c02000000e803000000000000",
+  v1Unsigned:
+    "8101000100000000010101010101010101010101010101010101010101010101010101010101010101037665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c0398ed4928c628d1c2c6eae90338905995612959273a5c63f93636c14614ac8737d1000000000000000000000000000000000000000000000000000000000000000002020c00000102000000e80300000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+  // Two transfers whose recipients are loaded from an address lookup table.
+  // The signed value is the output of @solana/web3.js 1.98.4.
+  v0LookupTableUnsigned:
+    "010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080010001027665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c03980000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010102010200020c02000000e803000000000000010200030c02000000e90300000000000001070707070707070707070707070707070707070707070707070707070707070702000100",
+  v0LookupTableSigned:
+    "01c2f6466c9b839f842c81b9c753845ed24a9aeb74daa47b194ea41caa60f1cbd7392a4182ee45d205f20f3a09f6421a06d1f2030ca065eb29291bebdec6d5730780010001027665c18d63fadd1d30644315d5f7eca97362c6abb53881460c7b8636c87c03980000000000000000000000000000000000000000000000000000000000000000010101010101010101010101010101010101010101010101010101010101010102010200020c02000000e803000000000000010200030c02000000e90300000000000001070707070707070707070707070707070707070707070707070707070707070702000100",
+  message: "Hello Turnkey!",
+  messageSignature:
+    "a26fadf783af8ededcedda3abc8954fb05783c18246b1676f720788142fd5c9f19df79f627a7df939fe2b94a6b1b2a8eebb5fa63d51897d8f8d7bf0b6fce1000",
+};
 
-  return {
-    Keypair: {
-      fromSeed: jest.fn(() => mockKeypair),
-      fromSecretKey: jest.fn(() => mockKeypair),
-    },
-    Transaction: jest.fn(),
-    SystemProgram: {},
-    LAMPORTS_PER_SOL: 1,
-    PublicKey: jest.fn(),
-    Connection: jest.fn(),
-    sendAndConfirmTransaction: jest.fn(),
-    VersionedTransaction: {
-      deserialize: jest.fn(() => ({
-        sign: jest.fn(),
-        serialize: jest.fn(() => new Uint8Array([1, 2, 3])),
-      })),
-    },
-  };
-});
+// Successful transactions copied from finalized mainnet blocks. Validators
+// accepted their signatures, so they check the transaction format against the
+// network rather than against the libraries that built the other fixtures.
+const MAINNET_SOLANA_TRANSACTIONS = [
+  {
+    // v1, one signer: slot 465070096, signature 3cAifAuDSe36vL4uWHygSgWZKQSjB4kpuqCJgrY9mSdiyNfkiFHDVeryCf1zP9vLW1uQb8S9F5X6y4f1DDc7dcYy
+    name: "v1, one signer",
+    transaction:
+      "810100020f0000002f4aa241188daa61480f4d8d152fa7ca3cd42e39f339b40e530f8e3a8b65d62f0104e9dc4c54c3626d889e1dcf70f90949529aa5786e75fff8771e7f801d66b4c37cb41c1ade4f308d007f5ca252dd5124a0f56a8975bf0b183225bfa21b892fbf9406ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc0af1c3432188ca3a635135a13a18951acebd29e6ac2daea60bf25c875c400bf3b80b00000000000030750000000000040203010001000009825c751e1405e78b684ff9cea5d257a7ee53257530c7973c22ff0f664c40f15671c3e97b7b34476d0d0ccdf1d87996acbfed876d7d32b350831c985274f3050a",
+  },
+  {
+    // v1, two signers, larger than the 1232-byte legacy/v0 limit: slot 465070096, signature CJHzGSMx6eAd2KXBNB4PsjMYtpdp8u3JhZfuQbvEnbMxn9eXRwagovq71VSPjjotRDTb7fkbn37bDuXMdhG9onm
+    name: "v1, two signers, larger than the 1232-byte legacy/v0 limit",
+    transaction:
+      "810200120f00000091d31a604ded0dd6abce369e620877d274477212aead9d5af10ee010e373648e04268fe8f605d6e1c7556c3762edbdd16c1fa0972d5c5ba8e3693e1f7ab964ed56b4a8b2c0af001b1adc5deb7fd87a30f86b91722b38d04a3f9599ef4662c97d1527131fdab535016e73a6c4073f5f9002f4f84ef1c270e9c526243a694f47b5a84b1441a061cd31117ad42b12dc982f7897e093e23bf4d1b600de854ab824802265307d3481f278197c5a58f6bf6fe54c547d07312983400ea289f028f026aa34d0371237df92b0f948c94223db217f8b8a9a37be50456710b4d00d637b61773c673ef6c20117c3560389c0e34985142027812257ef6ab55a87fde09e25aea39cc954302e21e1094b82516d940907295240a812cc07a1b499cd4ef4c9d1c782a3485a1265d854109f36bca05914955a620494ba16d2f4dcdf1b4a08bc26cf3f1881687d908f7a4ed6728732d2ead7a244f9ae9aa19091edc5a3a8f2e1b2f0ad9fee8ea4059062465da07d5c7a7be825bb61b3863441fd0c7699d7fe2ae99e03b9f69d42f459cc671e3139c04accc78dff76ba2240e88baa13bc045f16ca005d7a2fa96044179d1c768f550adba5a5988c1257bf2eea0808dc1d1d4262507a52c077bba916f3f4d59622e11671fb8344c1305141291d9e09ea7e48745c64c0c51a31cec41c9709f3b7ae9c632b42726ae4347f2b149e994fc3bd6b457ce36ea8cef6c981d85aa0e3024a9048e8810398fcf0526c95f93deeac153f5e3c4dc34f4f38ed15ef598f52379caf7a3d250e8f01eb3d1633a2716e9260d78e8bc63748f96cfa6697a2909abc990ced6d36fa78eba0fc0c886dbcccdc0a4923762f532158c6fd1aca366950c7d7a3521c13d7d9c39ad94d032e52de34e1790ed7ad8a1f142507501a15c3c3c5dddc718b5e7c08ab4c65975ab1b17f395144da2cdb3007faa1000000000000000000000000000000000000000000000000000000000000000041246ecc7d78fe81e41773a46965419937923a07644797df6f3eb514426010cb439e6510c03d65fad931e89d04be0bb70d51971f51c415fb344c07db419f212273054db02124608a5c1f8e40674f3b0654d469954f07a1a5068911649147e21f76433dfe7eeefd2a1d31fe0a1d44e54635083499829a59da2a15982813c6de78890ba644fe1f55aa19f11cd2d2ec14d3233b6e0a4beaeef72b69858e21e170d68ae68389ff1f233c77233c186434cc654ab01d4222f75d6bd3af67c425733c3f8c97258f4e2489f1bb3d1029148e0d830b5a1399daff1084048e7bd8dbe9f859b5e34a14e2bc7348690ee1f5af5deed6553840a36daab860b0506073bdc03c10c6fa7af3bedbad3a3d65f36aabc97431b1bbe4c2d2f6e0e47ca60203452f5d61e54a709528839f61c0b9b86079891c139216e47a71b62fb73bec72169458745e0af1c3432188ca3a635135a13a18951acebd29e6ac2dae68a068fb2cc972679e054a535a992921064d24e87160da387c7c35b5ddbc92bb81e41fa8404105448d0c14defc825ec67694250818bb654065f4298d3156d571b4d4f8090c18e9a86306a7d517187bd16635dad40455fdc2c0c124c68f215675a5dbbacb5f0800000006ddf6e1d765a193d9cbe146ceeb79ac1cb485ed5f5b37913a8cf5857eff00a906ddf6e1ee758fde18425dbce46ccddab61afc4d83b90d27febdf928d8a18bfc0e03685f8e909053e458121c66f5a76aedc7706aa11c82f8aa952a8f2b7879a9e0640b000000000070b20500000000041c2e7d0023040a0023040a0014030c00231b1401181c1c2224171c0004011d0021060119171a030f0712081516091e2520010d1a1d0f0a04100e13050b0cf8c69e91e17587c806000000258d19b0fcdf2d0235de461d5244b4cd5e36ff828f4651048ec90a82b335738d6e50265351b199f6fb7849a4d4481b29e55d33c5ea285245c009ad7dce68f52c0ba168b81b0005a2bd9a000000324e3c53dc903fa93f010000001813480100000000000100a3ae91020000000094110000041d11010c85ea09000000000006041d02010c2c4e0300000000000600001f02000000000000000000000009be3bb333803edb937c32b9bf7a709b9bd1d60a5798fbc926212ce079979a77ad7a590094ad5abda1592b6e1994a6390b24e3b2db971ed3b29c68c1181cf6067de70d1e7746a4e97d3f7fade32c86c090ca8725b61cb625e3a725c810c14f72ac116c27a3e953ecd5321c388a9c37df609340840d50ad4c70b802f76bfca20b",
+  },
+  {
+    // v0 with an address lookup table: slot 465070096, signature 4n3mTgR1sCE6b8yA5vVjSXUk1T4S1tHXJThBDYsF7NbKbUDMFBARB3PKiDACXrHGdYzGtVDC8UHWNYNuWDe9osxw
+    name: "v0 with an address lookup table",
+    transaction:
+      "01bce5feea56ad8100048ee80649983b093a9dff271881765aa28a9f9c3cea3ca0d2c4de0afbbb62e4419bae08854f2394e4eab6ad3abb47f0458b65e53c26bf0480010002030c00ce447274c99bec681e637326f81ec9ea9f02f0ad6ba1f386d7969dc731f70306466fe5211732ffecadba72c39be7bc8ce5bbc5f7126b2c439b3a400000000da2de325d82f1de78cd4db167210f672d93faa781b8a5d954b79f0158f9e396190b563362662a4513729cd17af90bbb31039ec1a76dba3970a6f873cc9091b90301000502c819000001000903102700000000000002060007030405066effffffff020401004010a016120000003016c2f3665f06000f68b81b000000000000eac68e05000000003016c2f3665f06000f68b81b000000000300de341805000000003016c2f3665f06000f68b81b000000000200582b6288000000003016c2f3665f06000f68b81b00000000012ff0c62f2cc4129fc4345676a62ac25c7243335adfa620fee80b841bf14efd5b04100f14120100",
+  },
+];
 
 const html = fs
   .readFileSync(path.resolve(__dirname, "./src/index.template.html"), "utf8")
@@ -801,7 +840,7 @@ describe("Event Handler Expiration Flow", () => {
   const requestId = "test-request-id";
   const serializedTransaction = JSON.stringify({
     type: "SOLANA",
-    transaction: "00",
+    transaction: SOLANA_FIXTURES.legacyUnsigned,
   });
   const EXPIRED_TIME_MS = DEFAULT_TTL_MILLISECONDS + 1;
 
@@ -1177,9 +1216,6 @@ describe("EVM Signing", () => {
     jest
       .spyOn(TKHQ, "uint8arrayToHexString")
       .mockImplementation((bytes) => Buffer.from(bytes).toString("hex"));
-    jest
-      .spyOn(TKHQ, "parsePrivateKey")
-      .mockReturnValue(new Uint8Array(64).fill(5));
 
     // encodeKey normally returns the encoded private key string that becomes
     // key.privateKey. Return our known EVM key so the iframe's
@@ -1298,11 +1334,396 @@ describe("EVM Signing", () => {
   });
 });
 
+describe("Solana signing", () => {
+  const requestId = "test-request-id";
+  const seed = new Uint8Array(Buffer.from(SOLANA_FIXTURES.seedHex, "hex"));
+
+  let dom;
+  let TKHQ;
+  let sendMessageSpy;
+  let secretKey;
+  let keyMaterial;
+
+  function buildBundle(organizationId = "org-test") {
+    const signedData = {
+      organizationId,
+      encappedPublic: "aa",
+      ciphertext: "bb",
+    };
+
+    const signedDataHex = Buffer.from(
+      JSON.stringify(signedData),
+      "utf8"
+    ).toString("hex");
+
+    return JSON.stringify({
+      version: "v1.0.0",
+      data: signedDataHex,
+      dataSignature: "30440220773382ac",
+      enclaveQuorumPublic: "04e479640d6d34",
+    });
+  }
+
+  beforeEach(async () => {
+    jest.useFakeTimers().setSystemTime(new Date("2025-01-01T00:00:00Z"));
+
+    dom = new JSDOM(
+      `<!doctype html><html><body><div id="key-div"></div><input id="embedded-key" /></body></html>`,
+      { url: "http://localhost" }
+    );
+
+    global.window = dom.window;
+    global.document = dom.window.document;
+    global.localStorage = dom.window.localStorage;
+    global.TextEncoder = TextEncoder;
+    global.TextDecoder = TextDecoder;
+    global.crypto = crypto.webcrypto;
+
+    const module = await import("./src/turnkey-core.js");
+    TKHQ = module.TKHQ;
+    dom.window.TKHQ = TKHQ;
+
+    sendMessageSpy = jest
+      .spyOn(TKHQ, "sendMessageUp")
+      .mockImplementation(() => {});
+    jest.spyOn(TKHQ, "verifyEnclaveSignature").mockResolvedValue(true);
+    await TKHQ.initEmbeddedKey("http://localhost");
+    TKHQ.setEmbeddedKey({ foo: "bar" });
+
+    secretKey = TKHQ.base58Decode(SOLANA_FIXTURES.secretKeyBase58);
+    keyMaterial = [
+      SOLANA_FIXTURES.seedHex,
+      SOLANA_FIXTURES.secretKeyBase58,
+      Buffer.from(secretKey).toString("hex"),
+    ];
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete global.window;
+    delete global.document;
+    delete global.localStorage;
+    delete global.crypto;
+  });
+
+  async function injectKey(keyBytes, keyFormat, address) {
+    const HpkeDecryptMock = jest.fn().mockResolvedValue(keyBytes);
+    await onInjectKeyBundle(
+      requestId,
+      "org-test",
+      buildBundle(),
+      keyFormat,
+      address,
+      HpkeDecryptMock
+    );
+  }
+
+  function lastSent(type) {
+    const calls = sendMessageSpy.mock.calls.filter((c) => c[0] === type);
+    return calls.length ? calls[calls.length - 1][1] : undefined;
+  }
+
+  async function signSolanaTransaction(transaction, address) {
+    await onSignTransaction(
+      requestId,
+      JSON.stringify({ type: "SOLANA", transaction }),
+      address
+    );
+    return lastSent("TRANSACTION_SIGNED");
+  }
+
+  async function expectErrorWithoutKeyMaterial(promise) {
+    let error;
+    try {
+      await promise;
+    } catch (e) {
+      error = e.toString();
+    }
+    expect(error).toBeDefined();
+    for (const material of keyMaterial) {
+      expect(error).not.toContain(material);
+    }
+    return error;
+  }
+
+  it("signs a legacy transaction", async () => {
+    await injectKey(seed, "SOLANA");
+    expect(await signSolanaTransaction(SOLANA_FIXTURES.legacyUnsigned)).toBe(
+      SOLANA_FIXTURES.legacySigned
+    );
+  });
+
+  it("signs a v0 transaction", async () => {
+    await injectKey(seed, "SOLANA");
+    expect(await signSolanaTransaction(SOLANA_FIXTURES.v0Unsigned)).toBe(
+      SOLANA_FIXTURES.v0Signed
+    );
+  });
+
+  it("adds its signature without changing other signatures", async () => {
+    await injectKey(seed, "SOLANA");
+    expect(
+      await signSolanaTransaction(SOLANA_FIXTURES.twoSignerPartiallySigned)
+    ).toBe(SOLANA_FIXTURES.twoSignerSigned);
+  });
+
+  it("rejects a transaction the key does not sign for", async () => {
+    await injectKey(seed, "SOLANA");
+    const error = await expectErrorWithoutKeyMaterial(
+      signSolanaTransaction(SOLANA_FIXTURES.nonSignerUnsigned)
+    );
+    expect(error).toContain("key is not a signer for this transaction");
+    expect(lastSent("TRANSACTION_SIGNED")).toBeUndefined();
+  });
+
+  it("rejects malformed transaction bytes", async () => {
+    await injectKey(seed, "SOLANA");
+    await expectErrorWithoutKeyMaterial(signSolanaTransaction("deadbeef"));
+    expect(lastSent("TRANSACTION_SIGNED")).toBeUndefined();
+  });
+
+  // Every case below was signed by an earlier version of this frame, producing
+  // a transaction whose signature does not verify, or (for the duplicate
+  // signer) an envelope with too few signature slots.
+  const emptySignature = "00".repeat(64);
+  const legacyMessage = SOLANA_FIXTURES.legacyUnsigned.slice(2 + 128);
+  const v0Message = SOLANA_FIXTURES.v0Unsigned.slice(2 + 128);
+  const signerPublicKeyHex = legacyMessage.slice(8, 8 + 64);
+  it.each([
+    ["trailing bytes", () => SOLANA_FIXTURES.legacyUnsigned + "deadbeef"],
+    [
+      "3000 trailing bytes",
+      () => SOLANA_FIXTURES.legacyUnsigned + "00".repeat(3000),
+    ],
+    [
+      "a message cut off after its account keys",
+      // signature count + 1 signature + header + key count + 3 keys
+      () => SOLANA_FIXTURES.legacyUnsigned.slice(0, (1 + 64 + 3 + 1 + 96) * 2),
+    ],
+    [
+      "a message cut off mid-instruction",
+      () => SOLANA_FIXTURES.legacyUnsigned.slice(0, -40),
+    ],
+    [
+      "a v0 message missing its lookup table count",
+      () => SOLANA_FIXTURES.v0Unsigned.slice(0, -2),
+    ],
+    [
+      "a non-minimal account count",
+      () =>
+        "01" +
+        emptySignature +
+        legacyMessage.replace(/^01000103/, "0100018300"),
+    ],
+    [
+      "a duplicated signer key",
+      () =>
+        "02" +
+        emptySignature +
+        emptySignature +
+        "020001" +
+        "03" +
+        signerPublicKeyHex +
+        signerPublicKeyHex +
+        legacyMessage.slice(8 + 128),
+    ],
+    [
+      "a v1 message whose signer is not one of its accounts",
+      // No static accounts, and one instruction whose header and payload start
+      // with the signer key, where the transaction decoder reads signers from.
+      // The message decodes and re-encodes cleanly.
+      () => {
+        const key = Buffer.from(signerPublicKeyHex, "hex");
+        const payload = Buffer.alloc(key[1] + (key[2] | (key[3] << 8)));
+        key.copy(payload, 0, 4);
+        return (
+          "81" + // version
+          "010001" + // header: 1 signer
+          "00000000" + // config mask
+          "01".repeat(32) + // lifetime
+          "01" + // instruction count
+          "00" + // static account count
+          signerPublicKeyHex.slice(0, 8) + // instruction header
+          payload.toString("hex") +
+          emptySignature
+        );
+      },
+    ],
+    [
+      "a v1 message with an empty account list",
+      // The account count is the byte after the version, header, config mask,
+      // lifetime and instruction count; the signer key bytes stay in place.
+      () =>
+        SOLANA_FIXTURES.v1Unsigned.slice(0, 41 * 2) +
+        "00" +
+        SOLANA_FIXTURES.v1Unsigned.slice(42 * 2),
+    ],
+    [
+      "a non-minimal signature count (0x81 is read as a v1 version byte)",
+      () => "8100" + emptySignature + legacyMessage,
+    ],
+    [
+      "an unsupported message version",
+      () => "01" + emptySignature + "82" + v0Message.slice(2),
+    ],
+  ])("rejects %s", async (_, transaction) => {
+    await injectKey(seed, "SOLANA");
+    const error = await expectErrorWithoutKeyMaterial(
+      signSolanaTransaction(transaction())
+    );
+    expect(error).toContain("invalid Solana transaction");
+    expect(lastSent("TRANSACTION_SIGNED")).toBeUndefined();
+  });
+
+  it("signs a v0 transaction with an address lookup table", async () => {
+    await injectKey(seed, "SOLANA");
+    expect(
+      await signSolanaTransaction(SOLANA_FIXTURES.v0LookupTableUnsigned)
+    ).toBe(SOLANA_FIXTURES.v0LookupTableSigned);
+  });
+
+  it.each(MAINNET_SOLANA_TRANSACTIONS.map((t) => [t.name, t.transaction]))(
+    "reads a mainnet %s transaction the same way validators do",
+    async (_, transaction) => {
+      // Every signature the validators accepted verifies over the message
+      // bytes and signer addresses that @solana/transactions reads.
+      const decoded = getTransactionDecoder().decode(
+        Buffer.from(transaction, "hex")
+      );
+      const signatures = Object.entries(decoded.signatures);
+      expect(signatures.length).toBeGreaterThan(0);
+      for (const [address, signature] of signatures) {
+        expect(
+          nobleEd25519.verify(
+            signature,
+            decoded.messageBytes,
+            TKHQ.base58Decode(address)
+          )
+        ).toBe(true);
+      }
+      expect(
+        Buffer.from(getTransactionEncoder().encode(decoded)).toString("hex")
+      ).toBe(transaction);
+
+      // The frame accepts it as well-formed and only refuses because the key
+      // is not one of its signers.
+      await injectKey(seed, "SOLANA");
+      const error = await expectErrorWithoutKeyMaterial(
+        signSolanaTransaction(transaction)
+      );
+      expect(error).toContain("key is not a signer for this transaction");
+    }
+  );
+
+  it("signs a message", async () => {
+    await injectKey(seed, "SOLANA");
+    await onSignMessage(
+      requestId,
+      JSON.stringify({ type: "SOLANA", message: SOLANA_FIXTURES.message }),
+      undefined
+    );
+    expect(lastSent("MESSAGE_SIGNED")).toBe(SOLANA_FIXTURES.messageSignature);
+  });
+
+  it.each([
+    ["a 32-byte seed", () => seed],
+    ["a 64-byte secret key", () => secretKey],
+  ])("signs with a HEXADECIMAL key given as %s", async (_, keyBytes) => {
+    await injectKey(keyBytes(), "HEXADECIMAL");
+    expect(await signSolanaTransaction(SOLANA_FIXTURES.legacyUnsigned)).toBe(
+      SOLANA_FIXTURES.legacySigned
+    );
+  });
+
+  it("rejects a 64-byte key whose public half does not match", async () => {
+    const mismatched = new Uint8Array(64).fill(0xff);
+    mismatched.set(seed);
+    const error = await expectErrorWithoutKeyMaterial(
+      injectKey(mismatched, "HEXADECIMAL")
+    );
+    expect(error).toContain("public key does not match private key");
+  });
+
+  it("signs a v1 transaction", async () => {
+    await injectKey(seed, "SOLANA");
+    const signed = await signSolanaTransaction(SOLANA_FIXTURES.v1Unsigned);
+
+    const decoder = getTransactionDecoder();
+    const unsigned = decoder.decode(
+      Buffer.from(SOLANA_FIXTURES.v1Unsigned, "hex")
+    );
+    const decoded = decoder.decode(Buffer.from(signed, "hex"));
+    expect(decoded.messageBytes).toEqual(unsigned.messageBytes);
+    expect(
+      nobleEd25519.verify(
+        decoded.signatures[SOLANA_FIXTURES.publicKeyBase58],
+        decoded.messageBytes,
+        secretKey.slice(32)
+      )
+    ).toBe(true);
+  });
+
+  it.each([
+    ["legacy", "legacyUnsigned"],
+    ["v0", "v0Unsigned"],
+    ["v1", "v1Unsigned"],
+    ["two-signer", "twoSignerPartiallySigned"],
+    ["v0 lookup table", "v0LookupTableUnsigned"],
+  ])(
+    "matches @solana/transactions signing for a %s transaction",
+    async (_, fixture) => {
+      await injectKey(seed, "SOLANA");
+      const signed = await signSolanaTransaction(SOLANA_FIXTURES[fixture]);
+
+      const keyPair = await createKeyPairFromPrivateKeyBytes(seed);
+      const expected = getTransactionEncoder().encode(
+        await partiallySignTransaction(
+          [keyPair],
+          getTransactionDecoder().decode(
+            Buffer.from(SOLANA_FIXTURES[fixture], "hex")
+          )
+        )
+      );
+      expect(signed).toBe(Buffer.from(expected).toString("hex"));
+    }
+  );
+
+  it("rejects a key with an invalid length", async () => {
+    await expect(
+      injectKey(new Uint8Array(16).fill(1), "HEXADECIMAL")
+    ).rejects.toThrow("Invalid private key length: 16");
+  });
+
+  it("never imports the key into WebCrypto as an Ed25519 key", async () => {
+    const importKeySpy = jest.spyOn(global.crypto.subtle, "importKey");
+
+    await injectKey(seed, "SOLANA", "solana");
+    await injectKey(seed, "HEXADECIMAL", "hex-seed");
+    await injectKey(secretKey, "HEXADECIMAL", "hex-secret");
+    for (const address of ["solana", "hex-seed", "hex-secret"]) {
+      await signSolanaTransaction(SOLANA_FIXTURES.legacyUnsigned, address);
+      await onSignMessage(
+        requestId,
+        JSON.stringify({ type: "SOLANA", message: SOLANA_FIXTURES.message }),
+        address
+      );
+    }
+
+    const ed25519Imports = importKeySpy.mock.calls.filter(([, , algorithm]) =>
+      /ed25519/i.test(
+        typeof algorithm === "string" ? algorithm : algorithm?.name
+      )
+    );
+    expect(ed25519Imports).toHaveLength(0);
+  });
+});
+
 describe("Embedded Key Override", () => {
   const requestId = "test-request-id";
   const serializedTransaction = JSON.stringify({
     type: "SOLANA",
-    transaction: "00",
+    transaction: SOLANA_FIXTURES.legacyUnsigned,
   });
 
   let dom;
