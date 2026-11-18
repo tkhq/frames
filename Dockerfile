@@ -18,7 +18,7 @@ COPY import ./import/
 RUN cd import && npm ci && npm run build
 
 # Second stage: nginx runtime
-FROM docker.io/nginxinc/nginx-unprivileged:1.31.6-trixie@sha256:ce1317316e272062981736063d4a7eed7d80b0d2a53da1305d0752aa4aee7a48
+FROM docker.io/library/nginx:1.31.9-trixie@sha256:08f354a3b44c422021a5c0f5efb3e27f8f90236b5447d3bac4053f5f50ab6760
 
 LABEL org.opencontainers.image.title frames
 LABEL org.opencontainers.image.source https://github.com/tkhq/frames
@@ -54,4 +54,5 @@ EXPOSE 8085/tcp
 
 WORKDIR /usr/share/nginx
 
+USER 101
 CMD ["nginx"]
